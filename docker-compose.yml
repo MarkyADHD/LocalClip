@@ -1,0 +1,359 @@
+services:
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: ${FRONTEND_BUILD_TARGET:-development}
+      args:
+        - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+        - NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL:-http://localhost:3107}
+        - NEXT_PUBLIC_SELF_HOST=${SELF_HOST:-true}
+        - NEXT_PUBLIC_PRO_PRICE_MONTHLY=${NEXT_PUBLIC_PRO_PRICE_MONTHLY:-10}
+        - NEXT_PUBLIC_SCALE_PRICE_MONTHLY=${NEXT_PUBLIC_SCALE_PRICE_MONTHLY:-50}
+        - NEXT_PUBLIC_FREE_PLAN_TASK_LIMIT=${NEXT_PUBLIC_FREE_PLAN_TASK_LIMIT:-10}
+        - NEXT_PUBLIC_PRO_PLAN_TASK_LIMIT=${NEXT_PUBLIC_PRO_PLAN_TASK_LIMIT:-50}
+        - NEXT_PUBLIC_SCALE_PLAN_TASK_LIMIT=${NEXT_PUBLIC_SCALE_PLAN_TASK_LIMIT:-300}
+        - NEXT_PUBLIC_DATAFAST_WEBSITE_ID=${NEXT_PUBLIC_DATAFAST_WEBSITE_ID:-}
+        - NEXT_PUBLIC_DATAFAST_DOMAIN=${NEXT_PUBLIC_DATAFAST_DOMAIN:-}
+        - NEXT_PUBLIC_DATAFAST_ALLOW_LOCALHOST=${NEXT_PUBLIC_DATAFAST_ALLOW_LOCALHOST:-false}
+    container_name: localclip-frontend
+    ports:
+      # Keep the legacy port for deployments whose proxy already uses 3001.
+      # .env.example selects 3107 for new self-hosted installations.
+      - "127.0.0.1:${FRONTEND_PORT:-3001}:3107"
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+      - ./frontend/prisma:/app/prisma
+    environment:
+      - NODE_ENV=${NODE_ENV:-development}
+      - NEXT_TELEMETRY_DISABLED=1
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+      - BACKEND_INTERNAL_URL=http://backend:8000
+      - NEXT_PUBLIC_SELF_HOST=${SELF_HOST:-true}
+      - NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL:-http://localhost:3107}
+      - NEXT_PUBLIC_LANDING_ONLY_MODE=${NEXT_PUBLIC_LANDING_ONLY_MODE:-false}
+      - DISABLE_SIGN_UP=${DISABLE_SIGN_UP:-false}
+      - BACKEND_AUTH_SECRET=${BACKEND_AUTH_SECRET}
+      - APP_SETTINGS_ENCRYPTION_KEY=${APP_SETTINGS_ENCRYPTION_KEY}
+      - DATABASE_URL=postgresql://supoclip:supoclip_password@postgres:5432/supoclip
+      - BETTER_AUTH_SECRET=${BETTER_AUTH_SECRET:-localclip_dev_secret_change_in_production}
+      - LOCALCLIP_PASSWORD=${LOCALCLIP_PASSWORD:-}
+      - BETTER_AUTH_URL=${BETTER_AUTH_URL:-http://localhost:3107}
+      - BETTER_AUTH_TRUSTED_ORIGINS=${BETTER_AUTH_TRUSTED_ORIGINS:-}
+      - STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY}
+      - STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET}
+      - STRIPE_PRICE_ID=${STRIPE_PRICE_ID}
+      - STRIPE_PRO_PRICE_ID=${STRIPE_PRO_PRICE_ID}
+      - STRIPE_SCALE_PRICE_ID=${STRIPE_SCALE_PRICE_ID}
+      - NEXT_PUBLIC_PRO_PRICE_MONTHLY=${NEXT_PUBLIC_PRO_PRICE_MONTHLY:-10}
+      - NEXT_PUBLIC_SCALE_PRICE_MONTHLY=${NEXT_PUBLIC_SCALE_PRICE_MONTHLY:-50}
+      - NEXT_PUBLIC_FREE_PLAN_TASK_LIMIT=${NEXT_PUBLIC_FREE_PLAN_TASK_LIMIT:-10}
+      - NEXT_PUBLIC_PRO_PLAN_TASK_LIMIT=${NEXT_PUBLIC_PRO_PLAN_TASK_LIMIT:-50}
+      - NEXT_PUBLIC_SCALE_PLAN_TASK_LIMIT=${NEXT_PUBLIC_SCALE_PLAN_TASK_LIMIT:-300}
+      - NEXT_PUBLIC_DATAFAST_WEBSITE_ID=${NEXT_PUBLIC_DATAFAST_WEBSITE_ID:-}
+      - NEXT_PUBLIC_DATAFAST_DOMAIN=${NEXT_PUBLIC_DATAFAST_DOMAIN:-}
+      - NEXT_PUBLIC_DATAFAST_ALLOW_LOCALHOST=${NEXT_PUBLIC_DATAFAST_ALLOW_LOCALHOST:-false}
+      - STRIPE_CHECKOUT_URL=${STRIPE_CHECKOUT_URL}
+      - STRIPE_CUSTOMER_PORTAL_URL=${STRIPE_CUSTOMER_PORTAL_URL}
+      - REVENUECAT_WEBHOOK_AUTH_HEADER=${REVENUECAT_WEBHOOK_AUTH_HEADER}
+      - REVENUECAT_PRO_PRODUCT_IDS=${REVENUECAT_PRO_PRODUCT_IDS}
+      - REVENUECAT_SCALE_PRODUCT_IDS=${REVENUECAT_SCALE_PRODUCT_IDS}
+      - AWS_REGION=${AWS_REGION}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - "SES_FROM_EMAIL=${SES_FROM_EMAIL:-LocalClip <onboarding@example.com>}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      # Exercise Better Auth and Prisma, not only the static landing page.
+      test: ["CMD", "curl", "-f", "http://localhost:3107/api/auth/get-session"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      args:
+        BACKEND_CPU_ONLY: ${BACKEND_CPU_ONLY:-false}
+    container_name: localclip-backend
+    platform: linux/amd64
+    command: [".venv/bin/uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - ./backend/src:/app/src
+      - uploads:/app/uploads
+      - clips:/app/clips
+      - ./backend/fonts:/app/fonts
+      - ./backend/transitions:/app/transitions
+    environment:
+      - PYTHONPATH=/app
+      - PYTHONUNBUFFERED=1
+      - DATABASE_URL=postgresql+asyncpg://supoclip:supoclip_password@postgres:5432/supoclip
+      - TEMP_DIR=/app/uploads
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - ASSEMBLY_AI_API_KEY=${ASSEMBLY_AI_API_KEY}
+      - ASSEMBLY_AI_HTTP_TIMEOUT_SECONDS=${ASSEMBLY_AI_HTTP_TIMEOUT_SECONDS:-900}
+      - APIFY_API_TOKEN=${APIFY_API_TOKEN}
+      - APIFY_YOUTUBE_DOWNLOADER_ACTOR=${APIFY_YOUTUBE_DOWNLOADER_ACTOR:-epctex/youtube-video-downloader}
+      - APIFY_YOUTUBE_DEFAULT_QUALITY=${APIFY_YOUTUBE_DEFAULT_QUALITY:-1080}
+      - APIFY_RUN_TIMEOUT_SECONDS=${APIFY_RUN_TIMEOUT_SECONDS:-3600}
+      - YOUTUBE_DATA_API_KEY=${YOUTUBE_DATA_API_KEY}
+      - YOUTUBE_METADATA_PROVIDER=${YOUTUBE_METADATA_PROVIDER:-yt_dlp}
+      - YOUTUBE_DOWNLOAD_PROVIDER=${YOUTUBE_DOWNLOAD_PROVIDER:-yt_dlp}
+      - VIDEOSCALE_USERNAME=${VIDEOSCALE_USERNAME:-}
+      - VIDEOSCALE_PASSWORD=${VIDEOSCALE_PASSWORD:-}
+      - VIDEOSCALE_VIDEO_QUALITY=${VIDEOSCALE_VIDEO_QUALITY:-720}
+      - VIDEOSCALE_DOWNLOAD_TIMEOUT_SECONDS=${VIDEOSCALE_DOWNLOAD_TIMEOUT_SECONDS:-3600}
+      - VIDEOSCALE_TRANSFER_TIMEOUT_SECONDS=${VIDEOSCALE_TRANSFER_TIMEOUT_SECONDS:-900}
+      - OXYLABS_USERNAME=${OXYLABS_USERNAME:-}
+      - OXYLABS_PASSWORD=${OXYLABS_PASSWORD:-}
+      - OXYLABS_VIDEO_QUALITY=${OXYLABS_VIDEO_QUALITY:-720}
+      - OXYLABS_DOWNLOAD_TIMEOUT_SECONDS=${OXYLABS_DOWNLOAD_TIMEOUT_SECONDS:-3600}
+      - OXYLABS_TRANSFER_TIMEOUT_SECONDS=${OXYLABS_TRANSFER_TIMEOUT_SECONDS:-900}
+      - OXYLABS_STORAGE_BUCKET=${OXYLABS_STORAGE_BUCKET:-}
+      - OXYLABS_STORAGE_PREFIX=${OXYLABS_STORAGE_PREFIX:-youtube}
+      - OXYLABS_STORAGE_ENDPOINT=${OXYLABS_STORAGE_ENDPOINT:-}
+      - OXYLABS_STORAGE_REGION=${OXYLABS_STORAGE_REGION:-us-east-1}
+      - OXYLABS_STORAGE_READ_KEY=${OXYLABS_STORAGE_READ_KEY:-}
+      - OXYLABS_STORAGE_READ_SECRET=${OXYLABS_STORAGE_READ_SECRET:-}
+      - OXYLABS_STORAGE_WRITE_KEY=${OXYLABS_STORAGE_WRITE_KEY:-}
+      - OXYLABS_STORAGE_WRITE_SECRET=${OXYLABS_STORAGE_WRITE_SECRET:-}
+      - LLM=${LLM:-claude-code:sonnet}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - OPENROUTER_FALLBACK_MODEL=${OPENROUTER_FALLBACK_MODEL:-openai/gpt-6-luna}
+      - RERANK_LLM=${RERANK_LLM:-}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-}
+      - OLLAMA_API_KEY=${OLLAMA_API_KEY:-}
+      - TRANSCRIPTION_PROVIDER=${TRANSCRIPTION_PROVIDER:-whisper}
+      - TRANSCRIPTION_LANGUAGE=${TRANSCRIPTION_LANGUAGE:-}
+      - WHISPER_MODEL_SIZE=${WHISPER_MODEL_SIZE:-turbo}
+      - MAX_VIDEO_DURATION=${MAX_VIDEO_DURATION:-43200}
+      - PRO_YOUTUBE_MAX_VIDEO_DURATION=${PRO_YOUTUBE_MAX_VIDEO_DURATION:-5400}
+      - SCALE_YOUTUBE_MAX_VIDEO_DURATION=${SCALE_YOUTUBE_MAX_VIDEO_DURATION:-10800}
+      - MAX_VIDEO_UPLOAD_BYTES=${MAX_VIDEO_UPLOAD_BYTES:-12000000000}
+      - QUEUED_TASK_TIMEOUT_SECONDS=${QUEUED_TASK_TIMEOUT_SECONDS:-180}
+      - DEFAULT_PROCESSING_MODE=${DEFAULT_PROCESSING_MODE:-fast}
+      - MAX_CLIPS=${MAX_CLIPS:-10}
+      - FAST_MODE_MAX_CLIPS=${FAST_MODE_MAX_CLIPS:-10}
+      - SPEAKER_FRAMING=${SPEAKER_FRAMING:-true}
+      - HOOK_FIRST_TEASER=${HOOK_FIRST_TEASER:-true}
+      - FAST_MODE_TRANSCRIPT_MODEL=${FAST_MODE_TRANSCRIPT_MODEL:-universal}
+      - SELF_HOST=${SELF_HOST:-true}
+      - BACKEND_AUTH_SECRET=${BACKEND_AUTH_SECRET}
+      - APP_SETTINGS_ENCRYPTION_KEY=${APP_SETTINGS_ENCRYPTION_KEY}
+      - AUTH_SIGNATURE_TTL_SECONDS=${AUTH_SIGNATURE_TTL_SECONDS:-300}
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3107,http://sp.localhost:3107,http://localclip.localhost:3107}
+      - FREE_PLAN_TASK_LIMIT=${FREE_PLAN_TASK_LIMIT:-10}
+      - PRO_PLAN_TASK_LIMIT=${PRO_PLAN_TASK_LIMIT:-50}
+      - SCALE_PLAN_TASK_LIMIT=${SCALE_PLAN_TASK_LIMIT:-300}
+      - AWS_REGION=${AWS_REGION}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - "SES_FROM_EMAIL=${SES_FROM_EMAIL:-LocalClip <onboarding@example.com>}"
+      - NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL:-http://localhost:3107}
+      - DISCORD_FEEDBACK_WEBHOOK_URL=${DISCORD_FEEDBACK_WEBHOOK_URL}
+      - DISCORD_SALES_WEBHOOK_URL=${DISCORD_SALES_WEBHOOK_URL}
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health/db"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # Worker process for background video processing
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      args:
+        BACKEND_CPU_ONLY: ${BACKEND_CPU_ONLY:-false}
+    container_name: localclip-worker
+    platform: linux/amd64
+    command: [".venv/bin/arq", "src.workers.tasks.WorkerSettings"]
+    # Whisper runs on the NVIDIA GPU (Docker Desktop + WSL2 passes it through).
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    volumes:
+      - ./backend/src:/app/src
+      - uploads:/app/uploads
+      - clips:/app/clips
+      - ./backend/fonts:/app/fonts
+      - ./backend/transitions:/app/transitions
+      - whisper_cache:/root/.cache/whisper
+    environment:
+      - PYTHONPATH=/app
+      - PYTHONUNBUFFERED=1
+      - DATABASE_URL=postgresql+asyncpg://supoclip:supoclip_password@postgres:5432/supoclip
+      - TEMP_DIR=/app/uploads
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_PASSWORD=${REDIS_PASSWORD}
+      - ASSEMBLY_AI_API_KEY=${ASSEMBLY_AI_API_KEY}
+      - ASSEMBLY_AI_HTTP_TIMEOUT_SECONDS=${ASSEMBLY_AI_HTTP_TIMEOUT_SECONDS:-900}
+      - APIFY_API_TOKEN=${APIFY_API_TOKEN}
+      - APIFY_YOUTUBE_DOWNLOADER_ACTOR=${APIFY_YOUTUBE_DOWNLOADER_ACTOR:-epctex/youtube-video-downloader}
+      - APIFY_YOUTUBE_DEFAULT_QUALITY=${APIFY_YOUTUBE_DEFAULT_QUALITY:-1080}
+      - APIFY_RUN_TIMEOUT_SECONDS=${APIFY_RUN_TIMEOUT_SECONDS:-3600}
+      - YOUTUBE_DATA_API_KEY=${YOUTUBE_DATA_API_KEY}
+      - YOUTUBE_METADATA_PROVIDER=${YOUTUBE_METADATA_PROVIDER:-yt_dlp}
+      - YOUTUBE_DOWNLOAD_PROVIDER=${YOUTUBE_DOWNLOAD_PROVIDER:-yt_dlp}
+      - VIDEOSCALE_USERNAME=${VIDEOSCALE_USERNAME:-}
+      - VIDEOSCALE_PASSWORD=${VIDEOSCALE_PASSWORD:-}
+      - VIDEOSCALE_VIDEO_QUALITY=${VIDEOSCALE_VIDEO_QUALITY:-720}
+      - VIDEOSCALE_DOWNLOAD_TIMEOUT_SECONDS=${VIDEOSCALE_DOWNLOAD_TIMEOUT_SECONDS:-3600}
+      - VIDEOSCALE_TRANSFER_TIMEOUT_SECONDS=${VIDEOSCALE_TRANSFER_TIMEOUT_SECONDS:-900}
+      - OXYLABS_USERNAME=${OXYLABS_USERNAME:-}
+      - OXYLABS_PASSWORD=${OXYLABS_PASSWORD:-}
+      - OXYLABS_VIDEO_QUALITY=${OXYLABS_VIDEO_QUALITY:-720}
+      - OXYLABS_DOWNLOAD_TIMEOUT_SECONDS=${OXYLABS_DOWNLOAD_TIMEOUT_SECONDS:-3600}
+      - OXYLABS_TRANSFER_TIMEOUT_SECONDS=${OXYLABS_TRANSFER_TIMEOUT_SECONDS:-900}
+      - OXYLABS_STORAGE_BUCKET=${OXYLABS_STORAGE_BUCKET:-}
+      - OXYLABS_STORAGE_PREFIX=${OXYLABS_STORAGE_PREFIX:-youtube}
+      - OXYLABS_STORAGE_ENDPOINT=${OXYLABS_STORAGE_ENDPOINT:-}
+      - OXYLABS_STORAGE_REGION=${OXYLABS_STORAGE_REGION:-us-east-1}
+      - OXYLABS_STORAGE_READ_KEY=${OXYLABS_STORAGE_READ_KEY:-}
+      - OXYLABS_STORAGE_READ_SECRET=${OXYLABS_STORAGE_READ_SECRET:-}
+      - OXYLABS_STORAGE_WRITE_KEY=${OXYLABS_STORAGE_WRITE_KEY:-}
+      - OXYLABS_STORAGE_WRITE_SECRET=${OXYLABS_STORAGE_WRITE_SECRET:-}
+      - LLM=${LLM:-claude-code:sonnet}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - OPENROUTER_FALLBACK_MODEL=${OPENROUTER_FALLBACK_MODEL:-openai/gpt-6-luna}
+      - RERANK_LLM=${RERANK_LLM:-}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN}
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-}
+      - OLLAMA_API_KEY=${OLLAMA_API_KEY:-}
+      - TRANSCRIPTION_PROVIDER=${TRANSCRIPTION_PROVIDER:-whisper}
+      - TRANSCRIPTION_LANGUAGE=${TRANSCRIPTION_LANGUAGE:-}
+      - WHISPER_MODEL_SIZE=${WHISPER_MODEL_SIZE:-turbo}
+      - MAX_VIDEO_DURATION=${MAX_VIDEO_DURATION:-43200}
+      - PRO_YOUTUBE_MAX_VIDEO_DURATION=${PRO_YOUTUBE_MAX_VIDEO_DURATION:-5400}
+      - SCALE_YOUTUBE_MAX_VIDEO_DURATION=${SCALE_YOUTUBE_MAX_VIDEO_DURATION:-10800}
+      - QUEUED_TASK_TIMEOUT_SECONDS=${QUEUED_TASK_TIMEOUT_SECONDS:-180}
+      - DEFAULT_PROCESSING_MODE=${DEFAULT_PROCESSING_MODE:-fast}
+      - MAX_CLIPS=${MAX_CLIPS:-10}
+      - FAST_MODE_MAX_CLIPS=${FAST_MODE_MAX_CLIPS:-10}
+      - SPEAKER_FRAMING=${SPEAKER_FRAMING:-true}
+      - HOOK_FIRST_TEASER=${HOOK_FIRST_TEASER:-true}
+      - FAST_MODE_TRANSCRIPT_MODEL=${FAST_MODE_TRANSCRIPT_MODEL:-universal}
+      - SELF_HOST=${SELF_HOST:-true}
+      - BACKEND_AUTH_SECRET=${BACKEND_AUTH_SECRET}
+      - APP_SETTINGS_ENCRYPTION_KEY=${APP_SETTINGS_ENCRYPTION_KEY}
+      - AUTH_SIGNATURE_TTL_SECONDS=${AUTH_SIGNATURE_TTL_SECONDS:-300}
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:3107,http://sp.localhost:3107,http://localclip.localhost:3107}
+      - FREE_PLAN_TASK_LIMIT=${FREE_PLAN_TASK_LIMIT:-10}
+      - PRO_PLAN_TASK_LIMIT=${PRO_PLAN_TASK_LIMIT:-50}
+      - SCALE_PLAN_TASK_LIMIT=${SCALE_PLAN_TASK_LIMIT:-300}
+      - AWS_REGION=${AWS_REGION}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - "SES_FROM_EMAIL=${SES_FROM_EMAIL:-LocalClip <onboarding@example.com>}"
+      - NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL:-http://localhost:3107}
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+
+    healthcheck:
+      test: ["CMD", ".venv/bin/arq", "--check", "src.workers.tasks.WorkerSettings"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # Redis for caching and job queues (useful for video processing)
+  redis:
+    image: redis:7-alpine
+    container_name: localclip-redis
+    ports:
+      - "127.0.0.1:6379:6379"
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
+    command:
+      [
+        "sh",
+        "-c",
+        "if [ -n \"$${REDIS_PASSWORD}\" ]; then exec docker-entrypoint.sh redis-server --requirepass \"$${REDIS_PASSWORD}\"; fi; exec docker-entrypoint.sh redis-server",
+      ]
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "if [ -n \"$${REDIS_PASSWORD}\" ]; then redis-cli -a \"$${REDIS_PASSWORD}\" ping; else redis-cli ping; fi",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # PostgreSQL database for storing video metadata, user data, etc.
+  postgres:
+    image: postgres:15-alpine
+    container_name: localclip-postgres
+    environment:
+      POSTGRES_DB: supoclip
+      POSTGRES_USER: supoclip
+      POSTGRES_PASSWORD: supoclip_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U supoclip -d supoclip"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  uploads:
+    driver: local
+  clips:
+    driver: local
+  redis_data:
+    driver: local
+  postgres_data:
+    driver: local
+  whisper_cache:
+    driver: local
+
+networks:
+  default:
+    name: localclip-network

@@ -1,0 +1,660 @@
+"""
+Video service - handles video processing business logic.
+"""
+
+import asyncio
+import math
+from pathlib import Path
+from typing import List, Dict, Any, Optional, Callable, Awaitable
+import logging
+import json
+import subprocess
+import uuid
+
+from ..utils.async_helpers import run_in_thread
+from ..twitch import chat_signal_lines, download_twitch_vod, get_twitch_video_id
+from ..youtube_utils import (
+    async_download_youtube_video,
+    async_get_youtube_video_info,
+    async_get_youtube_video_title,
+    cleanup_downloaded_files,
+    get_youtube_video_id,
+)
+from ..video_utils import (
+    get_video_transcript,
+    create_clips_with_transitions,
+    create_optimized_clip,
+    load_cached_transcript_data,
+    parse_timestamp_to_seconds,
+    build_clip_keep_ranges,
+    build_keep_ranges_from_source_ranges,
+    build_clip_signal_summary,
+    apply_segment_hook_teaser,
+    extend_keep_ranges_to_sentence_boundary,
+    keep_ranges_transcript_text,
+    snap_clip_start_to_sentence,
+    seconds_to_mmss,
+    get_transcript_text_in_range,
+)
+from ..clip_source_map import (
+    normalize_source_ranges,
+    save_clip_source_ranges,
+    source_range_bounds,
+)
+from ..ai import get_most_relevant_parts_by_transcript
+from ..config import get_config
+
+logger = logging.getLogger(__name__)
+UPLOAD_URL_PREFIX = "upload://"
+
+
+class VideoService:
+    """Service for video processing operations."""
+
+    @staticmethod
+    def _ground_segment_text(
+        segment_payload: Dict[str, Any],
+        transcript_data: Optional[Dict[str, Any]],
+    ) -> str:
+        if not transcript_data:
+            return str(segment_payload.get("text") or "").strip()
+
+        start_time = str(segment_payload.get("start_time") or "").strip()
+        end_time = str(segment_payload.get("end_time") or "").strip()
+        if not start_time or not end_time:
+            return str(segment_payload.get("text") or "").strip()
+
+        start_seconds = parse_timestamp_to_seconds(start_time)
+        end_seconds = parse_timestamp_to_seconds(end_time)
+        if end_seconds <= start_seconds:
+            return str(segment_payload.get("text") or "").strip()
+
+        grounded_text = get_transcript_text_in_range(
+            transcript_data,
+            start_seconds,
+            end_seconds,
+        ).strip()
+        return grounded_text or str(segment_payload.get("text") or "").strip()
+
+    @staticmethod
+    def _get_file_duration(path: Path) -> Optional[float]:
+        """Return video duration in seconds via ffprobe, or None on failure."""
+        try:
+            result = subprocess.run(
+                [
+                    "ffprobe", "-v", "error",
+                    "-show_entries", "format=duration",
+                    "-of", "csv=p=0",
+                    str(path),
+                ],
+                capture_output=True, text=True, check=True,
+            )
+            return float(result.stdout.strip())
+        except Exception:
+            return None
+
+    @staticmethod
+    def _build_fallback_segment(
+        video_duration: Optional[float],
+        transcript: str,
+        target_duration: int,
+    ) -> Dict[str, Any]:
+        """Create a bounded starter clip when AI analysis selects no segments."""
+        fallback_duration = max(1.0, float(target_duration or 30))
+        if video_duration and video_duration > 0:
+            fallback_duration = min(fallback_duration, max(1.0, video_duration))
+
+        transcript_preview = " ".join((transcript or "").split())
+        if len(transcript_preview) > 240:
+            transcript_preview = f"{transcript_preview[:237]}..."
+
+        return {
+            "start_time": "00:00",
+            "end_time": seconds_to_mmss(fallback_duration),
+            "text": transcript_preview,
+            "relevance_score": 0.25,
+            "reasoning": (
+                "AI analysis did not identify a strong standalone segment, "
+                "so LocalClip generated the first available portion of the video."
+            ),
+            "virality_score": 0,
+            "hook_score": 0,
+            "engagement_score": 0,
+            "value_score": 0,
+            "shareability_score": 0,
+            "hook_type": "fallback",
+            "hook_title": None,
+        }
+
+    @staticmethod
+    def resolve_local_video_path(url: str) -> Path:
+        """Resolve uploaded-video references without exposing server filesystem paths."""
+        twitch_id = get_twitch_video_id(url)
+        if twitch_id:
+            # Twitch VODs stay downloaded, so editing and regenerating find them here.
+            return Path(get_config().temp_dir) / "twitch" / f"{twitch_id}.mp4"
+        if url.startswith(UPLOAD_URL_PREFIX):
+            filename = Path(url.removeprefix(UPLOAD_URL_PREFIX)).name
+            return Path(get_config().temp_dir) / "uploads" / filename
+        raise ValueError("Only upload:// references are allowed for local video sources")
+
+    @staticmethod
+    async def download_video(url: str, task_id: Optional[str] = None) -> Optional[Path]:
+        """
+        Download a YouTube video asynchronously.
+        """
+        logger.info(f"Starting video download: {url}")
+        video_path = await async_download_youtube_video(url, 3, task_id)
+
+        if not video_path:
+            logger.error(f"Failed to download video: {url}")
+            return None
+
+        logger.info(f"Video downloaded successfully: {video_path}")
+        return video_path
+
+    @staticmethod
+    async def get_video_title(url: str) -> str:
+        """
+        Get video title asynchronously.
+        Returns a default title if retrieval fails.
+        """
+        try:
+            title = await async_get_youtube_video_title(url)
+            return title or "YouTube Video"
+        except Exception as e:
+            logger.warning(f"Failed to get video title: {e}")
+            return "YouTube Video"
+
+    @staticmethod
+    async def generate_transcript(
+        video_path: Path,
+        processing_mode: str = "balanced",
+        source_url: Optional[str] = None,
+    ) -> str:
+        """
+        Generate transcript from video using the configured provider
+        (assemblyai, whisper, or youtube_captions).
+        Runs in thread pool to avoid blocking.
+        """
+        logger.info(f"Generating transcript for: {video_path}")
+        speech_model = "best"
+        runtime_config = get_config()
+        # The fast-mode model selector is only meaningful for AssemblyAI; the
+        # other providers ignore it and would otherwise silently change behaviour.
+        if processing_mode == "fast" and runtime_config.transcription_provider == "assemblyai":
+            speech_model = runtime_config.fast_mode_transcript_model
+
+        transcript = await run_in_thread(
+            get_video_transcript, video_path, speech_model, source_url
+        )
+        logger.info(f"Transcript generated: {len(transcript)} characters")
+        return transcript
+
+    @staticmethod
+    async def analyze_transcript(transcript: str, clip_signals: Optional[str] = None) -> Any:
+        """
+        Analyze transcript with AI to find relevant segments.
+        This is already async, no need to wrap.
+        """
+        logger.info("Starting AI analysis of transcript")
+        relevant_parts = await get_most_relevant_parts_by_transcript(
+            transcript,
+            clip_signals=clip_signals,
+        )
+        logger.info(
+            f"AI analysis complete: {len(relevant_parts.most_relevant_segments)} segments found"
+        )
+        return relevant_parts
+
+    @staticmethod
+    async def create_video_clips(
+        video_path: Path,
+        segments: List[Dict[str, Any]],
+        font_family: Optional[str] = None,
+        font_size: Optional[int] = None,
+        font_color: Optional[str] = None,
+        caption_template: str = "default",
+        output_format: str = "vertical",
+        add_subtitles: bool = True,
+        cleanup_settings: Optional[Dict[str, Any]] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        Create standalone video clips from segments with optional subtitles.
+        Runs in thread pool as video processing is CPU-intensive.
+        output_format: 'vertical' (9:16) or 'original' (keep source size, faster).
+        add_subtitles: False skips subtitles; with original format uses ffmpeg stream copy (no re-encode).
+        """
+        logger.info(f"Creating {len(segments)} video clips subtitles={add_subtitles}")
+        clips_output_dir = Path(get_config().temp_dir) / "clips"
+        clips_output_dir.mkdir(parents=True, exist_ok=True)
+
+        clips_info = await run_in_thread(
+            create_clips_with_transitions,
+            video_path,
+            segments,
+            clips_output_dir,
+            font_family,
+            font_size,
+            font_color,
+            caption_template,
+            output_format,
+            add_subtitles,
+            cleanup_settings,
+        )
+
+        logger.info(f"Successfully created {len(clips_info)} clips")
+        return clips_info
+
+    @staticmethod
+    async def create_single_clip(
+        video_path: Path,
+        segment: Dict[str, Any],
+        clip_index: int,
+        output_dir: Path,
+        font_family: Optional[str] = None,
+        font_size: Optional[int] = None,
+        font_color: Optional[str] = None,
+        caption_template: str = "default",
+        output_format: str = "vertical",
+        add_subtitles: bool = True,
+        cleanup_settings: Optional[Dict[str, Any]] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Render a single clip in the thread pool and return clip_info dict, or None on failure."""
+        try:
+            provided_keep_ranges = normalize_source_ranges(segment.get("keep_ranges"))
+            source_ranges = normalize_source_ranges(segment.get("source_ranges"))
+            provided_bounds = source_range_bounds(provided_keep_ranges or source_ranges)
+            if provided_bounds:
+                start_seconds, end_seconds = provided_bounds
+            else:
+                start_seconds = parse_timestamp_to_seconds(segment["start_time"])
+                end_seconds = parse_timestamp_to_seconds(segment["end_time"])
+            duration = end_seconds - start_seconds
+
+            if duration <= 0:
+                logger.warning(
+                    f"Skipping clip {clip_index + 1}: invalid duration {duration:.1f}s"
+                )
+                return None
+
+            unique_suffix = uuid.uuid4().hex[:12]
+            clip_filename = (
+                f"clip_{clip_index + 1}_"
+                f"{segment['start_time'].replace(':', '')}-"
+                f"{segment['end_time'].replace(':', '')}_"
+                f"{unique_suffix}.mp4"
+            )
+            clip_path = output_dir / clip_filename
+            if provided_keep_ranges:
+                keep_ranges = provided_keep_ranges
+            elif source_ranges:
+                keep_ranges = build_keep_ranges_from_source_ranges(
+                    video_path,
+                    source_ranges,
+                    cleanup_settings,
+                )
+            else:
+                start_seconds = snap_clip_start_to_sentence(
+                    video_path, start_seconds, end_seconds
+                )
+                keep_ranges = build_clip_keep_ranges(
+                    video_path,
+                    start_seconds,
+                    end_seconds,
+                    cleanup_settings,
+                )
+            keep_ranges = extend_keep_ranges_to_sentence_boundary(video_path, keep_ranges)
+            clip_text = segment.get("text", "")
+            if not provided_keep_ranges and not source_ranges:
+                keep_ranges = apply_segment_hook_teaser(video_path, keep_ranges, segment)
+                # Snapping, cleanup and the teaser change what is spoken; keep
+                # the stored text word-for-word with the rendered timeline.
+                clip_text = keep_ranges_transcript_text(video_path, keep_ranges) or clip_text
+
+            success = await run_in_thread(
+                create_optimized_clip,
+                video_path,
+                start_seconds,
+                end_seconds,
+                clip_path,
+                add_subtitles,
+                font_family,
+                font_size,
+                font_color,
+                caption_template,
+                output_format,
+                keep_ranges,
+                segment.get("hook_title"),
+            )
+
+            if not success:
+                logger.error(f"Failed to create clip {clip_index + 1}")
+                return None
+
+            save_clip_source_ranges(clip_path, keep_ranges)
+            cleaned_duration = sum(end - start for start, end in keep_ranges)
+            logger.info(
+                f"Created clip {clip_index + 1}: {cleaned_duration:.1f}s"
+            )
+            return {
+                "clip_id": clip_index + 1,
+                "filename": clip_filename,
+                "path": str(clip_path),
+                "start_time": segment["start_time"],
+                "end_time": segment["end_time"],
+                "duration": cleaned_duration,
+                "text": clip_text,
+                "relevance_score": segment.get("relevance_score", 0.0),
+                "reasoning": segment.get("reasoning", ""),
+                "virality_score": segment.get("virality_score", 0),
+                "hook_score": segment.get("hook_score", 0),
+                "engagement_score": segment.get("engagement_score", 0),
+                "value_score": segment.get("value_score", 0),
+                "shareability_score": segment.get("shareability_score", 0),
+                "hook_type": segment.get("hook_type"),
+                "hook_title": segment.get("hook_title"),
+                "keep_ranges": keep_ranges,
+            }
+        except Exception as e:
+            logger.error(f"Error creating clip {clip_index + 1}: {e}")
+            return None
+
+    @staticmethod
+    async def apply_single_transition(
+        prev_clip_path: Path,
+        current_clip_info: Dict[str, Any],
+        clip_index: int,
+        output_dir: Path,
+    ) -> Dict[str, Any]:
+        """Return the original clip info.
+
+        Standalone exports intentionally do not depend on adjacent clips.
+        """
+        logger.info(
+            "Skipping inter-clip transition for clip %s to preserve standalone exports",
+            clip_index + 1,
+        )
+        return current_clip_info
+
+    @staticmethod
+    def determine_source_type(url: str) -> str:
+        """Determine if source is YouTube or uploaded file."""
+        video_id = get_youtube_video_id(url)
+        if video_id:
+            return "youtube"
+        if get_twitch_video_id(url):
+            return "twitch"
+        if url.startswith(UPLOAD_URL_PREFIX):
+            return "video_url"
+        raise ValueError("Only YouTube or Twitch VOD URLs, or upload:// references are supported")
+
+    @staticmethod
+    async def process_video_complete(
+        url: str,
+        source_type: str,
+        task_id: Optional[str] = None,
+        font_family: Optional[str] = None,
+        font_size: Optional[int] = None,
+        font_color: Optional[str] = None,
+        caption_template: str = "default",
+        processing_mode: str = "fast",
+        output_format: str = "vertical",
+        add_subtitles: bool = True,
+        max_video_duration: Optional[int] = None,
+        cached_transcript: Optional[str] = None,
+        cached_analysis_json: Optional[str] = None,
+        progress_callback: Optional[Callable[[int, str, str], Awaitable[None]]] = None,
+        should_cancel: Optional[Callable[[], Awaitable[bool]]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Complete video processing pipeline.
+        Returns dict with segments and clips info.
+
+        progress_callback: Optional function to call with progress updates
+                          Signature: async def callback(progress: int, message: str, status: str)
+        """
+        video_path: Optional[Path] = None
+        try:
+            runtime_config = get_config()
+            duration_limit = (
+                runtime_config.max_video_duration
+                if max_video_duration is None
+                else max_video_duration
+            )
+            # Step 1: Get video path (download or use existing)
+            if should_cancel and await should_cancel():
+                raise Exception("Task cancelled")
+
+            if progress_callback:
+                await progress_callback(10, "Downloading video...", "processing")
+
+            if source_type == "youtube":
+                video_info = await async_get_youtube_video_info(url, task_id=task_id)
+                videoscale = runtime_config.youtube_download_provider == "videoscale"
+                expected_duration = None
+                if videoscale:
+                    try:
+                        expected_duration = float((video_info or {}).get("duration"))
+                    except (TypeError, ValueError, OverflowError):
+                        pass
+                    if (expected_duration is None or not math.isfinite(expected_duration)
+                            or expected_duration <= 0):
+                        raise ValueError("YouTube video duration could not be verified.")
+                if video_info:
+                    duration = expected_duration if videoscale else video_info.get("duration", 0)
+                    if duration and duration > duration_limit:
+                        mins = duration_limit // 60
+                        raise Exception(
+                            f"Video is too long ({duration // 60} min). "
+                            f"Maximum allowed duration is {mins} minutes."
+                        )
+
+                video_path = await VideoService.download_video(url, task_id=task_id)
+                if not video_path:
+                    raise Exception("Failed to download video")
+            elif source_type == "twitch":
+                video_path = await run_in_thread(download_twitch_vod, url)
+            else:
+                video_path = VideoService.resolve_local_video_path(url)
+                if not video_path.exists():
+                    raise Exception("Video file not found")
+
+            # Post-download duration guard (catches cases where preflight info was unavailable)
+            file_duration = VideoService._get_file_duration(video_path)
+            if source_type == "youtube" and videoscale:
+                if (file_duration is None or not math.isfinite(file_duration)
+                        or file_duration <= 0
+                        or abs(file_duration - expected_duration)
+                        > max(5.0, expected_duration * 0.001)):
+                    raise ValueError("YouTube download is incomplete or has an invalid duration.")
+            if file_duration and file_duration > duration_limit:
+                mins = duration_limit // 60
+                raise Exception(
+                    f"Video is too long ({int(file_duration) // 60} min). "
+                    f"Maximum allowed duration is {mins} minutes."
+                )
+
+            # Step 2: Generate transcript
+            if should_cancel and await should_cancel():
+                raise Exception("Task cancelled")
+
+            if progress_callback:
+                await progress_callback(30, "Generating transcript...", "processing")
+
+            transcript = cached_transcript
+            # Database text alone cannot recreate timed captions or cleanup.
+            # Repair older caches whose word-timing sidecar was removed.
+            needs_word_timings = (
+                bool(transcript)
+                and getattr(runtime_config, "transcription_provider", "assemblyai") != "youtube_captions"
+                and not (load_cached_transcript_data(video_path) or {}).get("words")
+            )
+            if not transcript or needs_word_timings:
+                transcript = await VideoService.generate_transcript(
+                    video_path,
+                    processing_mode=processing_mode,
+                    source_url=url if source_type == "youtube" else None,
+                )
+
+            # Step 3: AI analysis
+            if should_cancel and await should_cancel():
+                raise Exception("Task cancelled")
+
+            if progress_callback:
+                await progress_callback(
+                    50, "Analyzing content with AI...", "processing"
+                )
+
+            relevant_parts = None
+            if cached_analysis_json:
+                try:
+                    cached_analysis = json.loads(cached_analysis_json)
+                    segments = cached_analysis.get("most_relevant_segments", [])
+                    if not segments:
+                        logger.info(
+                            "Ignoring cached transcript analysis with no clip segments"
+                        )
+                    else:
+
+                        class _SimpleResult:
+                            def __init__(self, payload: Dict[str, Any]):
+                                self.summary = payload.get("summary")
+                                self.key_topics = payload.get("key_topics")
+                                self.most_relevant_segments = payload.get(
+                                    "most_relevant_segments", []
+                                )
+
+                        relevant_parts = _SimpleResult(
+                            {
+                                "summary": cached_analysis.get("summary"),
+                                "key_topics": cached_analysis.get("key_topics", []),
+                                "most_relevant_segments": segments,
+                            }
+                        )
+                except Exception:
+                    relevant_parts = None
+
+            if relevant_parts is None:
+                try:
+                    chat_lines = (
+                        await run_in_thread(chat_signal_lines, url, file_duration or 0)
+                        if source_type == "twitch"
+                        else None
+                    )
+                    clip_signals = await run_in_thread(
+                        build_clip_signal_summary,
+                        video_path,
+                        transcript,
+                        chat_lines,
+                    )
+                except Exception as exc:
+                    logger.warning("Clip signal extraction failed: %s", exc)
+                    clip_signals = None
+                relevant_parts = await VideoService.analyze_transcript(
+                    transcript,
+                    clip_signals=clip_signals,
+                )
+
+            # Step 4: Create clips
+            if should_cancel and await should_cancel():
+                raise Exception("Task cancelled")
+
+            if progress_callback:
+                await progress_callback(70, "Creating video clips...", "processing")
+
+            raw_segments = relevant_parts.most_relevant_segments
+            segments_json: List[Dict[str, Any]] = []
+            transcript_data = load_cached_transcript_data(video_path)
+            for segment in raw_segments:
+                if isinstance(segment, dict):
+                    virality = segment.get("virality") or {}
+                    if hasattr(virality, "model_dump"):
+                        virality = virality.model_dump()
+                    segment_payload = {
+                        "start_time": segment.get("start_time"),
+                        "end_time": segment.get("end_time"),
+                        "text": segment.get("text", ""),
+                        "relevance_score": segment.get("relevance_score", 0.0),
+                        "reasoning": segment.get("reasoning", ""),
+                        "virality_score": virality.get("total_score", 0),
+                        "hook_score": virality.get("hook_score", 0),
+                        "engagement_score": virality.get("engagement_score", 0),
+                        "value_score": virality.get("value_score", 0),
+                        "shareability_score": virality.get("shareability_score", 0),
+                        "hook_type": virality.get("hook_type"),
+                        "hook_title": segment.get("hook_title"),
+                        "hook_start_time": segment.get("hook_start_time"),
+                        "hook_end_time": segment.get("hook_end_time"),
+                    }
+                else:
+                    virality = segment.virality.model_dump() if segment.virality else {}
+                    segment_payload = {
+                        "start_time": segment.start_time,
+                        "end_time": segment.end_time,
+                        "text": segment.text,
+                        "relevance_score": segment.relevance_score,
+                        "reasoning": segment.reasoning,
+                        "virality_score": virality.get("total_score", 0),
+                        "hook_score": virality.get("hook_score", 0),
+                        "engagement_score": virality.get("engagement_score", 0),
+                        "value_score": virality.get("value_score", 0),
+                        "shareability_score": virality.get("shareability_score", 0),
+                        "hook_type": virality.get("hook_type"),
+                        "hook_title": getattr(segment, "hook_title", None),
+                        "hook_start_time": getattr(segment, "hook_start_time", None),
+                        "hook_end_time": getattr(segment, "hook_end_time", None),
+                    }
+
+                segment_payload["text"] = VideoService._ground_segment_text(
+                    segment_payload,
+                    transcript_data,
+                )
+                segments_json.append(segment_payload)
+
+            clip_limit = runtime_config.max_clips
+            if processing_mode == "fast":
+                clip_limit = min(clip_limit, runtime_config.fast_mode_max_clips)
+            segments_json = segments_json[: max(1, clip_limit)]
+
+            if not segments_json:
+                logger.warning(
+                    "AI analysis selected no segments; using fallback clip window"
+                )
+                segments_json = [
+                    VideoService._build_fallback_segment(
+                        file_duration,
+                        transcript,
+                        runtime_config.clip_duration,
+                    )
+                ]
+
+            return {
+                "segments": segments_json,
+                "segments_to_render": segments_json,
+                "video_path": str(video_path),
+                "clips": [],
+                "summary": relevant_parts.summary if relevant_parts else None,
+                "key_topics": relevant_parts.key_topics if relevant_parts else None,
+                "transcript": transcript,
+                "analysis_json": json.dumps(
+                    {
+                        "summary": relevant_parts.summary if relevant_parts else None,
+                        "key_topics": relevant_parts.key_topics
+                        if relevant_parts
+                        else [],
+                        "most_relevant_segments": segments_json,
+                    }
+                ),
+            }
+
+        except (Exception, asyncio.CancelledError) as e:
+            if source_type == "youtube" and video_path is not None:
+                video_id = get_youtube_video_id(url)
+                if video_id:
+                    try:
+                        cleanup_downloaded_files(video_id, source_path=video_path)
+                    except Exception:
+                        logger.exception("Could not clean up failed YouTube download")
+            logger.error(f"Error in video processing pipeline: {e}")
+            raise

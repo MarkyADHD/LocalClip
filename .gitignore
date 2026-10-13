@@ -1,0 +1,21 @@
+.env.local
+.DS_Store
+__pycache__
+*.egg-info
+.coverage
+.next/
+logs/
+temp/
+.env
+*.m4a
+frontend/e2e/.seed.json
+frontend/playwright-report/
+frontend/test-results/
+
+# local demo / scratch artifacts (not for the repo)
+backend/demo_clips/
+backend/demo_clips_*.log
+backend/run_demo.py
+
+# Native LocalClip: tools, database, videos and logs
+.localclip/

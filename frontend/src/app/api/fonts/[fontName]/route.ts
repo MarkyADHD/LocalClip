@@ -1,0 +1,81 @@
+import { headers } from "next/headers";
+import { NextResponse } from "next/server";
+
+import { auth } from "@/lib/auth";
+import { buildBackendAuthHeaders } from "@/lib/backend-auth";
+
+interface Params {
+  params: Promise<{ fontName: string }>;
+}
+
+export async function GET(_: Request, { params }: Params) {
+  const session = await auth.api.getSession({ headers: await headers() });
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const { fontName } = await params;
+  const apiUrl =
+    process.env.BACKEND_INTERNAL_URL ||
+    process.env.NEXT_PUBLIC_API_URL ||
+    "http://localhost:8000";
+  const normalizedApiUrl = apiUrl.replace(/\/$/, "");
+  const encodedFontName = encodeURIComponent(fontName);
+  const backendAuthHeaders = buildBackendAuthHeaders(session.user.id);
+
+  let upstream = await fetch(`${normalizedApiUrl}/fonts/${encodedFontName}`, {
+    headers: {
+      ...backendAuthHeaders,
+    },
+    cache: "no-store",
+  });
+
+  if (upstream.status === 404) {
+    upstream = await fetch(`${normalizedApiUrl}/api/fonts/${encodedFontName}`, {
+      headers: {
+        ...backendAuthHeaders,
+      },
+      cache: "no-store",
+    });
+  }
+
+  const arrayBuffer = await upstream.arrayBuffer();
+  return new NextResponse(arrayBuffer, {
+    status: upstream.status,
+    headers: {
+      "Content-Type": upstream.headers.get("content-type") || "application/octet-stream",
+      "Cache-Control": "private, no-cache",
+    },
+  });
+}
+
+export async function DELETE(_: Request, { params }: Params) {
+  const session = await auth.api.getSession({ headers: await headers() });
+  if (!session?.user?.id) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const { fontName } = await params;
+  const apiUrl =
+    process.env.BACKEND_INTERNAL_URL ||
+    process.env.NEXT_PUBLIC_API_URL ||
+    "http://localhost:8000";
+  const normalizedApiUrl = apiUrl.replace(/\/$/, "");
+  const encodedFontName = encodeURIComponent(fontName);
+  const backendAuthHeaders = buildBackendAuthHeaders(session.user.id);
+
+  const upstream = await fetch(`${normalizedApiUrl}/fonts/${encodedFontName}`, {
+    method: "DELETE",
+    headers: {
+      ...backendAuthHeaders,
+    },
+  });
+
+  const responseText = await upstream.text();
+  return new NextResponse(responseText, {
+    status: upstream.status,
+    headers: {
+      "Content-Type": upstream.headers.get("content-type") || "application/json",
+    },
+  });
+}

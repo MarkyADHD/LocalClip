@@ -1,0 +1,8 @@
+LocalClip
+Copyright (C) 2026 MarkyADHD
+
+LocalClip is a modified version of SupoClip (https://github.com/FujiwaraChoki/supoclip),
+Copyright (C) 2025 Sami Hindi, licensed under the GNU Affero General Public License v3.0.
+LocalClip is distributed under the same license; see LICENSE. Modifications include the
+native Windows launcher and installer, Claude Code clip selection, Twitch VOD and chat
+support, stream layout templates, clip extension, and removal of hosted-service features.

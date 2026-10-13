@@ -1,0 +1,85 @@
+[project]
+name = "localclip-backend"
+version = "0.1.0"
+description = "Python-based backend for LocalClip"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "apify-client>=1.8.1",
+    "fastapi>=0.121.0",
+    "uvicorn>=0.27.0",
+    "openai-whisper>=20250625",
+    "pydantic-ai>=1.89.1",
+    "setuptools-rust>=1.11.1",
+    "asyncpg>=0.29.0",
+    "sqlalchemy>=2.0.25",
+    "alembic>=1.13.0",
+    "python-dotenv>=1.0.0",
+    "yt-dlp[default]>=2026.8.19",
+    "whisper>=1.1.10",
+    "greenlet>=2.0.0",
+    "opencv-python>=4.8.0",
+    "srt-equalizer>=0.1.10",
+    "assemblyai>=0.35.0",
+    "srt>=3.5.3",
+    "numpy>=1.24.0",
+    "aiofiles>=23.2.0",
+    "sse-starlette>=1.6.5",
+    "arq>=0.26.0",
+    "redis>=5.0.0",
+    "boto3>=1.34.0",
+    "requests>=2.32.0",
+    "cryptography>=42.0.0",
+]
+
+[project.optional-dependencies]
+cpu = ["torch==2.11.0"]
+cuda = ["torch==2.11.0"]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.28.1",
+    "pytest>=8.4.2",
+    "pytest-asyncio>=1.2.0",
+    "pytest-cov>=7.0.0",
+]
+
+[tool.uv]
+package = true
+conflicts = [[{ extra = "cpu" }, { extra = "cuda" }]]
+
+[tool.uv.sources]
+torch = [
+    { index = "pytorch-cpu", extra = "cpu", marker = "sys_platform == 'linux'" },
+    # PyPI's Windows torch is CPU-only; LocalClip runs natively on Windows with an NVIDIA GPU.
+    { index = "pytorch-cu128", extra = "cuda", marker = "sys_platform == 'win32'" },
+    { index = "pypi", extra = "cuda", marker = "sys_platform != 'win32'" },
+]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu128"
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[[tool.uv.index]]
+name = "pypi"
+url = "https://pypi.org/simple"
+default = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
+testpaths = ["tests"]
+addopts = """
+--cov=src.auth_headers
+--cov=src.services.billing_service
+--cov-report=term-missing
+--cov-report=html
+--cov-fail-under=65
+"""

@@ -1,0 +1,263 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider      = "prisma-client-js"
+  output        = "../src/generated/prisma"
+  binaryTargets = ["native", "linux-arm64-openssl-3.0.x", "linux-musl-openssl-3.0.x", "debian-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Public component status, editable without a frontend deployment.
+model ServiceStatus {
+  id          String   @id @db.VarChar(80)
+  name        String   @db.VarChar(120)
+  status      String   @db.VarChar(20)
+  headline    String   @db.VarChar(120)
+  description String   @db.VarChar(2000)
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@map("service_statuses")
+}
+
+// Announcements managed by admins without a frontend deployment.
+model Announcement {
+  id          String   @id @default(uuid())
+  title       String   @db.VarChar(120)
+  description String   @db.VarChar(2000)
+  href        String   @db.VarChar(500)
+  action      String   @db.VarChar(80)
+  isPublished Boolean  @default(false) @map("is_published")
+  publishedAt DateTime @default(now()) @map("published_at") @db.Timestamptz
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  @@index([isPublished, publishedAt])
+  @@map("announcements")
+}
+
+// Better Auth User model with backend compatibility
+model User {
+  id            String    @id @default(uuid())
+  name          String
+  email         String    @unique
+  emailVerified Boolean   @default(false)
+  image         String?
+  createdAt     DateTime  @default(now()) @db.Timestamptz
+  updatedAt     DateTime  @updatedAt @db.Timestamptz
+
+  // Additional fields for backend compatibility
+  first_name    String?   @db.VarChar(100)
+  last_name     String?   @db.VarChar(100)
+  password_hash String?   @db.VarChar(255)
+
+  // Default font preferences
+  default_font_family String?   @default("TikTokSans-Regular") @db.VarChar(100)
+  default_font_size   Int?      @default(24)
+  default_font_color  String?   @default("#FFFFFF") @db.VarChar(7)
+  notify_on_completion Boolean  @default(true)
+
+  // Monetization and billing
+  plan                 String    @default("free") @db.VarChar(20)
+  subscription_status  String    @default("inactive") @db.VarChar(20)
+  subscription_provider String?   @db.VarChar(20)
+  is_admin             Boolean   @default(false)
+  stripe_customer_id   String?   @unique @db.VarChar(255)
+  stripe_subscription_id String? @unique @db.VarChar(255)
+  billing_period_start DateTime? @db.Timestamptz
+  billing_period_end   DateTime? @db.Timestamptz
+  trial_ends_at        DateTime? @db.Timestamptz
+  subscription_cancel_at DateTime? @db.Timestamptz
+
+  // Relationships
+  tasks         Task[]
+  sessions      Session[]
+  accounts      Account[]
+  app_settings  AppSetting[]
+  acquisition   UserAcquisition?
+  affiliate     Affiliate?  @relation("AffiliateApplicant")
+  reviewed_affiliates Affiliate[] @relation("AffiliateReviewer")
+
+  @@map("users")
+}
+
+// First-touch campaign attribution, written once shortly after sign-up.
+model UserAcquisition {
+  user_id                String    @id @db.VarChar(36)
+  utm_source             String?   @db.VarChar(100)
+  utm_medium             String?   @db.VarChar(100)
+  utm_campaign           String?   @db.VarChar(100)
+  utm_content            String?   @db.VarChar(100)
+  utm_term               String?   @db.VarChar(100)
+  ref                    String?   @db.VarChar(100)
+  referrer_host          String?   @db.VarChar(255)
+  landing_path           String?   @db.VarChar(512)
+  first_seen_at          DateTime? @db.Timestamptz
+  first_clip_exported_at DateTime? @db.Timestamptz
+  created_at             DateTime  @default(now()) @db.Timestamptz
+
+  user                   User      @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([utm_source, utm_campaign])
+  @@map("user_acquisition")
+}
+
+/// Creator program application. `slug` is the lowercase ref/code; it is
+/// cleared on decline so the name becomes available again.
+model Affiliate {
+  id                       String    @id @default(uuid()) @db.VarChar(36)
+  user_id                  String    @unique @db.VarChar(36)
+  slug                     String?   @unique @db.VarChar(20)
+  status                   String    @default("pending") @db.VarChar(20)
+  platform                 String    @db.VarChar(20)
+  profile_url              String    @db.VarChar(500)
+  audience_size            String    @db.VarChar(20)
+  video_url                String?   @db.VarChar(500)
+  promotion_plan           String?   @db.VarChar(1000)
+  decline_reason           String?   @db.VarChar(1000)
+  stripe_promotion_code_id String?   @db.VarChar(255)
+  /// When an admin added the creator's custom code to the App Store "Creator offer".
+  app_store_code_added_at  DateTime? @db.Timestamptz
+  terms_accepted_at        DateTime  @db.Timestamptz
+  reviewed_at              DateTime? @db.Timestamptz
+  reviewed_by              String?   @db.VarChar(36)
+  created_at               DateTime  @default(now()) @db.Timestamptz
+  updated_at               DateTime  @default(now()) @updatedAt @db.Timestamptz
+
+  user     User  @relation("AffiliateApplicant", fields: [user_id], references: [id], onDelete: Cascade)
+  reviewer User? @relation("AffiliateReviewer", fields: [reviewed_by], references: [id], onDelete: SetNull)
+
+  @@index([status, created_at])
+  @@map("affiliates")
+}
+
+model AppSetting {
+  setting_key     String   @id @db.VarChar(100)
+  encrypted_value String
+  prefer_admin_value Boolean @default(false)
+  updated_by      String?  @db.VarChar(36)
+  created_at      DateTime @default(now()) @db.Timestamptz
+  updated_at      DateTime @default(now()) @updatedAt @db.Timestamptz
+
+  user            User?    @relation(fields: [updated_by], references: [id], onDelete: SetNull)
+
+  @@index([updated_by])
+  @@map("app_settings")
+}
+
+model Task {
+  id                   String    @id @default(uuid())
+  user_id              String
+  source_id            String?
+  generated_clips_ids  String[]
+  status               String    @default("pending") @db.VarChar(20)
+  progress             Int?      @default(0)
+  progress_message     String?
+  source_metadata      Json      @default("{}") @db.JsonB
+  completion_notification_sent_at DateTime? @db.Timestamptz
+  share_token          String?   @unique @db.VarChar(64)
+  share_enabled        Boolean   @default(false)
+
+  // Font customization fields
+  font_family          String?   @default("TikTokSans-Regular") @db.VarChar(100)
+  font_size            Int?      @default(24)
+  font_color           String?   @default("#FFFFFF") @db.VarChar(7)
+  caption_template     String?   @default("default") @db.VarChar(50)
+  include_broll        Boolean?  @default(false)
+
+  created_at           DateTime  @default(now()) @db.Timestamptz
+  updated_at           DateTime  @default(now()) @updatedAt @db.Timestamptz
+
+  // Relationships
+  user                 User      @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  source               Source?   @relation(fields: [source_id], references: [id], onDelete: SetNull)
+
+  @@index([user_id])
+  @@index([source_id])
+  @@index([created_at])
+  @@index([status])
+  @@map("tasks")
+}
+
+model Source {
+  id         String   @id @default(uuid())
+  type       String   @db.VarChar(20)
+  title      String   @db.VarChar(500)
+  url        String?  @db.VarChar(1000)
+  created_at DateTime @default(now()) @db.Timestamptz
+  updated_at DateTime @default(now()) @updatedAt @db.Timestamptz
+
+  // Relationships
+  tasks      Task[]
+
+  @@index([created_at])
+  @@map("sources")
+}
+
+// Better Auth Session management
+model Session {
+  id        String   @id
+  expiresAt DateTime
+  token     String   @unique
+  createdAt DateTime
+  updatedAt DateTime
+  ipAddress String?
+  userAgent String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("session")
+}
+
+model Account {
+  id                    String    @id
+  accountId             String
+  providerId            String
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime
+  updatedAt             DateTime
+
+  @@map("account")
+}
+
+model Verification {
+  id         String    @id
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime?
+  updatedAt  DateTime?
+
+  @@map("verification")
+}
+
+model StripeWebhookEvent {
+  id         String   @id
+  type       String
+  created_at DateTime @default(now()) @db.Timestamptz
+
+  @@map("stripe_webhook_events")
+}
+
+model RevenueCatWebhookEvent {
+  id         String   @id
+  type       String
+  created_at DateTime @default(now()) @db.Timestamptz
+
+  @@map("revenuecat_webhook_events")
+}
