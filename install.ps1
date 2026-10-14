@@ -1,6 +1,6 @@
 # LocalClip installer for Windows.
 #   irm https://raw.githubusercontent.com/MarkyADHD/LocalClip/main/install.ps1 | iex
-# Puts LocalClip in %LOCALAPPDATA%\LocalClip, adds Start menu and desktop shortcuts, makes sure
+# Puts LocalClip and its desktop app in %LOCALAPPDATA%\LocalClip, adds Start menu and desktop shortcuts, makes sure
 # Claude Code is installed and signed in, then starts LocalClip (the first start installs the rest).
 $ErrorActionPreference = "Stop"
 $repo = "https://github.com/MarkyADHD/LocalClip.git"
@@ -26,12 +26,21 @@ if (-not (Test-Path "$HOME\.claude\.credentials.json")) {
     Start-Process "$HOME\.local\bin\claude.exe" -Wait
 }
 
+# The desktop app (LocalClip.exe) opens LocalClip in its own window. If it can't be downloaded,
+# the LocalClip shortcut runs LocalClip.cmd and opens it in the browser instead.
+$exe = Join-Path $dir "LocalClip.exe"
+try {
+    $ProgressPreference = "SilentlyContinue"
+    Invoke-WebRequest https://github.com/MarkyADHD/LocalClip/releases/latest/download/LocalClip.exe -OutFile $exe -UseBasicParsing
+} catch { Write-Host "Couldn't download the desktop app; LocalClip will open in your browser instead." -ForegroundColor Yellow }
+$start = if (Test-Path $exe) { $exe } else { Join-Path $dir "LocalClip.cmd" }
+
 $shell = New-Object -ComObject WScript.Shell
 $places = @([Environment]::GetFolderPath("Desktop"), [Environment]::GetFolderPath("Programs"))
 foreach ($place in $places) {
     foreach ($name in "LocalClip", "Close LocalClip") {
         $link = $shell.CreateShortcut((Join-Path $place "$name.lnk"))
-        $link.TargetPath = Join-Path $dir "$name.cmd"
+        $link.TargetPath = if ($name -eq "LocalClip") { $start } else { Join-Path $dir "$name.cmd" }
         $link.WorkingDirectory = $dir
         $link.IconLocation = Join-Path $dir "assets\localclip.ico"
         $link.Save()
@@ -39,4 +48,4 @@ foreach ($place in $places) {
 }
 
 Write-Host "`nLocalClip is installed. Starting it now; the first start downloads everything and takes a while." -ForegroundColor Green
-Start-Process (Join-Path $dir "LocalClip.cmd") -WorkingDirectory $dir
+Start-Process $start -WorkingDirectory $dir

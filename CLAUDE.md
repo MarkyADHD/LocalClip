@@ -110,3 +110,11 @@ configs in sync with it rather than renaming them.
 - Output is 9:16, H.264, even dimensions (`round_to_even()`).
 - Fonts: drop `.ttf` into `backend/fonts/`; transitions: `.mp4` into `backend/transitions/`.
 - Clip selection prompt: `backend/src/ai.py`.
+
+### Desktop app
+
+`desktop/` is a small Rust (tao + wry/WebView2) app, `LocalClip.exe`. It runs `LocalClip.ps1 -NoBrowser`
+hidden, shows http://localhost:3107 in its window, runs `Close LocalClip.ps1` when the window closes, and
+shows an update banner when a newer GitHub release than its `Cargo.toml` version exists. To release: bump
+`desktop/Cargo.toml`'s version, merge, then run the "Desktop app" workflow by hand; it builds the exe and
+creates the `v<version>` release.
