@@ -67,15 +67,15 @@ You don't need a subscription, you don't upload your VODs to someone else's serv
 - An NVIDIA GPU is strongly recommended for fast transcription. It works on CPU, just slowly. 16 GB of RAM or more is recommended.
 - Plenty of disk space. VODs are big.
 
-**Option A:** download **`LocalClip.exe`** (or `Install-LocalClip.cmd`) from the [latest release](../../releases/latest) and double-click it. The first time, it opens the installer.
+**Option A (recommended):** download **`LocalClip-Setup.exe`** from the [latest release](../../releases/latest) and run it. It installs the LocalClip app with Start menu and desktop shortcuts, then downloads LocalClip itself and asks you to sign in to Claude Code if needed. Uninstall it from Windows Settings like any app (your videos and settings in `%LOCALAPPDATA%\LocalClip` are kept).
 
-**Option B:** paste this into PowerShell:
+**Option B:** double-click `Install-LocalClip.cmd` from the release, or paste this into PowerShell:
 
 ```powershell
 irm https://raw.githubusercontent.com/MarkyADHD/LocalClip/main/install.ps1 | iex
 ```
 
-The installer:
+Option B does the same without the setup wizard. Both:
 1. Installs Git if it's missing and downloads LocalClip to `%LOCALAPPDATA%\LocalClip`.
 2. Installs **Claude Code** if needed and asks you to sign in once with your Claude account.
 3. Puts the desktop app (`LocalClip.exe`) in the same folder and adds **LocalClip** and **Close LocalClip** shortcuts to your desktop and Start menu.
@@ -85,7 +85,7 @@ The first start takes a while because it downloads everything else: Python (via 
 
 To stop everything, close the LocalClip window. Nothing keeps running in the background. The **Close LocalClip** shortcut still works too, in case something gets stuck.
 
-Already installed from an earlier version? Run the installer again (Option A or B) to get the desktop app and switch your shortcut to it. Prefer the browser? `LocalClip.cmd` in the LocalClip folder still starts LocalClip and opens it in your browser, exactly like before.
+Already installed from an earlier version? Run `LocalClip-Setup.exe` to get the desktop app and switch your shortcut to it. Prefer the browser? `LocalClip.cmd` in the LocalClip folder still starts LocalClip and opens it in your browser, exactly like before.
 
 ## How it works
 

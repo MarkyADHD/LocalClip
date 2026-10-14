@@ -117,4 +117,4 @@ configs in sync with it rather than renaming them.
 hidden, shows http://localhost:3107 in its window, runs `Close LocalClip.ps1` when the window closes, and
 shows an update banner when a newer GitHub release than its `Cargo.toml` version exists. To release: bump
 `desktop/Cargo.toml`'s version, merge, then run the "Desktop app" workflow by hand; it builds the exe and
-creates the `v<version>` release.
+creates the `v<version>` release with `LocalClip-Setup.exe` (Inno Setup, `desktop/setup.iss`).

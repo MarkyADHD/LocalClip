@@ -26,6 +26,9 @@ if (-not (Test-Path "$HOME\.claude\.credentials.json")) {
     Start-Process "$HOME\.local\bin\claude.exe" -Wait
 }
 
+# LocalClip-Setup.exe runs this with LOCALCLIP_SETUP=1: it installs the app and shortcuts itself.
+if ($env:LOCALCLIP_SETUP) { Write-Host "`nLocalClip is downloaded." -ForegroundColor Green; return }
+
 # The desktop app (LocalClip.exe) opens LocalClip in its own window. If it can't be downloaded,
 # the LocalClip shortcut runs LocalClip.cmd and opens it in the browser instead.
 $exe = Join-Path $dir "LocalClip.exe"

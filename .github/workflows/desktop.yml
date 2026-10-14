@@ -1,6 +1,6 @@
 name: Desktop app
 
-# Builds LocalClip.exe on pull requests that touch it. Run it by hand ("Run workflow") to publish
+# Builds LocalClip.exe and LocalClip-Setup.exe on pull requests that touch it. Run it by hand ("Run workflow") to publish
 # a GitHub release named after the version in desktop/Cargo.toml.
 on:
   pull_request:
@@ -22,14 +22,23 @@ jobs:
         working-directory: desktop
         run: cargo build --release --locked
       - run: Copy-Item desktop/target/release/localclip.exe LocalClip.exe
+      - name: Build LocalClip-Setup.exe
+        run: |
+          $env:LOCALCLIP_VERSION = (Select-String -Path desktop/Cargo.toml -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup -y --no-progress }
+          & $iscc desktop/setup.iss
+          if ($LASTEXITCODE -ne 0) { exit 1 }
       - uses: actions/upload-artifact@v4
         with:
-          name: LocalClip.exe
-          path: LocalClip.exe
+          name: LocalClip
+          path: |
+            LocalClip-Setup.exe
+            LocalClip.exe
       - name: Publish the release
         if: github.event_name == 'workflow_dispatch'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           $version = (Select-String -Path desktop/Cargo.toml -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
-          gh release create "v$version" LocalClip.exe Install-LocalClip.cmd --target $env:GITHUB_SHA --title "LocalClip v$version" --generate-notes
+          gh release create "v$version" LocalClip-Setup.exe LocalClip.exe Install-LocalClip.cmd --target $env:GITHUB_SHA --title "LocalClip v$version" --generate-notes

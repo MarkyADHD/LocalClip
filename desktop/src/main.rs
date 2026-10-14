@@ -147,14 +147,17 @@ fn shut_down(window: &tao::window::Window, dir: &Path, control_flow: &mut Contro
     *control_flow = ControlFlow::Exit;
 }
 
-// Downloads the latest LocalClip.exe over this one once this process has exited, then reopens it.
+// Downloads and silently runs the latest LocalClip-Setup.exe once this process has exited, then
+// reopens LocalClip (the installed copy, or this exe if it wasn't installed by the setup).
 fn start_updater(exe: &Path) {
     let exe = exe.display().to_string().replace('\'', "''");
     let script = format!(
-        "$ProgressPreference='SilentlyContinue'; $exe='{exe}'; \
-         try {{ Invoke-WebRequest https://github.com/{REPO}/releases/latest/download/LocalClip.exe -OutFile \"$exe.new\" -UseBasicParsing; \
-         Wait-Process -Id {pid} -ErrorAction SilentlyContinue; Move-Item -Force \"$exe.new\" $exe }} \
-         catch {{ Wait-Process -Id {pid} -ErrorAction SilentlyContinue }}; Start-Process $exe",
+        "$ProgressPreference='SilentlyContinue'; $setup=\"$env:TEMP\\LocalClip-Setup.exe\"; \
+         try {{ Invoke-WebRequest https://github.com/{REPO}/releases/latest/download/LocalClip-Setup.exe -OutFile $setup -UseBasicParsing; \
+         Wait-Process -Id {pid} -ErrorAction SilentlyContinue; Start-Process $setup '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART' -Wait }} \
+         catch {{ Wait-Process -Id {pid} -ErrorAction SilentlyContinue }}; \
+         $installed=\"$env:LOCALAPPDATA\\Programs\\LocalClip\\LocalClip.exe\"; \
+         Start-Process $(if (Test-Path $installed) {{ $installed }} else {{ '{exe}' }})",
         pid = std::process::id()
     );
     let _ = Command::new("powershell")
