@@ -571,6 +571,30 @@ class ClipEditingMixin:
         )
         return (await self.clip_repo.get_clip_by_id(self.db, clip_id)) or {}
 
+    async def render_raw_clip(self, task_id: str, clip: Dict[str, Any]) -> Path:
+        """The clip's moment straight from the source: original size, no captions, layout or hook title."""
+        task = await self.task_repo.get_task_by_id(self.db, task_id)
+        if not task:
+            raise ValueError("Task not found")
+        ranges = self._get_clip_source_ranges(clip)
+        source, downloaded_source = await self._open_task_source(task)
+        await self.db.close()  # don't hold a connection through the render
+        output_dir = Path(self.config.temp_dir) / "exports"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        output_path = output_dir / f"{Path(clip['filename']).stem}_raw.mp4"
+        try:
+            rendered = await run_in_thread(
+                create_optimized_clip, source, ranges[0][0], ranges[-1][1], output_path,
+                add_subtitles=False, output_format="original", keep_ranges=ranges,
+                hook_title=None, extend_to_sentence=False,
+            )
+        finally:
+            if downloaded_source is not None:
+                self._cleanup_source_video(downloaded_source, "youtube", task.get("source_url"))
+        if not rendered:
+            raise ValueError("Could not render the raw clip")
+        return output_path
+
     @staticmethod
     def _seconds_to_mmss(seconds: float) -> str:
         total = max(0, int(round(seconds)))

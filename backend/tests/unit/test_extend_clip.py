@@ -39,3 +39,25 @@ async def test_extend_widens_the_outer_ranges_within_the_source(isolated_clip_ed
     args = service.clip_repo.update_clip.await_args.args
     assert args[4:7] == ("00:00", "01:10", 65.0)
     assert load_clip_source_ranges(tmp_path / "clips" / args[2]) == [(0.0, 40.0), (45.0, 70.0)]
+
+
+async def test_raw_download_renders_source_without_captions(isolated_clip_edits, tmp_path, monkeypatch):
+    config = Config()
+    config.temp_dir = str(tmp_path)
+    source = tmp_path / "vod.mp4"
+    source.write_bytes(b"source")
+    service = TaskService(db=AsyncMock(), config=config)
+    service.task_repo.get_task_by_id = AsyncMock(return_value={"source_url": "upload://vod.mp4", "source_type": "video_url"})
+    service.cache_repo.get_cache = AsyncMock(return_value={"video_path": str(source)})
+    seen = {}
+
+    def render(src, start, end, out, **kwargs):
+        seen.update(kwargs)
+        out.write_bytes(b"raw")
+        return True
+
+    monkeypatch.setattr(clip_service, "create_optimized_clip", render)
+    clip = {"filename": "c1.mp4", "file_path": str(tmp_path / "c1.mp4"), "start_time": "00:10", "end_time": "00:40"}
+    out = await service.render_raw_clip("task", clip)
+    assert out.name == "c1_raw.mp4" and out.read_bytes() == b"raw"
+    assert seen["output_format"] == "original" and not seen["add_subtitles"] and seen["hook_title"] is None

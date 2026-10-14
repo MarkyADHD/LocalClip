@@ -656,6 +656,7 @@ export default function TaskPage() {
                   <SelectTrigger size="sm" aria-label="Download format" className="h-8 min-w-[112px] bg-background"><SelectValue /></SelectTrigger>
                   <SelectContent align="end">
                     <SelectItem value="original">Original</SelectItem>
+                    <SelectItem value="raw">Raw horizontal (no captions)</SelectItem>
                     {EXPORT_PRESETS.map((preset) => <SelectItem key={preset.id} value={preset.id}>{preset.label}</SelectItem>)}
                   </SelectContent>
                 </Select>

@@ -1048,6 +1048,14 @@ async def export_clip(
     """Export clip with a social platform preset."""
     try:
         preset_name = preset.lower().strip()
+        if preset_name == "raw":
+            task_service = TaskService(db)
+            await _require_task_owner(request, task_service, db, task_id)
+            clip = await task_service.clip_repo.get_clip_by_id(db, clip_id)
+            if not clip or clip.get("task_id") != task_id:
+                raise HTTPException(status_code=404, detail="Clip not found")
+            output_path = await task_service.render_raw_clip(task_id, clip)
+            return FileResponse(path=str(output_path), media_type="video/mp4", filename=output_path.name)
         if preset_name not in EXPORT_PRESETS:
             raise HTTPException(
                 status_code=400,
