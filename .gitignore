@@ -19,3 +19,8 @@ backend/run_demo.py
 
 # Native LocalClip: tools, database, videos and logs
 .localclip/
+
+# Desktop app build output
+desktop/target/
+/LocalClip.exe
+/LocalClip.exe.new

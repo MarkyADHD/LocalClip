@@ -49,7 +49,8 @@ You don't need a subscription, you don't upload your VODs to someone else's serv
 - **Word-synced captions** in several styles, with your own fonts and colours, plus an AI-written hook title for the first few seconds.
 - **+30s before / +30s after.** Open a clip and extend it either way as many times as you like until the length is right. Each press re-renders the clip from the VOD.
 - **Editor.** Trim, split, merge, edit captions and export presets for TikTok, Shorts and Reels.
-- **One-click start and stop.** `LocalClip` starts everything, and `Close LocalClip` shuts all of it down (handy before you game).
+- **A real Windows app.** `LocalClip.exe` opens in its own window with its own taskbar icon. Closing the window shuts everything down (handy before you game).
+- **Update prompt.** When a new LocalClip release is out, the app tells you and updates itself with one click.
 
 <p align="center">
   <img src="docs/screenshots/templates.png" width="49%" alt="Framing templates" />
@@ -66,23 +67,25 @@ You don't need a subscription, you don't upload your VODs to someone else's serv
 - An NVIDIA GPU is strongly recommended for fast transcription. It works on CPU, just slowly. 16 GB of RAM or more is recommended.
 - Plenty of disk space. VODs are big.
 
-**Option A:** download **`Install-LocalClip.cmd`** from the [latest release](../../releases/latest) and double-click it.
+**Option A (recommended):** download **`LocalClip-Setup.exe`** from the [latest release](../../releases/latest) and run it. It installs the LocalClip app with Start menu and desktop shortcuts, then downloads LocalClip itself and asks you to sign in to Claude Code if needed. Uninstall it from Windows Settings like any app (your videos and settings in `%LOCALAPPDATA%\LocalClip` are kept).
 
-**Option B:** paste this into PowerShell:
+**Option B:** double-click `Install-LocalClip.cmd` from the release, or paste this into PowerShell:
 
 ```powershell
 irm https://raw.githubusercontent.com/MarkyADHD/LocalClip/main/install.ps1 | iex
 ```
 
-The installer:
+Option B does the same without the setup wizard. Both:
 1. Installs Git if it's missing and downloads LocalClip to `%LOCALAPPDATA%\LocalClip`.
 2. Installs **Claude Code** if needed and asks you to sign in once with your Claude account.
-3. Adds **LocalClip** and **Close LocalClip** shortcuts to your desktop and Start menu.
+3. Puts the desktop app (`LocalClip.exe`) in the same folder and adds **LocalClip** and **Close LocalClip** shortcuts to your desktop and Start menu.
 4. Starts LocalClip.
 
-The first start takes a while because it downloads everything else: Python (via uv), Node, ffmpeg, PyTorch with CUDA, a portable PostgreSQL and Redis, and the Whisper model. After that it starts in seconds and opens **http://localhost:3107**. Every start also pulls the latest LocalClip update.
+The first start takes a while because it downloads everything else: Python (via uv), Node, ffmpeg, PyTorch with CUDA, a portable PostgreSQL and Redis, and the Whisper model. After that it starts in seconds and opens LocalClip in its own window. Every start also pulls the latest LocalClip update, and when a new release is published a banner in the app offers **Update and restart**.
 
-To stop everything, use **Close LocalClip**. Nothing keeps running in the background.
+To stop everything, close the LocalClip window. Nothing keeps running in the background. The **Close LocalClip** shortcut still works too, in case something gets stuck.
+
+Already installed from an earlier version? Run `LocalClip-Setup.exe` to get the desktop app and switch your shortcut to it. Prefer the browser? `LocalClip.cmd` in the LocalClip folder still starts LocalClip and opens it in your browser, exactly like before.
 
 ## How it works
 
@@ -139,6 +142,7 @@ LocalClip downloads the VOD's chat replay from Twitch's public API. It counts me
 
 | Part | What it is |
 |---|---|
+| Desktop app | `LocalClip.exe`, a small window (WebView2) around the web app; source in `desktop/` |
 | Web app | Next.js on `localhost:3107` |
 | Backend API | FastAPI (Python) on `localhost:8000` |
 | Worker | ARQ worker that runs the downloads, transcription, AI and rendering |
@@ -167,6 +171,7 @@ LocalClip creates a `.env` file on first start. Things you might want to change:
 - **Logs** are in `%LOCALAPPDATA%\LocalClip\.localclip\logs`.
 - **"Claude Code failed"** means you need to sign in again. Run `claude` in a terminal, sign in, then try again.
 - **Slow transcription** means Whisper is probably on CPU. Make sure you have an NVIDIA GPU and up-to-date drivers.
+- **The window says LocalClip didn't start?** It shows the end of the start-up log. The full log is `.localclip\logs\launcher.log`.
 - **Something stuck?** Run `Close LocalClip`, then `LocalClip` again.
 
 ## Roadmap

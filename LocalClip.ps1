@@ -1,6 +1,7 @@
 # LocalClip launcher for Windows. Runs natively (no Docker/WSL): installs what's missing once, then
 # starts Postgres, Redis, the backend, the worker and the web app as hidden processes and opens the app.
-# Close LocalClip.cmd stops all of them.
+# Close LocalClip.cmd stops all of them. -NoBrowser is for the desktop app, which shows the app in its own window.
+param([switch]$NoBrowser)
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
 $root = $PSScriptRoot
@@ -29,7 +30,7 @@ function Get-Zip($from, $to) {
     Remove-Item $zip
 }
 
-if (Test-Up) { Start-Process $url; exit }
+if (Test-Up) { if (-not $NoBrowser) { Start-Process $url }; exit }
 & (Join-Path $root "Close LocalClip.ps1")   # clear out anything left half-running
 
 # Pick up the latest LocalClip changes (harmless if offline or not a git checkout).
@@ -147,4 +148,4 @@ while (-not (Test-Up)) {
     if ((Get-Date) -gt $deadline) { throw "LocalClip didn't come up. Logs are in $logs" }
     Start-Sleep 2
 }
-Start-Process $url
+if (-not $NoBrowser) { Start-Process $url }
