@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+
 from fastapi import HTTPException, Request
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,6 +14,9 @@ async def require_admin_user(
     request: Request, db: AsyncSession, config: Config
 ) -> str:
     user_id = get_authenticated_user_id(request, config)
+    if os.getenv("LOCALCLIP_NATIVE") == "1":
+        # The Windows app has one local account and only listens on 127.0.0.1.
+        return str(user_id)
 
     result = await db.execute(
         text("SELECT is_admin FROM users WHERE id = :user_id"),
