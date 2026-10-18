@@ -268,6 +268,20 @@ def crossfade_fade_for_ranges(keep_ranges: List[Tuple[float, float]]) -> float:
     return fade if fade >= 0.06 else 0.0
 
 
+def _seek_to_first_range(
+    keep_ranges: List[Tuple[float, float]],
+) -> Tuple[List[str], List[Tuple[float, float]]]:
+    """Input-seek to just before the earliest range and shift the ranges to match.
+
+    Without it, trim filters decode the source from 0:00, which costs minutes for
+    a clip hours into a VOD. Input seeking is frame-accurate when transcoding.
+    """
+    offset = max(0.0, min(start for start, _ in keep_ranges) - 1.0)
+    if offset <= 0:
+        return [], keep_ranges
+    return ["-ss", f"{offset:.3f}"], [(start - offset, end - offset) for start, end in keep_ranges]
+
+
 def render_ranges_crossfade_ffmpeg(
     video_path: Path,
     keep_ranges: List[Tuple[float, float]],
@@ -290,6 +304,7 @@ def render_ranges_crossfade_ffmpeg(
     if fade <= 0:
         return False
     has_audio = audio_stream is not None
+    seek, keep_ranges = _seek_to_first_range(keep_ranges)
 
     parts: List[str] = []
     for idx, (start, end) in enumerate(keep_ranges):
@@ -324,7 +339,7 @@ def render_ranges_crossfade_ffmpeg(
         map_args += ["-map", cur_a]
 
     command = [
-        "ffmpeg", "-y", "-i", str(video_path),
+        "ffmpeg", "-y", *seek, "-i", str(video_path),
         "-filter_complex", ";".join(parts),
         *map_args,
         "-c:v", "libx264", "-preset", "veryfast", "-crf", str(INTERMEDIATE_CRF),
@@ -388,6 +403,7 @@ def render_source_ranges_ffmpeg(
             return True
         logger.info("Crossfade stitch failed; falling back to hard concat")
 
+    seek, keep_ranges = _seek_to_first_range(keep_ranges)
     filter_parts: List[str] = []
     concat_inputs: List[str] = []
     for idx, (start, end) in enumerate(keep_ranges):
@@ -415,6 +431,7 @@ def render_source_ranges_ffmpeg(
     command = [
         "ffmpeg",
         "-y",
+        *seek,
         "-i",
         str(video_path),
         "-filter_complex",

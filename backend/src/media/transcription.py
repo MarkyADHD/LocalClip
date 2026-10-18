@@ -172,14 +172,21 @@ def _assemblyai_speech_models_value(speech_model: str) -> List[str]:
 
 
 def _get_whisper_model(model_name: str = "base"):
-    """Load and cache a Whisper model by name."""
+    """Load and cache a faster-whisper model by name (fp16 on the GPU, int8 on CPU)."""
     if not _WHISPER_AVAILABLE:
         raise RuntimeError(
-            "Whisper is not installed. Install it with: uv add openai-whisper"
+            "Whisper is not installed. Install it with: uv add faster-whisper"
         )
     if model_name not in _WHISPER_MODEL_CACHE:
-        logger.info("Loading Whisper model: %s", model_name)
-        _WHISPER_MODEL_CACHE[model_name] = _whisper.load_model(model_name)
+        import ctranslate2
+
+        cuda = ctranslate2.get_cuda_device_count() > 0
+        logger.info("Loading Whisper model: %s on %s", model_name, "GPU" if cuda else "CPU")
+        _WHISPER_MODEL_CACHE[model_name] = _whisper.WhisperModel(
+            model_name,
+            device="cuda" if cuda else "cpu",
+            compute_type="float16" if cuda else "int8",
+        )
     return _WHISPER_MODEL_CACHE[model_name]
 
 
@@ -189,7 +196,8 @@ def transcribe_with_whisper(
     """Transcribe video using local Whisper with word-level timestamps.
 
     ``language`` None lets Whisper detect it; AssemblyAI-style codes such as
-    ``en_us`` are reduced to the ISO 639-1 base Whisper expects.
+    ``en_us`` are reduced to the ISO 639-1 base Whisper expects. Returns the
+    openai-whisper result shape the rest of the pipeline reads.
     """
     audio_path = _prepare_audio_for_transcription(video_path)
     model = _get_whisper_model(model_name)
@@ -199,7 +207,32 @@ def transcribe_with_whisper(
         model_name,
         whisper_language or "auto",
     )
-    return model.transcribe(str(audio_path), word_timestamps=True, language=whisper_language)
+    # VAD skips music and silence, and not conditioning on earlier text stops
+    # Whisper looping made-up lines over them; both are also most of the speedup.
+    segments, info = model.transcribe(
+        str(audio_path),
+        language=whisper_language,
+        word_timestamps=True,
+        condition_on_previous_text=False,
+        vad_filter=True,
+    )
+    result_segments = [
+        {
+            "start": segment.start,
+            "end": segment.end,
+            "text": segment.text,
+            "words": [
+                {"word": w.word, "start": w.start, "end": w.end, "probability": w.probability}
+                for w in segment.words or []
+            ],
+        }
+        for segment in segments
+    ]
+    return {
+        "text": "".join(segment["text"] for segment in result_segments),
+        "segments": result_segments,
+        "language": info.language,
+    }
 
 
 def _whisper_result_to_transcript_data(whisper_result: Dict[str, Any]) -> Dict[str, Any]:
@@ -407,13 +440,24 @@ def _get_transcript_with_assemblyai(
 def _get_transcript_with_whisper(video_path: Path, runtime_config) -> str:
     """Get transcript using local Whisper with word-level timestamps."""
     model_name = runtime_config.whisper_model
+    language = runtime_config.transcription_language or None
+    # A retry after a cancel or a failed analysis reuses the finished transcript
+    # instead of re-running Whisper over the whole VOD.
+    whisper_key = f"{model_name}:{language or 'auto'}"
+    cached = load_cached_transcript_data(video_path)
+    if cached and cached.get("words") and cached.get("whisper_key") == whisper_key:
+        logger.info("Reusing cached Whisper transcript for %s", video_path.name)
+        return "\n".join(
+            f"[{format_ms_to_timestamp(u['start'])} - {format_ms_to_timestamp(u['end'])}] "
+            f"{u.get('text', '').strip()}"
+            for u in cached.get("utterances") or []
+        )
+
     logger.info("Starting Whisper transcription with model: %s", model_name)
-    whisper_result = transcribe_with_whisper(
-        video_path, model_name, runtime_config.transcription_language or None
-    )
+    whisper_result = transcribe_with_whisper(video_path, model_name, language)
 
     formatted_lines = format_transcript_for_analysis(whisper_result)
-    cache_transcript_data(video_path, whisper_result)
+    cache_transcript_data(video_path, whisper_result, whisper_key=whisper_key)
 
     result = "\n".join(formatted_lines)
     logger.info(
@@ -437,7 +481,9 @@ def _get_transcript_with_youtube_captions(source_url: str) -> str:
     return transcript
 
 
-def cache_transcript_data(video_path: Path, transcript) -> None:
+def cache_transcript_data(
+    video_path: Path, transcript, whisper_key: Optional[str] = None
+) -> None:
     """Cache transcript data for subtitle generation.
 
     Handles both AssemblyAI transcript objects and Whisper result dicts.
@@ -446,6 +492,7 @@ def cache_transcript_data(video_path: Path, transcript) -> None:
 
     if isinstance(transcript, dict):
         cache_data = _whisper_result_to_transcript_data(transcript)
+        cache_data["whisper_key"] = whisper_key
         with open(cache_path, "w") as f:
             json.dump(cache_data, f)
         logger.info("Cached %d words to %s", len(cache_data["words"]), cache_path)

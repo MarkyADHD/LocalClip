@@ -6,6 +6,12 @@ from typing import List, Dict, Any, Tuple, Optional
 
 import logging
 
+import os
+
+import sys
+
+import sysconfig
+
 import numpy as np
 
 from concurrent.futures import ThreadPoolExecutor
@@ -34,8 +40,14 @@ import srt
 
 from datetime import timedelta
 
+if sys.platform == "win32":
+    # ctranslate2 loads cuBLAS/cuDNN from the nvidia-* wheels, which Windows does not search.
+    for _dll_dir in Path(sysconfig.get_paths()["purelib"], "nvidia").glob("*/bin"):
+        os.add_dll_directory(str(_dll_dir))
+        os.environ["PATH"] = f"{_dll_dir}{os.pathsep}{os.environ.get('PATH', '')}"
+
 try:
-    import whisper as _whisper
+    import faster_whisper as _whisper
 
     _WHISPER_AVAILABLE = True
 except ImportError:  # pragma: no cover - optional transcription backend

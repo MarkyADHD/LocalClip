@@ -454,6 +454,10 @@ def parse_transcript_lines(transcript: str) -> List[Dict[str, Any]]:
 
 def detect_audio_peak_times(video_path: Path, max_peaks: int = 8) -> List[float]:
     """Find approximate one-second audio energy peaks with ffmpeg astats."""
+    # The small transcription audio has the same track; decoding the whole VOD took minutes.
+    transcription_audio = video_path.with_name(f"{video_path.stem}.transcription.mp3")
+    if transcription_audio.exists() and transcription_audio.stat().st_size > 0:
+        video_path = transcription_audio
     audio_stream = select_audio_stream_index(video_path)
     if audio_stream is None:
         return []
@@ -465,7 +469,9 @@ def detect_audio_peak_times(video_path: Path, max_peaks: int = 8) -> List[float]
             "-map",
             f"0:a:{audio_stream}",
             "-af",
-            "astats=metadata=1:reset=1,ametadata=print:key=lavfi.astats.Overall.RMS_level",
+            # 1-second blocks: per-frame stats printed ~1M lines for a 5h VOD.
+            "aresample=8000,asetnsamples=n=8000,astats=metadata=1:reset=1,"
+            "ametadata=print:key=lavfi.astats.Overall.RMS_level",
             "-f",
             "null",
             "-",
