@@ -11,9 +11,10 @@ import { Select, SelectContent, SelectTrigger, SelectValue } from "@/components/
 import { Slider } from "@/components/ui/slider";
 import { useSession } from "@/lib/auth-client";
 import { track } from "@/lib/datafast";
-import { AlertCircle, Check, Loader2, Type } from "lucide-react";
+import { AlertCircle, Check, Cpu, Loader2, Type } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { FontSelectOption, type FontOption } from "@/components/font-select-option";
+import { AiModelSettings } from "@/components/ai-model-settings";
 
 interface UserPreferences {
   fontFamily: string;
@@ -234,6 +235,10 @@ export default function SettingsPage() {
               </p>
             </div>
           </div>
+        </Section>
+
+        <Section id="ai-model" icon={<Cpu className="size-4" />} title="AI model" description="The model that picks your clips. Choose Claude Code or any model running in a local AI app on this PC.">
+          <AiModelSettings />
         </Section>
 
         {error && (

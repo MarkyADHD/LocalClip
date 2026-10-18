@@ -11,7 +11,7 @@ import random
 import re
 
 import httpx
-from pydantic_ai import Agent, NativeOutput
+from pydantic_ai import Agent, NativeOutput, PromptedOutput
 from pydantic_ai.exceptions import ModelHTTPError
 from pydantic_ai.models import Model
 from pydantic_ai.models.ollama import OllamaModel
@@ -456,7 +456,8 @@ Find the number of compelling segments requested in the task (usually 2-5) that 
 _transcript_agent: Optional[Agent[None, TranscriptAnalysis]] = None
 _transcript_agent_signature: Optional[tuple[str | None, ...]] = None
 
-SUPPORTED_LLM_PROVIDERS = {"google", "google-gla", "openai", "openrouter", "anthropic", "ollama", "claude-code"}
+# "local" is any OpenAI-compatible server on this PC (Ollama, LM Studio, llama.cpp, Jan, ...) at OLLAMA_BASE_URL.
+SUPPORTED_LLM_PROVIDERS = {"google", "google-gla", "openai", "openrouter", "anthropic", "ollama", "local", "claude-code"}
 
 
 def _split_llm_name(model_name: str) -> tuple[str, str | None]:
@@ -474,7 +475,7 @@ def _get_missing_llm_key_error(model_name: str, runtime_config: Config) -> Optio
     if provider not in SUPPORTED_LLM_PROVIDERS:
         return (
             f"Unsupported LLM provider '{provider}'. "
-            "Use claude-code:*, google-gla:*, openai:*, openrouter:*, anthropic:*, or ollama:*."
+            "Use claude-code:*, google-gla:*, openai:*, openrouter:*, anthropic:*, ollama:* or local:*."
         )
 
     if not provider_model_name:
@@ -546,7 +547,7 @@ def _build_transcript_model(
                 "max_tokens": 8192,
             },
         )
-    if provider != "ollama":
+    if provider not in {"ollama", "local"}:
         return model_name
 
     if not provider_model_name:
@@ -562,6 +563,15 @@ def _build_transcript_model(
             api_key=runtime_config.ollama_api_key,
         ),
     )
+
+
+def _output_type(provider: str, schema: type[BaseModel]):
+    if provider == "openrouter":
+        return NativeOutput(schema, strict=True)
+    if provider == "local":
+        # Many local models have no tool calling; asking for JSON in the prompt works with all of them.
+        return PromptedOutput(schema)
+    return schema
 
 
 def get_transcript_agent() -> Agent[None, TranscriptAnalysis]:
@@ -594,7 +604,7 @@ def get_transcript_agent() -> Agent[None, TranscriptAnalysis]:
 
         _transcript_agent = Agent[None, TranscriptAnalysis](
             model=_build_transcript_model(runtime_config),
-            output_type=NativeOutput(TranscriptAnalysis, strict=True) if provider == "openrouter" else TranscriptAnalysis,
+            output_type=_output_type(provider, TranscriptAnalysis),
             system_prompt=transcript_analysis_system_prompt,
             # Some local Ollama/OpenAI-compatible endpoints can return formatted
             # prose before settling on schema-valid JSON. Keep retries limited
@@ -680,7 +690,7 @@ def get_rerank_agent() -> Agent[None, CandidateRanking]:
 
         _rerank_agent = Agent[None, CandidateRanking](
             model=_build_transcript_model(runtime_config, model_name),
-            output_type=NativeOutput(CandidateRanking, strict=True) if provider == "openrouter" else CandidateRanking,
+            output_type=_output_type(provider, CandidateRanking),
             system_prompt=candidate_rerank_system_prompt,
             output_retries=2,
         )
