@@ -469,7 +469,9 @@ def detect_audio_peak_times(video_path: Path, max_peaks: int = 8) -> List[float]
             "-map",
             f"0:a:{audio_stream}",
             "-af",
-            "astats=metadata=1:reset=1,ametadata=print:key=lavfi.astats.Overall.RMS_level",
+            # 1-second blocks: per-frame stats printed ~1M lines for a 5h VOD.
+            "aresample=8000,asetnsamples=n=8000,astats=metadata=1:reset=1,"
+            "ametadata=print:key=lavfi.astats.Overall.RMS_level",
             "-f",
             "null",
             "-",
