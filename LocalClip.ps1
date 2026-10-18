@@ -113,9 +113,8 @@ $started = @()
 $started += Start-Process $redisServer.FullName -ArgumentList "--port $redisPort --bind 127.0.0.1 --save `"`" --appendonly no" `
     -WindowStyle Hidden -PassThru -RedirectStandardOutput "$logs\redis.log" -RedirectStandardError "$logs\redis.err.log"
 
-# Every start: a plain `uv sync`/`uv run` swaps in PyPI's CPU-only torch and Whisper then runs
-# on the CPU (hours per VOD). This puts the CUDA build back; it is a no-op when nothing changed.
-Push-Location backend; Invoke-Native uv sync --extra cuda; Pop-Location
+# Every start, so the backend always matches the lock; a no-op when nothing changed.
+Push-Location backend; Invoke-Native uv sync; Pop-Location
 
 # --- Build (only when the code changed) --------------------------------------------------------
 $head = git rev-parse HEAD
