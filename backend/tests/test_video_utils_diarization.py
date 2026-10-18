@@ -223,9 +223,12 @@ class VideoUtilsDiarizationTests(unittest.TestCase):
                 video_path = Path(temp_dir) / "sample.mp4"
                 video_path.touch()
                 result = video_utils.get_video_transcript(video_path)
+                # A retry reuses the cached transcript instead of re-running Whisper.
+                retry = video_utils.get_video_transcript(video_path)
 
         self.assertIn("Hello there.", result)
         self.assertIn("General Kenobi.", result)
+        self.assertEqual(retry, result)
         mock_transcribe.assert_called_once()
 
     def test_format_transcript_for_analysis_handles_whisper_dict(self):
