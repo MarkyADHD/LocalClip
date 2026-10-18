@@ -407,13 +407,24 @@ def _get_transcript_with_assemblyai(
 def _get_transcript_with_whisper(video_path: Path, runtime_config) -> str:
     """Get transcript using local Whisper with word-level timestamps."""
     model_name = runtime_config.whisper_model
+    language = runtime_config.transcription_language or None
+    # A retry after a cancel or a failed analysis reuses the finished transcript
+    # instead of re-running Whisper over the whole VOD.
+    whisper_key = f"{model_name}:{language or 'auto'}"
+    cached = load_cached_transcript_data(video_path)
+    if cached and cached.get("words") and cached.get("whisper_key") == whisper_key:
+        logger.info("Reusing cached Whisper transcript for %s", video_path.name)
+        return "\n".join(
+            f"[{format_ms_to_timestamp(u['start'])} - {format_ms_to_timestamp(u['end'])}] "
+            f"{u.get('text', '').strip()}"
+            for u in cached.get("utterances") or []
+        )
+
     logger.info("Starting Whisper transcription with model: %s", model_name)
-    whisper_result = transcribe_with_whisper(
-        video_path, model_name, runtime_config.transcription_language or None
-    )
+    whisper_result = transcribe_with_whisper(video_path, model_name, language)
 
     formatted_lines = format_transcript_for_analysis(whisper_result)
-    cache_transcript_data(video_path, whisper_result)
+    cache_transcript_data(video_path, whisper_result, whisper_key=whisper_key)
 
     result = "\n".join(formatted_lines)
     logger.info(
@@ -437,7 +448,9 @@ def _get_transcript_with_youtube_captions(source_url: str) -> str:
     return transcript
 
 
-def cache_transcript_data(video_path: Path, transcript) -> None:
+def cache_transcript_data(
+    video_path: Path, transcript, whisper_key: Optional[str] = None
+) -> None:
     """Cache transcript data for subtitle generation.
 
     Handles both AssemblyAI transcript objects and Whisper result dicts.
@@ -446,6 +459,7 @@ def cache_transcript_data(video_path: Path, transcript) -> None:
 
     if isinstance(transcript, dict):
         cache_data = _whisper_result_to_transcript_data(transcript)
+        cache_data["whisper_key"] = whisper_key
         with open(cache_path, "w") as f:
             json.dump(cache_data, f)
         logger.info("Cached %d words to %s", len(cache_data["words"]), cache_path)

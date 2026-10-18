@@ -113,12 +113,15 @@ $started = @()
 $started += Start-Process $redisServer.FullName -ArgumentList "--port $redisPort --bind 127.0.0.1 --save `"`" --appendonly no" `
     -WindowStyle Hidden -PassThru -RedirectStandardOutput "$logs\redis.log" -RedirectStandardError "$logs\redis.err.log"
 
+# Every start: a plain `uv sync`/`uv run` swaps in PyPI's CPU-only torch and Whisper then runs
+# on the CPU (hours per VOD). This puts the CUDA build back; it is a no-op when nothing changed.
+Push-Location backend; Invoke-Native uv sync --extra cuda; Pop-Location
+
 # --- Build (only when the code changed) --------------------------------------------------------
 $head = git rev-parse HEAD
 $builtFile = Join-Path $state "built"
 if (-not (Test-Path $builtFile) -or (Get-Content $builtFile) -ne $head) {
     Write-Host "Installing and building LocalClip (first start takes a while)..."
-    Push-Location backend; Invoke-Native uv sync --extra cuda; Pop-Location
     Push-Location frontend
     $env:DATABASE_URL = "postgresql://$dbUrl"
     Invoke-Native pnpm install --frozen-lockfile
