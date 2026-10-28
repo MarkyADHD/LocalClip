@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime
+from urllib.parse import urlsplit
+
+import httpx
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -9,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...admin_auth import require_admin_user
 from ...ai import _get_missing_llm_key_error
-from ...config import get_config
+from ...config import Config, get_config
 from ...database import get_db
 from ...runtime_settings import (
     RUNTIME_SETTING_KEYS,
@@ -53,8 +57,8 @@ SETTING_METADATA = {
         "input_type": "password",
     },
     "OLLAMA_BASE_URL": {
-        "label": "Ollama base URL",
-        "description": "Optional URL for local or hosted Ollama-compatible endpoints.",
+        "label": "Local AI server URL",
+        "description": "OpenAI-compatible URL used by ollama:* and local:* models (Ollama, LM Studio, llama.cpp, ...).",
         "input_type": "text",
     },
     "OLLAMA_API_KEY": {
@@ -78,6 +82,40 @@ SETTING_METADATA = {
         "input_type": "password",
     },
 }
+
+
+# Common local AI apps and the port their OpenAI-compatible server uses by default.
+LOCAL_AI_SERVERS = (
+    ("Ollama", 11434),
+    ("LM Studio", 1234),
+    ("Jan", 1337),
+    ("llama.cpp / LocalAI", 8080),
+    ("KoboldCpp", 5001),
+    ("text-generation-webui", 5000),
+    ("GPT4All", 4891),
+)
+
+
+async def _list_server_models(client: httpx.AsyncClient, name: str, base_url: str):
+    try:
+        response = await client.get(f"{base_url}/models")
+        response.raise_for_status()
+        models = sorted({str(m["id"]) for m in response.json().get("data", []) if m.get("id")})
+    except Exception:
+        return None
+    return {"name": name, "base_url": base_url, "models": models} if models else None
+
+
+async def discover_local_models(configured_base_url: str) -> list[dict]:
+    host = urlsplit(Config._default_ollama_base_url()).hostname
+    servers = {f"http://{host}:{port}/v1": name for name, port in LOCAL_AI_SERVERS}
+    configured = configured_base_url.rstrip("/")
+    servers.setdefault(configured, "Configured server")
+    async with httpx.AsyncClient(timeout=2.0) as client:
+        found = await asyncio.gather(
+            *(_list_server_models(client, name, url) for url, name in servers.items())
+        )
+    return [server for server in found if server]
 
 
 class RuntimeSettingsUpdate(BaseModel):
@@ -124,6 +162,19 @@ async def admin_health(
 ):
     await require_admin_user(request, db, get_config())
     return {"status": "ok"}
+
+
+@router.get("/local-models")
+async def get_local_models(request: Request, db: AsyncSession = Depends(get_db)):
+    """The selected LLM plus every model the local AI servers on this PC report."""
+    config = get_config()
+    await require_admin_user(request, db, config)
+    base_url = config.resolve_ollama_base_url()
+    return {
+        "llm": config.llm,
+        "base_url": base_url,
+        "servers": await discover_local_models(base_url),
+    }
 
 
 @router.get("/runtime-settings")

@@ -76,7 +76,9 @@ Blocking work (ffmpeg, downloads, transcription) is wrapped in `run_in_thread()`
    activity spikes, which feed the clip selection as an extra signal.
 4. **AI analysis**: the LLM picks segments with virality scores. Default LLM is the Claude Code
    CLI (`LLM=claude-code:sonnet`, provider `claude-code` in `ai.py`); it uses the user's local
-   `claude` login. Other providers (`google-gla`, `openai`, `anthropic`, `ollama`, `openrouter`)
+   `claude` login. Settings > AI model lists every model local AI apps on the PC serve (Ollama, LM Studio, Jan,
+   llama.cpp, ...; `GET /admin/local-models`) and saves it as `local:<model>` + `OLLAMA_BASE_URL`.
+   Other providers (`google-gla`, `openai`, `anthropic`, `ollama`, `local`, `openrouter`)
    still work. Long transcripts are analysed in windows and reranked.
 5. **Rendering**: 9:16 clips with face-tracked crops or a stream template, word-synced
    captions, hook title, optional transitions/B-roll.
