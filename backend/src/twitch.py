@@ -3,12 +3,12 @@
 import json
 import logging
 import re
-import statistics
 import urllib.request
 from pathlib import Path
 from typing import List, Optional, Tuple
 
 from .config import get_config
+from .media.timeline import spike_spans
 
 logger = logging.getLogger(__name__)
 
@@ -107,17 +107,7 @@ def chat_spikes(messages, duration: float, lag: float = 8.0, window: int = 300, 
         if 0 <= i < n:
             rate[i] += 1 + 2 * len(CHAT_EMOTES.findall(text))
     smooth = [sum(rate[max(0, i - 2):i + 3]) / 5 for i in range(n)]
-    spans = []
-    for i in range(0, n, 5):
-        ref = smooth[max(0, i - window // 2):i + window // 2:5]
-        med = statistics.median(ref) if ref else 0
-        mad = statistics.median(abs(x - med) for x in ref) if ref else 0
-        if smooth[i] > 1 and smooth[i] > med + z * max(mad * 1.4826, 0.5):
-            if spans and i - spans[-1][1] <= 10:
-                spans[-1][1] = i + 5
-            else:
-                spans.append([float(i), float(i + 5)])
-    return spans
+    return spike_spans(smooth, window=window, z=z, floor=0.5, min_value=1)
 
 
 def timestamp_label(seconds: float) -> str:

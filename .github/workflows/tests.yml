@@ -83,7 +83,8 @@ jobs:
         run: cd frontend && pnpm run test:coverage
 
   e2e:
-    runs-on: ubuntu-latest
+    # Playwright 1.59 can't install browsers on ubuntu-latest (26.04) yet.
+    runs-on: ubuntu-24.04
     needs:
       - backend
       - frontend
