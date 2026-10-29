@@ -7,6 +7,7 @@ from typing import Dict, Any, Optional, Callable
 import logging
 from datetime import datetime
 from pathlib import Path
+import asyncio
 import json
 import hashlib
 from time import perf_counter
@@ -36,6 +37,9 @@ from ..ai import TRANSCRIPT_ANALYSIS_CACHE_VERSION
 from ..clip_source_map import load_clip_caption_settings
 
 logger = logging.getLogger(__name__)
+
+# Clips rendered at the same time; more mostly fights over the CPU.
+CLIP_RENDER_CONCURRENCY = 2
 PROCESSING_CACHE_VERSION = "20260319_grounded_segments_v1"
 
 
@@ -242,7 +246,8 @@ class TaskService(ClipEditingMixin):
         # success and error paths; multi-GB YouTube downloads otherwise pile up
         # in temp/ until the disk fills and later tasks fail.
         video_path: Optional[Path] = None
-        pending_clip_path: Optional[Path] = None
+        # Rendered clip files not yet saved to the database (removed on failure).
+        pending_clip_paths: set[Path] = set()
         clips_output_dir = Path(self.config.temp_dir) / "clips"
 
         async def check_cancelled():
@@ -372,24 +377,15 @@ class TaskService(ClipEditingMixin):
             clip_ids = []
             render_start = perf_counter()
 
-            for i, segment in enumerate(segments_to_render):
-                # Check cancellation
-                await check_cancelled()
+            # Render a few clips at once (ffmpeg, face tracking and the GPU encoder
+            # overlap well), but save and announce them in order.
+            render_slots = asyncio.Semaphore(CLIP_RENDER_CONCURRENCY)
 
-                # Update progress: 70-95% spread across clips
-                clip_progress = 70 + int(
-                    ((i + 1) / total_clips) * 25
-                ) if total_clips > 0 else 95
-                await update_progress(
-                    clip_progress,
-                    f"Creating clip {i + 1}/{total_clips}...",
-                )
-
-                # Render single clip in thread pool
+            async def render_clip(index: int, segment: Dict[str, Any]) -> Optional[Dict[str, Any]]:
                 clip_info = await self.video_service.create_single_clip(
                     video_path,
                     segment,
-                    i,
+                    index,
                     clips_output_dir,
                     font_family,
                     font_size,
@@ -399,49 +395,82 @@ class TaskService(ClipEditingMixin):
                     add_subtitles,
                     normalized_cleanup_settings,
                 )
-                pending_clip_path = Path(clip_info["path"]) if clip_info else None
-                await check_cancelled()
-                if clip_info is None:
-                    continue  # Skip failed clip
+                if clip_info:
+                    pending_clip_paths.add(Path(clip_info["path"]))
+                return clip_info
 
-                async with self._processing_transaction(task_id):
+            # A render running in a thread can't be stopped midway; on cancel or
+            # error we wait for it (shielded) so its file is cleaned up, not leaked.
+            in_flight: list[asyncio.Future] = []
+
+            async def render(index: int, segment: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+                async with render_slots:
                     await check_cancelled()
-                    # Save to DB immediately
-                    clip_id = await self.clip_repo.create_clip(
-                        self.db,
-                        task_id=task_id,
-                        filename=clip_info["filename"],
-                        file_path=clip_info["path"],
-                        start_time=clip_info["start_time"],
-                        end_time=clip_info["end_time"],
-                        duration=clip_info["duration"],
-                        text=clip_info.get("text", ""),
-                        relevance_score=clip_info.get("relevance_score", 0.0),
-                        reasoning=clip_info.get("reasoning", ""),
-                        clip_order=i + 1,
-                        virality_score=clip_info.get("virality_score", 0),
-                        hook_score=clip_info.get("hook_score", 0),
-                        engagement_score=clip_info.get("engagement_score", 0),
-                        value_score=clip_info.get("value_score", 0),
-                        shareability_score=clip_info.get("shareability_score", 0),
-                        hook_type=clip_info.get("hook_type"),
-                        hook_title=clip_info.get("hook_title"),
+                    job = asyncio.ensure_future(render_clip(index, segment))
+                    in_flight.append(job)
+                    return await asyncio.shield(job)
+
+            renders = [
+                asyncio.create_task(render(i, segment))
+                for i, segment in enumerate(segments_to_render)
+            ]
+            try:
+                for i, render_task in enumerate(renders):
+                    # Progress: 70-95% spread across clips
+                    await update_progress(
+                        70 + int(((i + 1) / total_clips) * 25),
+                        f"Creating clip {i + 1}/{total_clips}...",
                     )
-
-                    # Update task's clip IDs array
-                    await self.task_repo.update_task_clips(self.db, task_id, [*clip_ids, clip_id])
-
+                    clip_info = await render_task
                     await check_cancelled()
-                pending_clip_path = None
-                clip_ids.append(clip_id)
+                    if clip_info is None:
+                        continue  # Skip failed clip
 
-                # Notify frontend via SSE
-                if clip_ready_callback:
-                    clip_record = await self.clip_repo.get_clip_by_id(
-                        self.db, clip_id
-                    )
-                    if clip_record:
-                        await clip_ready_callback(i, total_clips, clip_record)
+                    async with self._processing_transaction(task_id):
+                        await check_cancelled()
+                        # Save to DB immediately
+                        clip_id = await self.clip_repo.create_clip(
+                            self.db,
+                            task_id=task_id,
+                            filename=clip_info["filename"],
+                            file_path=clip_info["path"],
+                            start_time=clip_info["start_time"],
+                            end_time=clip_info["end_time"],
+                            duration=clip_info["duration"],
+                            text=clip_info.get("text", ""),
+                            relevance_score=clip_info.get("relevance_score", 0.0),
+                            reasoning=clip_info.get("reasoning", ""),
+                            clip_order=i + 1,
+                            virality_score=clip_info.get("virality_score", 0),
+                            hook_score=clip_info.get("hook_score", 0),
+                            engagement_score=clip_info.get("engagement_score", 0),
+                            value_score=clip_info.get("value_score", 0),
+                            shareability_score=clip_info.get("shareability_score", 0),
+                            hook_type=clip_info.get("hook_type"),
+                            hook_title=clip_info.get("hook_title"),
+                        )
+
+                        # Update task's clip IDs array
+                        await self.task_repo.update_task_clips(self.db, task_id, [*clip_ids, clip_id])
+
+                        await check_cancelled()
+                    pending_clip_paths.discard(Path(clip_info["path"]))
+                    clip_ids.append(clip_id)
+
+                    # Notify frontend via SSE
+                    if clip_ready_callback:
+                        clip_record = await self.clip_repo.get_clip_by_id(
+                            self.db, clip_id
+                        )
+                        if clip_record:
+                            await clip_ready_callback(i, total_clips, clip_record)
+
+            finally:
+                for pending in renders:
+                    pending.cancel()
+                await asyncio.gather(*renders, return_exceptions=True)
+                await asyncio.gather(*in_flight, return_exceptions=True)
+
 
             stage_timings["render_seconds"] = round(
                 perf_counter() - render_start, 3
@@ -496,7 +525,7 @@ class TaskService(ClipEditingMixin):
             logger.error(f"Error processing task {task_id}: {e}")
             # Clear failed writes before recording the terminal error state.
             await self.db.rollback()
-            if pending_clip_path and pending_clip_path != video_path:
+            for pending_clip_path in pending_clip_paths - {video_path}:
                 try:
                     if pending_clip_path.resolve().is_relative_to(clips_output_dir.resolve()):
                         pending_clip_path.unlink(missing_ok=True)
