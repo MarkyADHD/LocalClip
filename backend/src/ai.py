@@ -40,12 +40,19 @@ ANALYSIS_WINDOW_SECONDS = 12 * 60
 ANALYSIS_WINDOW_OVERLAP_SECONDS = 2 * 60
 ANALYSIS_SINGLE_WINDOW_MAX_SECONDS = 15 * 60
 ANALYSIS_WINDOW_CONCURRENCY = 5
-ANALYSIS_WINDOW_SEGMENT_TARGET = "3-5"
+ANALYSIS_WINDOW_SEGMENT_TARGET = "0-4"
 # Wall-clock budget for all windows together. Each window additionally keeps
 # its own TRANSCRIPT_ANALYSIS_TIMEOUT_SECONDS budget once it starts running.
 ANALYSIS_TOTAL_TIMEOUT_SECONDS = 1800
 RERANK_TIMEOUT_SECONDS = 240
 CANDIDATE_DEDUPE_OVERLAP_RATIO = 0.5
+# Clips closer than this are usually the same moment told twice; keep the stronger.
+NEIGHBOR_GAP_SECONDS = 20
+# After the comparative rerank, drop picks below this score (keeping at least
+# MIN_KEPT_CLIPS) instead of padding the list with weak clips.
+# ponytail: fixed cut-off; tune on real VODs if good clips get dropped.
+MIN_FINAL_SCORE = 50
+MIN_KEPT_CLIPS = 3
 # How far a model timestamp may sit from a transcript line boundary and still be
 # snapped onto it instead of the whole clip being dropped.
 SEGMENT_SNAP_TOLERANCE_SECONDS = 8
@@ -67,6 +74,10 @@ TRANSCRIPT_LINE_PATTERN = re.compile(
     r"^\[(\d{1,3}:\d{2}(?::\d{2})?)\s*-\s*(\d{1,3}:\d{2}(?::\d{2})?)\]\s*(.*)$"
 )
 SIGNAL_LINE_PATTERN = re.compile(r"^- \[(?P<start>\d{1,3}:\d{2}(?::\d{2})?)\s*-")
+CROWD_SIGNAL_PATTERN = re.compile(
+    r"^- \[(?P<start>\d{1,3}:\d{2}(?::\d{2})?)\s*-\s*(?P<end>\d{1,3}:\d{2}(?::\d{2})?)\]"
+    r"\s*score=[\d.]+:\s*(?P<reason>.*(?:chat|CLIP THAT|loud).*)$"
+)
 SPEAKER_PREFIX_PATTERN = re.compile(r"^Speaker [^:]+:\s*")
 
 
@@ -172,7 +183,7 @@ class ViralityAnalysis(BaseModel):
     )
     value_score: int = Field(
         default=15,
-        description="Educational/informational value (0-25)",
+        description="Payoff: punchline, reveal, win/fail or satisfying outcome (0-25)",
         ge=0,
         le=25,
     )
@@ -189,10 +200,10 @@ class ViralityAnalysis(BaseModel):
         le=100,
     )
     hook_type: Optional[
-        Literal["question", "statement", "statistic", "story", "contrast", "none"]
+        Literal["reaction", "action", "question", "statement", "statistic", "story", "contrast", "none"]
     ] = Field(
         default="none",
-        description="Type of hook: question, statement, statistic, story, contrast, or none",
+        description="Type of hook: reaction, action, question, statement, statistic, story, contrast, or none",
     )
     virality_reasoning: str = Field(
         default="The model did not provide a detailed virality breakdown.",
@@ -314,7 +325,7 @@ class TranscriptAnalysis(BaseModel):
 
 
 # Enhanced system prompt with virality scoring and B-roll detection
-transcript_analysis_system_prompt = """You are an expert transcript analyst for short-form video editing.
+transcript_analysis_system_prompt = """You are a top short-form editor who clips livestreams (mostly Twitch gaming streams) into TikTok/Shorts/Reels. You only pick moments that would actually do well posted on their own.
 
 Your job is extraction and ranking, not creative rewriting. You must stay fully grounded in the transcript and choose the best clip candidates that already exist in the source material.
 
@@ -326,13 +337,7 @@ OUTPUT CONTRACT:
 - Do not use "segment" as an output field. Use "text".
 - "virality" must include: "hook_score", "engagement_score", "value_score", "shareability_score", "total_score", "hook_type", and "virality_reasoning".
 - Every returned segment must be 15-60 seconds long. Prefer 25-50 seconds.
-
-CORE OBJECTIVES:
-1. Identify segments that would be compelling on social media platforms
-2. Focus on complete thoughts, insights, or entertaining moments
-3. Prioritize content with hooks, emotional moments, or valuable information
-4. Each segment should be engaging and worth watching
-5. Score each segment's viral potential with detailed breakdown
+- "most_relevant_segments" may be an empty list when nothing in the transcript is clip-worthy.
 
 GROUNDING RULES:
 1. Use only the provided transcript lines and timestamps
@@ -346,61 +351,38 @@ GROUNDING RULES:
 CONTENT NEUTRALITY RULES:
 1. This is clipping software for legitimate editing workflows
 2. Do not judge, moralize, or downgrade a segment just because the topic is controversial, sensitive, adult, political, criminal, medical, or otherwise intense
-3. Evaluate segments only on clip quality: clarity, self-contained value, hook strength, emotional impact, specificity, and shareability
-4. Do not refuse analysis just because the speaker describes risky, offensive, or uncomfortable subject matter
-5. Only downgrade a segment when the transcript itself is weak, confusing, repetitive, unusable, or a poor standalone clip
+3. Swearing, rage, crude jokes and trash talk are normal on streams and often make the best clips
+4. Only downgrade a segment when it is weak, confusing, repetitive, or a poor standalone clip
 
-SEGMENT SELECTION CRITERIA:
-1. STRONG HOOKS: Attention-grabbing opening lines
-2. VALUABLE CONTENT: Tips, insights, interesting facts, stories
-3. EMOTIONAL MOMENTS: Excitement, surprise, humor, inspiration
-4. COMPLETE THOUGHTS: Self-contained ideas that make sense alone
-5. ENTERTAINING: Content people would want to share
-6. HIGH SIGNAL: Prefer specific, concrete language over vague discussion
-7. LOW FILLER: Avoid greetings, sponsor reads, repeated setup, throat-clearing, and housekeeping unless they are unusually compelling
+WHAT MAKES A GREAT STREAM CLIP (pick these):
+- Something HAPPENS: a clutch play, a big win, a hilarious fail or death, getting betrayed or ambushed, a jump scare, a lucky or unlucky drop, a bug or glitch, a close escape
+- A strong REACTION: screaming, rage, laughing fits, disbelief ("no way", "what?!"), panic, hype, stunned silence then an outburst
+- Funny interactions: a roast, banter with teammates, guests or chat, a running bit that pays off, a savage or absurd one-liner, a story that ends in a punchline
+- Moments chat or the streamer flagged: chat spikes, loud spikes, and "clip that" in the signals are strong evidence that something happened
+- A clear arc in under a minute: a quick setup so the viewer knows what's at stake, the moment, and the reaction or punchline
+- In a transcript, these look like short excited lines, exclamations, swearing, laughter, rapid back-and-forth, sudden changes of tone, and lines that react to something on screen
 
-WHAT A GOOD CLIP FEELS LIKE:
-- A viewer should understand and care without the original title, thumbnail, or previous context
-- Prefer a complete mini-story or argument: setup, tension or claim, specific detail, and payoff
-- Expand a great short moment to nearby contiguous lines when that adds needed setup, stakes, or payoff
-- Strong picks include contrarian claims, mistakes or lessons, concrete examples, before/after moments, frameworks, surprising results, emotionally charged reactions, and complete answers to interesting questions
-- Bad picks include intros, sponsor or CTA sections, vague setup, contextless quote fragments, repeated points, definitions without payoff, meandering background, and answer fragments that require unseen context
+WHAT IS NOT A CLIP (skip these, even if nothing better exists):
+- Tutorials, strategy or loadout explanations, farming routes, inventory/menu/shop management, quest reading, "how to" talk
+- Calm commentary where nothing happens, narrating routine gameplay, waiting, queueing, loading
+- Stream housekeeping: intros, outros, "be right back", follow/sub/donation readouts, sponsor reads, schedule talk, technical issues
+- Talk about the stream itself, the streamer's other projects, tools or software, unless it is genuinely funny or dramatic
+- Inside jokes or fragments that need earlier context, and repeats of a moment you already picked
 
-VIRALITY SCORING (0-100 total, from four 0-25 subscores):
-For each segment, provide a detailed virality breakdown:
-
-1. HOOK STRENGTH (0-25):
-   - 20-25: Immediately grabs attention (surprising fact, bold claim, intriguing question)
-   - 15-19: Good opener that creates curiosity
-   - 10-14: Decent start but could be stronger
-   - 0-9: Weak or no hook
-
-2. ENGAGEMENT (0-25):
-   - 20-25: Highly entertaining, emotional, or dramatic
-   - 15-19: Interesting and holds attention
-   - 10-14: Moderately engaging
-   - 0-9: Flat or boring delivery
-
-3. VALUE (0-25):
-   - 20-25: Actionable insights, unique knowledge, or transformative ideas
-   - 15-19: Useful information most people don't know
-   - 10-14: Somewhat informative
-   - 0-9: Common knowledge or filler content
-
-4. SHAREABILITY (0-25):
-   - 20-25: "I need to send this to someone" content
-   - 15-19: Content worth bookmarking
-   - 10-14: Nice but not share-worthy
-   - 0-9: Generic content
+SCORING (0-100 total, from four 0-25 subscores):
+1. HOOK ("hook_score"): do the first 3 seconds make a scrolling viewer stop? 20-25 = instantly gripping (yelling, chaos, a wild line); 0-9 = slow or calm start
+2. ENGAGEMENT ("engagement_score"): energy, emotion, humor, tension. 20-25 = huge reaction or nonstop laughs; 0-9 = flat delivery
+3. PAYOFF ("value_score"): does it land a punchline, a reveal, a win/fail, or a satisfying outcome before it ends? 20-25 = big payoff; 0-9 = trails off or needs more context
+4. SHAREABILITY ("shareability_score"): would someone send it to a friend or comment on it? 20-25 = "you have to see this"; 0-9 = only fans would care
+Be harsh. Most stream moments are 30-55. Reserve 75+ for clips you'd confidently post. Never inflate scores to fill a quota.
 
 HOOK TITLES ("hook_title" per segment):
-- Write a short on-screen headline (3-9 words) that is burned into the top of the clip
-- It must make a scrolling viewer stop: a bold claim, curiosity gap, number, or stakes taken directly from the segment
-- Stay grounded: only promise what the clip actually delivers; never invent facts or numbers
-- Do not simply repeat the first spoken words verbatim; reframe them as a headline
-- Plain text only: no hashtags, no emojis, no quotes around the title
-- Write it in the same language as the transcript
-- Good examples: "The $40k mistake I keep seeing", "Why nobody tells you this about VC", "Do this before your next interview"
+- A short on-screen headline (3-8 words) burned into the top of the clip, in the transcript's language
+- Write it like a viral stream clip: tease the moment without spoiling the payoff, create curiosity or stakes, sound like a person not a summary
+- Stay grounded: only promise what the clip actually delivers; never invent facts
+- No hashtags, no emojis, no quotes around the title. Avoid generic labels, tutorial phrasing ("How to..."), and the streamer's exact first words
+- Good: "He did NOT see that coming", "I trusted him. Big mistake", "Chat called this 2 seconds early", "Worst possible timing", "This is why I don't do PvE"
+- Bad: "Break the armor to farm reactors fast", "Funny moment in the game", "Streamer reacts to death"
 
 COLD-OPEN HOOK ("hook_start_time"/"hook_end_time" per segment, optional):
 - If the segment's most gripping 2-5 second line (punchline, bold claim, shocking number, emotional peak) comes later in the clip, return its MM:SS range; it is replayed as a teaser before the clip starts
@@ -409,6 +391,8 @@ COLD-OPEN HOOK ("hook_start_time"/"hook_end_time" per segment, optional):
 - Set both to null when the clip already opens on its strongest line or no line qualifies
 
 HOOK TYPES to identify:
+- "reaction": Opens on a big emotional reaction (screaming, laughing, rage, disbelief)
+- "action": Opens in the middle of something happening (a fight, a chase, a play)
 - "question": Opens with a question that creates curiosity
 - "statement": Bold claim or surprising statement
 - "statistic": Uses compelling numbers or data
@@ -445,12 +429,12 @@ TIMESTAMP REQUIREMENTS - EXTREMELY IMPORTANT:
 - Example: start_time: "02:25", end_time: "02:35" (NOT "02:25" and "02:25")
 
 SCORING AND OUTPUT RULES:
-- relevance_score should reflect how well the segment works as a standalone short clip, not just whether the topic is generally important
-- Penalize clips that are only quotable but not self-contained, too generic, missing setup, missing payoff, or padded with filler
+- relevance_score should reflect how well the segment works as a standalone short clip
+- Penalize clips that are calm, informational, missing setup, missing payoff, or padded with filler
 - virality_reasoning and reasoning should cite what is actually present in the chosen span
 - summary and key_topics must also stay grounded in the transcript and should not add outside interpretation
 
-Find the number of compelling segments requested in the task (usually 2-5) that would work well as standalone clips. Quality over quantity: choose fewer stronger segments over filling a quota. Every selected segment must be accurate, self-contained, have proper time ranges, and score high on virality metrics."""
+Return at most the number of segments requested in the task. Quality over quantity: returning one great clip, or none, beats padding the list with weak ones. Every selected segment must be accurate, self-contained, and have proper time ranges."""
 
 # Lazy-loaded agent to avoid import-time failures when API keys aren't set
 _transcript_agent: Optional[Agent[None, TranscriptAnalysis]] = None
@@ -618,6 +602,10 @@ class RankedCandidate(BaseModel):
         default="",
         description="One short sentence on why it ranks here versus the others",
     )
+    hook_title: Optional[str] = Field(
+        default=None,
+        description="Improved 3-8 word on-screen title for this clip, or null to keep the current one",
+    )
 
 
 class CandidateRanking(BaseModel):
@@ -628,21 +616,23 @@ class CandidateRanking(BaseModel):
     )
 
 
-candidate_rerank_system_prompt = """You are a senior short-form video editor choosing which clips from one long video to publish.
+candidate_rerank_system_prompt = """You are a senior short-form editor choosing which clips from one livestream VOD to post on TikTok/Shorts/Reels.
 
-You receive candidate clips that were picked from different parts of the same video. Each one was scored in isolation, so those scores are not comparable. Your job is to compare the candidates against each other and produce one calibrated, best-first ranking.
+You receive candidate clips that were picked from different parts of the same stream. Each one was scored in isolation, so those scores are not comparable. Compare the candidates against each other and produce one calibrated, best-first ranking.
 
-Judge each candidate only on its own transcript text:
-1. Hook: do the first one or two sentences make a scrolling viewer stop?
-2. Standalone: would a viewer understand and care without the rest of the video?
-3. Payoff: does it land a clear point, punchline, lesson, or story beat before it ends?
-4. Specificity and energy: concrete details, numbers, strong opinions, emotion, or humor beat vague talk.
-5. Shareability: would someone send this to a friend or save it?
+Judge each candidate on its transcript text and its stream signals:
+1. Something happens: a fail, clutch, death, betrayal, scare, win, or a story with a punchline. Calm talk, tutorials, strategy, menus and stream housekeeping rank low.
+2. Reaction and energy: screaming, laughing, rage, disbelief, hype. Chat spikes, loud spikes and "clip that" are strong evidence of a real moment, especially when the text looks quiet.
+3. Hook: would the first 3 seconds stop a scrolling viewer?
+4. Standalone: would someone who never watched this streamer get it and care?
+5. Payoff: does it land before it ends?
 
 Rules:
-- Stay content-neutral: never downgrade a candidate just because its topic is sensitive, controversial, or adult.
+- Stay content-neutral: swearing, rage and crude humor are normal on streams; never downgrade for topic.
 - Rank every candidate exactly once, using the given candidate_id values.
-- Scores are comparative: spread them out so better clips clearly score higher. The best candidate should usually land between 80 and 95; weak, contextless, or filler candidates belong below 50.
+- If two candidates show the same moment or story, score the weaker one below 40.
+- Scores are comparative and honest: the best clip usually lands 80-95; clips you would not post belong below 50, even if that is most of them.
+- For each candidate, you may return "hook_title": a better 3-8 word on-screen title written like a viral stream clip (tease the moment, create curiosity, never spoil the payoff, never invent facts, no hashtags/emojis/quotes, same language as the transcript, and no two titles alike). Use null to keep the current title.
 - Return valid JSON only, with a "ranking" list ordered from best to worst."""
 
 _rerank_agent: Optional[Agent[None, CandidateRanking]] = None
@@ -688,16 +678,35 @@ def get_rerank_agent() -> Agent[None, CandidateRanking]:
     return _rerank_agent
 
 
-def build_candidate_rerank_prompt(candidates: List[TranscriptSegment]) -> str:
-    """Describe every candidate in full so the reranker can compare them."""
+def _crowd_signals(clip_signals: Optional[str]) -> List[tuple[int, int, str]]:
+    """(start, end, reason) for chat spikes, loud spikes and "clip that" lines."""
+    spans = []
+    for line in (clip_signals or "").splitlines():
+        match = CROWD_SIGNAL_PATTERN.match(line.strip())
+        if not match:
+            continue
+        try:
+            start = _parse_transcript_timestamp_seconds(match.group("start"))
+            end = _parse_transcript_timestamp_seconds(match.group("end"))
+        except ValueError:
+            continue
+        spans.append((start, end, match.group("reason").split(";")[0].strip()[:90]))
+    return spans
+
+
+def build_candidate_rerank_prompt(
+    candidates: List[TranscriptSegment], clip_signals: Optional[str] = None
+) -> str:
+    """Describe every candidate in full, with the stream signals it covers."""
+    crowd = _crowd_signals(clip_signals)
     blocks = []
     for candidate_id, segment in enumerate(candidates):
-        duration = _parse_transcript_timestamp_seconds(
-            segment.end_time
-        ) - _parse_transcript_timestamp_seconds(segment.start_time)
+        start, end = _segment_bounds_seconds(segment)
+        signals = sorted({reason for a, b, reason in crowd if a < end and b > start})
         blocks.append(
             f"candidate_id: {candidate_id}\n"
-            f"time: {segment.start_time} - {segment.end_time} ({duration}s)\n"
+            f"time: {segment.start_time} - {segment.end_time} ({end - start}s)\n"
+            f"signals: {'; '.join(signals) or 'none'}\n"
             f"hook_title: {segment.hook_title or '(none)'}\n"
             f"text: {segment.text}"
         )
@@ -717,13 +726,14 @@ def build_transcript_analysis_prompt(
 
     ``window`` marks the prompt as one (start, end) slice of a longer source.
     """
-    segment_target = ANALYSIS_WINDOW_SEGMENT_TARGET if window else "2-5"
+    segment_target = ANALYSIS_WINDOW_SEGMENT_TARGET if window else "1-5"
     window_note = ""
     if window:
         window_note = (
             f"\nThis transcript is one window ({_format_minutes_label(window[0])} - "
             f"{_format_minutes_label(window[1])}) of a longer video. Other windows are "
-            "analysed separately, so pick the best clips that exist inside this window only.\n"
+            "analysed separately, so pick only clips that exist inside this window, and return "
+            "none if nothing in it is genuinely clip-worthy.\n"
         )
     broll_instruction = ""
     if include_broll:
@@ -733,13 +743,16 @@ def build_transcript_analysis_prompt(
     signal_section = ""
     if clip_signals:
         signal_section = (
-            "\n\nAdditional deterministic signals from transcript/audio analysis:\n"
+            "\n\nSignals measured from the stream (chat activity, audio loudness, the streamer "
+            "asking for a clip, reaction words):\n"
             f"{clip_signals}\n\n"
-            "Use these as hints only. They should influence ranking, but every final segment "
-            "must still be a coherent contiguous transcript range."
+            "Chat spikes, loud spikes and \"clip that\" mean something happened on screen even "
+            "when the transcript looks quiet: look closely at the lines just before them. A clip "
+            "that covers a strong signal should usually score higher. Every final segment must "
+            "still be a coherent contiguous transcript range."
         )
 
-    return f"""Analyze this video transcript and identify the most engaging segments for short-form content.
+    return f"""Find the moments in this stream transcript that would make great standalone short clips.
 {window_note}
 The transcript is formatted as one line per timestamped span, for example:
 [00:12 - 00:21] Spoken text here
@@ -748,15 +761,15 @@ The transcript is formatted as one line per timestamped span, for example:
 Follow this workflow:
 1. Read the transcript as a sequence of timestamped spans.
 2. Select only contiguous ranges that already exist in the transcript.
-3. Prefer moments with a strong hook, clear payoff, emotional charge, or concrete value.
+3. Prefer moments where something happens and someone reacts: fails, clutches, rage, laughs, scares, banter that lands, chat-flagged moments.
 4. For each chosen segment, use the earliest timestamp in the selected range as start_time and the latest timestamp in the selected range as end_time.{broll_instruction}
 
 Selection target:
-- Choose {segment_target} segments total.
+- Choose {segment_target} segments total. Fewer is fine; never pad with weak picks.
 - Most selected clips should be 25-50 seconds.
 - Only choose a 15-24 second clip when it already contains a full setup and payoff.
 - If a strong moment is shorter than 25 seconds, first try expanding to nearby contiguous transcript lines that add useful context.
-- Skip weak standalone picks: intros, sponsor reads, CTAs, contextless quotes, repeated points, vague setup, and answer fragments that require prior context.
+- Skip: tutorials and strategy talk, menu/inventory time, calm routine gameplay, stream housekeeping (intros, BRB, sub/donation readouts, sponsors), talk about the stream or the streamer's tools, inside jokes, and fragments that need prior context.
 - Before returning a segment, ask whether a viewer would understand and care without seeing the rest of the source video.
 
 Critical accuracy requirements:
@@ -792,10 +805,9 @@ def sanitize_hook_title(raw: Optional[str]) -> Optional[str]:
     """
     if not raw:
         return None
-    title = str(raw).strip()
-    title = title.strip("\"'`“”‘’").strip()
-    title = re.sub(r"#\w+", "", title)
+    title = re.sub(r"#\w+", "", str(raw))
     title = re.sub(r"\s+", " ", title).strip()
+    title = title.strip("\"'`“”‘’").strip()
     # Drop trailing sentence punctuation but keep ?/! (they carry the hook).
     title = title.rstrip(".,;:-–— ").strip()
     if not title:
@@ -1171,19 +1183,26 @@ def _overlap_ratio(first: tuple[int, int], second: tuple[int, int]) -> float:
     return max(0, overlap) / shorter
 
 
+def _gap_seconds(first: tuple[int, int], second: tuple[int, int]) -> int:
+    """Seconds between two ranges (negative when they overlap)."""
+    return max(first[0], second[0]) - min(first[1], second[1])
+
+
 def dedupe_overlapping_segments(
     segments: List[TranscriptSegment],
     max_overlap_ratio: float = CANDIDATE_DEDUPE_OVERLAP_RATIO,
 ) -> List[TranscriptSegment]:
     """Sort candidates best-first and drop ones that mostly repeat a stronger pick.
 
-    Overlapping windows can surface the same moment twice; keep the higher score.
+    Overlapping windows can surface the same moment twice, and back-to-back
+    picks are usually one moment split in two; keep the higher score.
     """
     kept: List[tuple[TranscriptSegment, tuple[int, int]]] = []
     for segment in sorted(segments, key=_segment_rank_key, reverse=True):
         bounds = _segment_bounds_seconds(segment)
         if any(
             _overlap_ratio(bounds, kept_bounds) > max_overlap_ratio
+            or _gap_seconds(bounds, kept_bounds) < NEIGHBOR_GAP_SECONDS
             for _, kept_bounds in kept
         ):
             logger.info(
@@ -1251,22 +1270,23 @@ def apply_candidate_ranking(
     Scores are clamped to be non-increasing down the ranking. Candidates the
     reranker skipped keep their first-pass order after the ranked ones.
     """
-    ordered: List[tuple[TranscriptSegment, int]] = []
+    ordered: List[tuple[TranscriptSegment, RankedCandidate]] = []
     seen: set[int] = set()
     for item in ranking.ranking:
         candidate_id = item.candidate_id
         if candidate_id in seen or not 0 <= candidate_id < len(candidates):
             continue
         seen.add(candidate_id)
-        ordered.append((candidates[candidate_id], item.score))
+        ordered.append((candidates[candidate_id], item))
     if not ordered:
         raise ValueError("Rerank returned no usable candidate ids")
 
     reranked: List[TranscriptSegment] = []
     ceiling = 100
-    for segment, score in ordered:
-        ceiling = min(score, ceiling)
+    for segment, item in ordered:
+        ceiling = min(item.score, ceiling)
         _rescale_virality(segment.virality, ceiling)
+        segment.hook_title = sanitize_hook_title(item.hook_title) or segment.hook_title
         reranked.append(segment)
     for index, segment in enumerate(candidates):
         if index in seen:
@@ -1277,18 +1297,30 @@ def apply_candidate_ranking(
     return reranked
 
 
-async def rerank_candidates(candidates: List[TranscriptSegment]) -> List[TranscriptSegment]:
-    """Compare all candidates in one call; keep first-pass order if that fails."""
+def drop_weak_candidates(
+    candidates: List[TranscriptSegment],
+    min_score: int = MIN_FINAL_SCORE,
+    min_kept: int = MIN_KEPT_CLIPS,
+) -> List[TranscriptSegment]:
+    """Keep best-first candidates scoring at least ``min_score``, but never fewer than ``min_kept``."""
+    strong = [s for s in candidates if (s.virality.total_score if s.virality else 0) >= min_score]
+    return strong if len(strong) >= min_kept else candidates[:min_kept]
+
+
+async def rerank_candidates(
+    candidates: List[TranscriptSegment], clip_signals: Optional[str] = None
+) -> List[TranscriptSegment]:
+    """Compare all candidates in one call and drop weak ones; keep first-pass order if that fails."""
     if len(candidates) < 2:
         return candidates
     try:
         agent = get_rerank_agent()
         result = await _run_transcript_analysis(
             agent,
-            build_candidate_rerank_prompt(candidates),
+            build_candidate_rerank_prompt(candidates, clip_signals),
             timeout_seconds=RERANK_TIMEOUT_SECONDS,
         )
-        reranked = apply_candidate_ranking(candidates, result.output)
+        reranked = drop_weak_candidates(apply_candidate_ranking(candidates, result.output))
     except Exception as error:
         # Do not log the error text: provider bodies may contain transcript data.
         logger.warning(
@@ -1575,10 +1607,11 @@ async def get_most_relevant_parts_by_transcript(
             )
 
         # Best-first by virality (primary) then relevance (secondary), without
-        # near-duplicates; then compare across windows in one rerank call.
-        candidates = dedupe_overlapping_segments(candidates)
-        if len(windows) > 1:
-            candidates = await rerank_candidates(candidates)
+        # near-duplicates; then compare them all in one rerank call (calibrates
+        # scores across windows, rewrites titles, drops weak picks).
+        candidates = await rerank_candidates(
+            dedupe_overlapping_segments(candidates), clip_signals
+        )
 
         source_seconds = max(
             (line["end_seconds"] for line in transcript_lines), default=0

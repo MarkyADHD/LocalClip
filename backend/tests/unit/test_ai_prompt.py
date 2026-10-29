@@ -35,7 +35,8 @@ def test_system_prompt_enforces_grounding_rules():
     assert f"{IDEAL_CLIP_MIN_SECONDS}-{IDEAL_CLIP_MAX_SECONDS} seconds" in (
         transcript_analysis_system_prompt
     )
-    assert "Bad picks include intros" in transcript_analysis_system_prompt
+    assert "WHAT IS NOT A CLIP" in transcript_analysis_system_prompt
+    assert "Tutorials, strategy" in transcript_analysis_system_prompt
     assert "Return valid JSON only" in transcript_analysis_system_prompt
     assert "Do not use \"segment\" as an output field. Use \"text\"." in (
         transcript_analysis_system_prompt

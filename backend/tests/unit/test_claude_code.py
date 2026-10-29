@@ -14,7 +14,7 @@ assert args[args.index("--model") + 1] == "sonnet", args
 assert args[args.index("--tools") + 1] == "", args
 schema = json.loads(args[args.index("--json-schema") + 1])
 assert "ranking" in schema["properties"], schema
-assert "senior short-form video editor" in args[args.index("--system-prompt") + 1]
+assert "senior short-form editor" in args[args.index("--system-prompt") + 1]
 assert "Candidate 1" in prompt
 print(json.dumps({"is_error": False, "total_cost_usd": 0.01,
     "structured_output": {"ranking": [{"candidate_id": 1, "score": 90, "reason": "x"}]}}))

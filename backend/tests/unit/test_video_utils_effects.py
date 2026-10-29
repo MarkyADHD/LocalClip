@@ -287,10 +287,11 @@ def test_build_clip_signal_summary_surfaces_hook_and_audio_peak(monkeypatch, tmp
             "[00:08 - 00:12] Speaker A: Nobody expected the result!",
         ]
     )
-    monkeypatch.setattr(timeline, "detect_audio_peak_times", lambda _path: [6.0])
+    monkeypatch.setattr(timeline, "detect_loud_spans", lambda _path: [[5.0, 7.0]])
 
     summary = video_utils.build_clip_signal_summary(tmp_path / "source.mp4", transcript)
 
     assert "Wait what happened?" in summary
     assert "audio energy peak" in summary
-    assert "question/hook" in summary
+    assert "question" in summary
+    assert "- [00:05 - 00:07] score=3.0: loud spike" in summary

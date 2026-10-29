@@ -135,11 +135,52 @@ def test_dedupe_keeps_higher_scored_of_overlapping_candidates():
     assert kept == [stronger, separate]
 
 
-def test_dedupe_keeps_lightly_overlapping_candidates():
+def test_dedupe_drops_back_to_back_neighbours_but_keeps_separate_moments():
     first = _segment("01:00", "01:40", total=70)
-    second = _segment("01:30", "02:10", total=60)
+    touching = _segment("01:30", "02:10", total=60)  # overlaps a little
+    right_after = _segment("01:50", "02:30", total=65)  # 10 s gap: same moment
+    later = _segment("03:00", "03:40", total=50)  # 80 s gap: a different moment
 
-    assert ai.dedupe_overlapping_segments([first, second]) == [first, second]
+    assert ai.dedupe_overlapping_segments([first, touching, right_after, later]) == [first, later]
+
+
+def test_drop_weak_candidates_keeps_strong_ones_and_a_minimum():
+    ranked = [_segment(f"0{i}:00", f"0{i}:40", total=t) for i, t in enumerate([90, 70, 55, 45, 30])]
+    assert [s.virality.total_score for s in ai.drop_weak_candidates(ranked)] == [90, 70, 55]
+    weak = [_segment(f"0{i}:00", f"0{i}:40", total=t) for i, t in enumerate([60, 40, 35, 20])]
+    assert [s.virality.total_score for s in ai.drop_weak_candidates(weak)] == [60, 40, 35]
+
+
+def test_rerank_prompt_lists_crowd_signals_inside_each_candidate():
+    candidates = [_segment("01:00", "01:40", 70), _segment("05:00", "05:40", 60)]
+    signals = "\n".join([
+        "Deterministic clip-worthiness signals to consider before ranking:",
+        "- [01:20 - 01:30] score=4.0: Twitch chat exploded here (viewers reacted to this moment)",
+        "- [01:35 - 01:38] score=3.0: loud spike: shouting, laughing or something loud on screen",
+        "- [01:10 - 01:12] score=2.0: trigger phrase; what is that",
+        "- [09:00 - 09:10] score=4.0: Twitch chat exploded here (viewers reacted to this moment)",
+    ])
+
+    prompt = ai.build_candidate_rerank_prompt(candidates, signals)
+    first, second = prompt.split("candidate_id: 1")
+
+    assert "Twitch chat exploded here" in first and "loud spike" in first
+    assert "trigger phrase" not in first
+    assert "signals: none" in second
+
+
+def test_apply_ranking_takes_improved_titles():
+    candidates = [_segment("00:00", "00:30", 90), _segment("01:00", "01:30", 80)]
+    candidates[0].hook_title = "Old title"
+    candidates[1].hook_title = "Keep me"
+    ranking = ai.CandidateRanking(ranking=[
+        ai.RankedCandidate(candidate_id=0, score=90, hook_title='"He did NOT see that coming" #fyp'),
+        ai.RankedCandidate(candidate_id=1, score=70, hook_title=None),
+    ])
+
+    reranked = ai.apply_candidate_ranking(candidates, ranking)
+
+    assert [s.hook_title for s in reranked] == ["He did NOT see that coming", "Keep me"]
 
 
 @pytest.mark.parametrize(
@@ -214,7 +255,7 @@ async def test_long_transcript_runs_windows_then_reranks(monkeypatch):
 
     assert agent.run.await_count == 3
     prompts = [call.args[0] for call in agent.run.await_args_list]
-    assert all("one window" in prompt and "Choose 3-5 segments total." in prompt for prompt in prompts)
+    assert all("one window" in prompt and "Choose 0-4 segments total." in prompt for prompt in prompts)
     rerank_agent.run.assert_awaited_once()
     starts = [s.start_time for s in result.most_relevant_segments]
     assert sorted(starts) == ["00:30", "10:30", "20:30"]
