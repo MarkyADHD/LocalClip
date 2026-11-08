@@ -129,7 +129,7 @@ def test_llm_validation_rejects_unsupported_or_incomplete_model_names():
     )
 
     assert "Unsupported LLM provider" in _get_missing_llm_key_error(
-        "local:model", runtime_config
+        "mystery:model", runtime_config
     )
     assert "missing a model name" in _get_missing_llm_key_error(
         "ollama:", runtime_config

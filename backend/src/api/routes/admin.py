@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -9,8 +10,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...admin_auth import require_admin_user
 from ...ai import _get_missing_llm_key_error
+from ...auth_headers import get_authenticated_user_id
 from ...config import get_config
 from ...database import get_db
+from ...local_models import discover_local_models, ensure_local_server
 from ...runtime_settings import (
     RUNTIME_SETTING_KEYS,
     encrypt_setting_value,
@@ -61,6 +64,11 @@ SETTING_METADATA = {
         "label": "Ollama API key",
         "description": "Optional, used by hosted Ollama-compatible providers.",
         "input_type": "password",
+    },
+    "LOCAL_LLM_BASE_URL": {
+        "label": "Local LLM server URL",
+        "description": "OpenAI-compatible server for local:* models (LM Studio, llama.cpp, Jan, ...).",
+        "input_type": "text",
     },
     "YOUTUBE_DATA_API_KEY": {
         "label": "YouTube Data API key",
@@ -167,7 +175,83 @@ async def update_runtime_settings(
         if config_error and "API_KEY is not set" not in config_error:
             raise HTTPException(status_code=400, detail=config_error)
 
-    for setting_key, raw_value in payload.updates.items():
+    await _save_settings(db, user_id, payload.updates, payload.prefer_admin_values)
+
+    if payload.delete_keys:
+        await db.execute(
+            text(
+                """
+                DELETE FROM app_settings
+                WHERE setting_key = ANY(CAST(:setting_keys AS text[]))
+                """
+            ),
+            {"setting_keys": payload.delete_keys},
+        )
+
+    await db.commit()
+    await load_runtime_settings_cache(db)
+
+    rows = await get_runtime_setting_rows(db)
+    return {
+        "settings": [
+            _setting_status(setting_key, rows) for setting_key in RUNTIME_SETTING_KEYS
+        ]
+    }
+
+
+async def _require_settings_user(request: Request, db: AsyncSession) -> str:
+    """Self-hosted LocalClip has one local account, so it may pick its own model."""
+    config = get_config()
+    if config.self_host:
+        return str(get_authenticated_user_id(request, config))
+    return await require_admin_user(request, db, config)
+
+
+@router.get("/llm")
+async def get_llm_choices(request: Request, db: AsyncSession = Depends(get_db)):
+    """The selected LLM and every model found on this PC (Claude Code, Ollama, LM Studio, ...)."""
+    await _require_settings_user(request, db)
+    config = get_config()
+    models = await asyncio.to_thread(discover_local_models, config.resolve_ollama_base_url())
+    return {"current": config.llm, "local_base_url": config.local_llm_base_url, "models": models}
+
+
+class LlmChoice(BaseModel):
+    llm: str = Field(min_length=3, max_length=300)
+    base_url: str | None = Field(default=None, max_length=300)
+
+
+@router.put("/llm")
+async def set_llm_choice(request: Request, payload: LlmChoice, db: AsyncSession = Depends(get_db)):
+    user_id = await _require_settings_user(request, db)
+    llm = payload.llm.strip()
+    config_error = _get_missing_llm_key_error(llm, get_config())
+    if config_error:
+        raise HTTPException(status_code=400, detail=config_error)
+    updates, prefer = {"LLM": llm}, {"LLM": True}
+    if payload.base_url:
+        base_url = payload.base_url.strip()
+        if not base_url.startswith(("http://", "https://")):
+            raise HTTPException(status_code=400, detail="base_url must be an http(s) URL")
+        updates["LOCAL_LLM_BASE_URL"], prefer["LOCAL_LLM_BASE_URL"] = base_url, True
+    # The picked value beats .env's LLM line, which the launcher writes on install.
+    await _save_settings(db, user_id, updates, prefer)
+    await db.commit()
+    await load_runtime_settings_cache(db)
+
+    config = get_config()
+    provider = llm.split(":", 1)[0].lower()
+    if provider in {"ollama", "local"}:
+        await asyncio.to_thread(
+            ensure_local_server, provider, config.resolve_ollama_base_url(), config.local_llm_base_url
+        )
+    return {"current": config.llm, "local_base_url": config.local_llm_base_url}
+
+
+async def _save_settings(
+    db: AsyncSession, user_id: str, updates: dict[str, str], prefer_admin_values: dict[str, bool]
+) -> None:
+    for setting_key, raw_value in updates.items():
         value = raw_value.strip()
         if not value:
             continue
@@ -190,7 +274,7 @@ async def update_runtime_settings(
             },
         )
 
-    for setting_key, prefer_admin_value in payload.prefer_admin_values.items():
+    for setting_key, prefer_admin_value in prefer_admin_values.items():
         await db.execute(
             text(
                 """
@@ -207,24 +291,3 @@ async def update_runtime_settings(
                 "updated_by": user_id,
             },
         )
-
-    if payload.delete_keys:
-        await db.execute(
-            text(
-                """
-                DELETE FROM app_settings
-                WHERE setting_key = ANY(CAST(:setting_keys AS text[]))
-                """
-            ),
-            {"setting_keys": payload.delete_keys},
-        )
-
-    await db.commit()
-    await load_runtime_settings_cache(db)
-
-    rows = await get_runtime_setting_rows(db)
-    return {
-        "settings": [
-            _setting_status(setting_key, rows) for setting_key in RUNTIME_SETTING_KEYS
-        ]
-    }

@@ -11,18 +11,21 @@ import random
 import re
 
 import httpx
-from pydantic_ai import Agent, NativeOutput
+from pydantic_ai import Agent, NativeOutput, PromptedOutput
 from pydantic_ai.exceptions import ModelHTTPError
 from pydantic_ai.models import Model
 from pydantic_ai.models.ollama import OllamaModel
 from pydantic_ai.models.openrouter import OpenRouterModel
 from pydantic_ai.profiles.openai import OpenAIModelProfile
+from pydantic_ai.models.openai import OpenAIChatModel
 from pydantic_ai.providers.ollama import OllamaProvider
+from pydantic_ai.providers.openai import OpenAIProvider
 from pydantic_ai.providers.openrouter import OpenRouterProvider
 from pydantic import AliasChoices, BaseModel, Field, field_validator
 
 from .claude_code import ClaudeCodeAgent, find_claude
 from .config import Config, get_config
+from .local_models import ensure_local_server
 from .runtime_settings import apply_settings_to_process_env
 
 logger = logging.getLogger(__name__)
@@ -456,7 +459,7 @@ Find the number of compelling segments requested in the task (usually 2-5) that 
 _transcript_agent: Optional[Agent[None, TranscriptAnalysis]] = None
 _transcript_agent_signature: Optional[tuple[str | None, ...]] = None
 
-SUPPORTED_LLM_PROVIDERS = {"google", "google-gla", "openai", "openrouter", "anthropic", "ollama", "claude-code"}
+SUPPORTED_LLM_PROVIDERS = {"google", "google-gla", "openai", "openrouter", "anthropic", "ollama", "local", "claude-code"}
 
 
 def _split_llm_name(model_name: str) -> tuple[str, str | None]:
@@ -474,7 +477,7 @@ def _get_missing_llm_key_error(model_name: str, runtime_config: Config) -> Optio
     if provider not in SUPPORTED_LLM_PROVIDERS:
         return (
             f"Unsupported LLM provider '{provider}'. "
-            "Use claude-code:*, google-gla:*, openai:*, openrouter:*, anthropic:*, or ollama:*."
+            "Use claude-code:*, google-gla:*, openai:*, openrouter:*, anthropic:*, ollama:* or local:*."
         )
 
     if not provider_model_name:
@@ -546,6 +549,13 @@ def _build_transcript_model(
                 "max_tokens": 8192,
             },
         )
+    if provider == "local":
+        # Any OpenAI-compatible server (LM Studio, llama.cpp, Jan, ...). Local servers
+        # need no key, but the client requires a non-empty one.
+        return OpenAIChatModel(
+            provider_model_name,
+            provider=OpenAIProvider(base_url=runtime_config.local_llm_base_url, api_key="local"),
+        )
     if provider != "ollama":
         return model_name
 
@@ -564,6 +574,16 @@ def _build_transcript_model(
     )
 
 
+def _output_type(provider: str, schema):
+    if provider == "openrouter":
+        return NativeOutput(schema, strict=True)
+    if provider == "local":
+        # Many local servers (llama.cpp without --jinja, KoboldCpp, ...) lack tool
+        # calling; asking for JSON in the prompt works on all of them.
+        return PromptedOutput(schema)
+    return schema
+
+
 def get_transcript_agent() -> Agent[None, TranscriptAnalysis]:
     """Get or create the transcript analysis agent (lazy initialization)."""
     global _transcript_agent, _transcript_agent_signature
@@ -578,6 +598,7 @@ def get_transcript_agent() -> Agent[None, TranscriptAnalysis]:
         runtime_config.anthropic_api_key,
         runtime_config.ollama_base_url,
         runtime_config.ollama_api_key,
+        runtime_config.local_llm_base_url,
     )
     if _transcript_agent is None or _transcript_agent_signature != signature:
         apply_settings_to_process_env(runtime_config.as_runtime_settings())
@@ -594,7 +615,7 @@ def get_transcript_agent() -> Agent[None, TranscriptAnalysis]:
 
         _transcript_agent = Agent[None, TranscriptAnalysis](
             model=_build_transcript_model(runtime_config),
-            output_type=NativeOutput(TranscriptAnalysis, strict=True) if provider == "openrouter" else TranscriptAnalysis,
+            output_type=_output_type(provider, TranscriptAnalysis),
             system_prompt=transcript_analysis_system_prompt,
             # Some local Ollama/OpenAI-compatible endpoints can return formatted
             # prose before settling on schema-valid JSON. Keep retries limited
@@ -664,6 +685,7 @@ def get_rerank_agent() -> Agent[None, CandidateRanking]:
         runtime_config.anthropic_api_key,
         runtime_config.ollama_base_url,
         runtime_config.ollama_api_key,
+        runtime_config.local_llm_base_url,
     )
     if _rerank_agent is None or _rerank_agent_signature != signature:
         apply_settings_to_process_env(runtime_config.as_runtime_settings())
@@ -680,7 +702,7 @@ def get_rerank_agent() -> Agent[None, CandidateRanking]:
 
         _rerank_agent = Agent[None, CandidateRanking](
             model=_build_transcript_model(runtime_config, model_name),
-            output_type=NativeOutput(CandidateRanking, strict=True) if provider == "openrouter" else CandidateRanking,
+            output_type=_output_type(provider, CandidateRanking),
             system_prompt=candidate_rerank_system_prompt,
             output_retries=2,
         )
@@ -1542,6 +1564,15 @@ async def get_most_relevant_parts_by_transcript(
     )
 
     try:
+        runtime_config = get_config()
+        provider = _split_llm_name(runtime_config.llm)[0]
+        if provider in {"ollama", "local"}:
+            await asyncio.to_thread(
+                ensure_local_server,
+                provider,
+                runtime_config.resolve_ollama_base_url(),
+                runtime_config.local_llm_base_url,
+            )
         agent = get_transcript_agent()
         transcript_lines = _parse_transcript_lines(transcript)
         transcript_spans = _parse_transcript_spans(transcript)
