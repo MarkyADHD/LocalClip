@@ -8,7 +8,10 @@ dependencies = [
     "apify-client>=1.8.1",
     "fastapi>=0.121.0",
     "uvicorn>=0.27.0",
-    "openai-whisper>=20250625",
+    "faster-whisper>=1.2.1",
+    # cuBLAS/cuDNN for faster-whisper on NVIDIA GPUs (no torch needed).
+    "nvidia-cublas-cu12; sys_platform != 'darwin'",
+    "nvidia-cudnn-cu12>=9,<10; sys_platform != 'darwin'",
     "pydantic-ai>=1.89.1",
     "setuptools-rust>=1.11.1",
     "asyncpg>=0.29.0",
@@ -16,7 +19,6 @@ dependencies = [
     "alembic>=1.13.0",
     "python-dotenv>=1.0.0",
     "yt-dlp[default]>=2026.8.19",
-    "whisper>=1.1.10",
     "greenlet>=2.0.0",
     "opencv-python>=4.8.0",
     "srt-equalizer>=0.1.10",
@@ -32,10 +34,6 @@ dependencies = [
     "cryptography>=42.0.0",
 ]
 
-[project.optional-dependencies]
-cpu = ["torch==2.11.0"]
-cuda = ["torch==2.11.0"]
-
 [dependency-groups]
 dev = [
     "httpx>=0.28.1",
@@ -46,30 +44,6 @@ dev = [
 
 [tool.uv]
 package = true
-conflicts = [[{ extra = "cpu" }, { extra = "cuda" }]]
-
-[tool.uv.sources]
-torch = [
-    { index = "pytorch-cpu", extra = "cpu", marker = "sys_platform == 'linux'" },
-    # PyPI's Windows torch is CPU-only; LocalClip runs natively on Windows with an NVIDIA GPU.
-    { index = "pytorch-cu128", extra = "cuda", marker = "sys_platform == 'win32'" },
-    { index = "pypi", extra = "cuda", marker = "sys_platform != 'win32'" },
-]
-
-[[tool.uv.index]]
-name = "pytorch-cpu"
-url = "https://download.pytorch.org/whl/cpu"
-explicit = true
-
-[[tool.uv.index]]
-name = "pytorch-cu128"
-url = "https://download.pytorch.org/whl/cu128"
-explicit = true
-
-[[tool.uv.index]]
-name = "pypi"
-url = "https://pypi.org/simple"
-default = true
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

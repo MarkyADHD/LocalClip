@@ -15,7 +15,7 @@ does first-time setup). It:
 
 - downloads portable PostgreSQL (port 5433) and Redis for Windows (port 6380) into a tools folder,
   initialises the database from `init.sql` on first run;
-- runs `uv sync --extra cuda` and `pnpm install && pnpm run build` when `HEAD` changes;
+- runs `uv sync` on every start, and `pnpm install && pnpm run build` when `HEAD` changes;
 - starts, as hidden processes with logs in the state folder:
   - backend: `uv run uvicorn src.main:app --port 8000`
   - worker: `uv run arq src.workers.tasks.WorkerSettings`
@@ -70,7 +70,8 @@ Blocking work (ffmpeg, downloads, transcription) is wrapped in `run_in_thread()`
 ### Pipeline
 
 1. **Input**: Twitch VOD / YouTube URL (yt-dlp) or uploaded file.
-2. **Transcription**: Whisper running locally on the GPU (`WHISPER_MODEL`).
+2. **Transcription**: faster-whisper (CTranslate2, fp16 on the GPU, VAD on) locally (`WHISPER_MODEL`).
+   No torch; cuBLAS/cuDNN come from the `nvidia-*` wheels. Close games while clipping: they share the GPU.
 3. **Twitch chat signals**: for Twitch VODs, `twitch.py` downloads the chat replay and scores
    activity spikes, which feed the clip selection as an extra signal.
 4. **AI analysis**: the LLM picks segments with virality scores. Default LLM is the Claude Code

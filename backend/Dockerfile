@@ -34,14 +34,9 @@ WORKDIR /app
 # Copy pyproject.toml and uv.lock for dependency installation
 COPY pyproject.toml uv.lock* ./
 
-# New self-hosted setups can select CPU wheels without changing legacy builds.
-ARG BACKEND_CPU_ONLY=false
-RUN uv venv .venv && \
-    if [ "$BACKEND_CPU_ONLY" = "true" ]; then \
-      uv sync --frozen --extra cpu; \
-    else \
-      uv sync --frozen --extra cuda; \
-    fi
+RUN uv venv .venv && uv sync --frozen
+# faster-whisper's ctranslate2 finds cuBLAS/cuDNN from the nvidia-* wheels here.
+ENV LD_LIBRARY_PATH=/app/.venv/lib/python3.11/site-packages/nvidia/cublas/lib:/app/.venv/lib/python3.11/site-packages/nvidia/cudnn/lib
 
 # Force update yt-dlp to the absolute latest version to handle YouTube API changes
 # Also install from git to get the very latest commits
