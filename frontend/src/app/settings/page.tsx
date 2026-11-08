@@ -11,10 +11,10 @@ import { Select, SelectContent, SelectTrigger, SelectValue } from "@/components/
 import { Slider } from "@/components/ui/slider";
 import { useSession } from "@/lib/auth-client";
 import { track } from "@/lib/datafast";
-import { AlertCircle, Check, Cpu, Loader2, Type } from "lucide-react";
+import { AlertCircle, Bot, Check, Loader2, Type } from "lucide-react";
+import { AiModelPicker } from "@/components/ai-model-picker";
 import { cn } from "@/lib/utils";
 import { FontSelectOption, type FontOption } from "@/components/font-select-option";
-import { AiModelSettings } from "@/components/ai-model-settings";
 
 interface UserPreferences {
   fontFamily: string;
@@ -164,6 +164,10 @@ export default function SettingsPage() {
       <p className="mt-1 text-sm text-muted-foreground">Defaults for new generations.</p>
 
       <div className="mt-8 space-y-6">
+        <Section icon={<Bot className="size-4" />} title="AI model" description="Picks the clips. Saved as soon as you choose.">
+          <AiModelPicker />
+        </Section>
+
         <Section icon={<Type className="size-4" />} title="Caption defaults" description="Applied to every new generation. You can still change them per video.">
           <div className="grid gap-6 sm:grid-cols-[minmax(0,1fr)_150px]">
             <div className="space-y-5">
@@ -235,10 +239,6 @@ export default function SettingsPage() {
               </p>
             </div>
           </div>
-        </Section>
-
-        <Section id="ai-model" icon={<Cpu className="size-4" />} title="AI model" description="The model that picks your clips. Choose Claude Code or any model running in a local AI app on this PC.">
-          <AiModelSettings />
         </Section>
 
         {error && (

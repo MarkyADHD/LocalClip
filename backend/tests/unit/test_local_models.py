@@ -1,33 +1,44 @@
-import asyncio
+from types import SimpleNamespace
 
-import httpx
-from pydantic_ai import PromptedOutput
+from pydantic_ai.models.openai import OpenAIChatModel
 
-from src.ai import TranscriptAnalysis, _get_missing_llm_key_error, _output_type
-from src.api.routes import admin
-from src.config import Config
+from src import ai, local_models
 
 
-def test_local_provider_is_supported_and_uses_prompted_json():
-    assert _get_missing_llm_key_error("local:qwen3:8b", Config()) is None
-    assert isinstance(_output_type("local", TranscriptAnalysis), PromptedOutput)
-    assert _output_type("ollama", TranscriptAnalysis) is TranscriptAnalysis
+def test_installed_ollama_models_reads_manifest_names(tmp_path, monkeypatch):
+    manifests = tmp_path / "manifests"
+    for parts in (
+        ("registry.ollama.ai", "library", "qwen3", "8b"),
+        ("registry.ollama.ai", "someone", "tiny", "latest"),
+        ("hf.co", "User", "Repo-GGUF", "Q4_K_M"),
+    ):
+        path = manifests.joinpath(*parts)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("{}")
+    monkeypatch.setenv("OLLAMA_MODELS", str(tmp_path))
 
-
-def test_discover_local_models_lists_only_servers_that_answer(monkeypatch):
-    def handler(request: httpx.Request):
-        if request.url.port == 1234:
-            return httpx.Response(200, json={"data": [{"id": "qwen3-8b"}, {"id": "gemma-3-4b"}]})
-        if request.url.port == 11434:
-            return httpx.Response(200, json={"data": []})
-        raise httpx.ConnectError("refused")
-
-    real_client = httpx.AsyncClient
-    monkeypatch.setattr(admin.httpx, "AsyncClient", lambda **kw: real_client(transport=httpx.MockTransport(handler), **kw))
-    monkeypatch.setattr(Config, "_default_ollama_base_url", staticmethod(lambda: "http://localhost:11434/v1"))
-
-    servers = asyncio.run(admin.discover_local_models("http://localhost:11434/v1/"))
-
-    assert servers == [
-        {"name": "LM Studio", "base_url": "http://localhost:1234/v1", "models": ["gemma-3-4b", "qwen3-8b"]}
+    assert local_models._installed_ollama_models() == [
+        "hf.co/User/Repo-GGUF:Q4_K_M",
+        "qwen3:8b",
+        "someone/tiny:latest",
     ]
+
+
+def test_local_provider_uses_openai_compatible_server():
+    config = SimpleNamespace(llm="local:qwen3-8b", local_llm_base_url="http://localhost:8080/v1")
+
+    model = ai._build_transcript_model(config)
+
+    assert isinstance(model, OpenAIChatModel)
+    assert model.model_name == "qwen3-8b"
+    assert str(model.client.base_url).startswith("http://localhost:8080/v1")
+    assert ai._get_missing_llm_key_error("local:qwen3-8b", config) is None
+
+
+
+def test_local_and_ollama_models_get_json_in_the_prompt():
+    from pydantic_ai import PromptedOutput
+
+    assert isinstance(ai._output_type("ollama", ai.TranscriptAnalysis), PromptedOutput)
+    assert isinstance(ai._output_type("local", ai.TranscriptAnalysis), PromptedOutput)
+    assert ai._output_type("anthropic", ai.TranscriptAnalysis) is ai.TranscriptAnalysis
