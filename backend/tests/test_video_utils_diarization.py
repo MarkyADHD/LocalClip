@@ -215,6 +215,7 @@ class VideoUtilsDiarizationTests(unittest.TestCase):
             transcription_provider="whisper",
             whisper_model="base",
             transcription_language="",
+            parakeet_model="off",
         )
         with patch("src.media.transcription.get_config", return_value=mock_config), patch(
             "src.media.transcription.transcribe_with_whisper", return_value=whisper_result

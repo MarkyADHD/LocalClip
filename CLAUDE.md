@@ -70,8 +70,9 @@ Blocking work (ffmpeg, downloads, transcription) is wrapped in `run_in_thread()`
 ### Pipeline
 
 1. **Input**: Twitch VOD / YouTube URL (yt-dlp) or uploaded file.
-2. **Transcription**: faster-whisper (CTranslate2, fp16 on the GPU, VAD on) locally (`WHISPER_MODEL`).
-   No torch; cuBLAS/cuDNN come from the `nvidia-*` wheels. Close games while clipping: they share the GPU.
+2. **Transcription**: NVIDIA Parakeet TDT 0.6B (`PARAKEET_MODEL`, via onnx-asr + onnxruntime-gpu, Silero VAD)
+   first, faster-whisper (`WHISPER_MODEL`) as the fallback and for languages Parakeet lacks.
+   No torch; CUDA/cuDNN come from the `nvidia-*` wheels. Close games while clipping: they share the GPU.
 3. **Twitch chat signals**: for Twitch VODs, `twitch.py` downloads the chat replay and scores
    activity spikes, which feed the clip selection as an extra signal.
 4. **AI analysis**: the LLM picks segments with virality scores. Default LLM is the Claude Code

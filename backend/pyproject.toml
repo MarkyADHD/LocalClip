@@ -12,6 +12,11 @@ dependencies = [
     # cuBLAS/cuDNN for faster-whisper on NVIDIA GPUs (no torch needed).
     "nvidia-cublas-cu12; sys_platform != 'darwin'",
     "nvidia-cudnn-cu12>=9,<10; sys_platform != 'darwin'",
+    # NVIDIA Parakeet speech-to-text, tried before Whisper. 1.24 is the last
+    # onnxruntime-gpu built for CUDA 12, which the wheels above provide.
+    "onnx-asr[hub]>=0.12.0",
+    "onnxruntime-gpu[cuda,cudnn]>=1.24.4,<1.25; sys_platform != 'darwin'",
+    "onnxruntime>=1.24.4; sys_platform == 'darwin'",
     "pydantic-ai>=1.89.1",
     "setuptools-rust>=1.11.1",
     "asyncpg>=0.29.0",

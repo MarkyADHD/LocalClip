@@ -22,6 +22,9 @@ class Config:
         self.ollama_api_key = self._get_runtime_setting("OLLAMA_API_KEY")
 
         self.whisper_model = os.getenv("WHISPER_MODEL") or os.getenv("WHISPER_MODEL_SIZE", "base")
+        # Local transcription tries this NVIDIA Parakeet model first and falls back to
+        # Whisper; "off" always uses Whisper.
+        self.parakeet_model = (os.getenv("PARAKEET_MODEL") or "nemo-parakeet-tdt-0.6b-v3").strip()
         self.transcription_provider = self._normalize_transcription_provider(
             os.getenv("TRANSCRIPTION_PROVIDER", "assemblyai")
         )

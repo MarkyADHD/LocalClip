@@ -9,8 +9,12 @@ import assemblyai as aai
 from ..config import get_config
 import httpx
 import json
+import math
 import re
+import subprocess
 import time
+
+import numpy as np
 from .common import (
     ANALYSIS_LONG_UTTERANCE_MAX_DURATION_MS,
     ANALYSIS_LONG_UTTERANCE_MAX_WORDS,
@@ -235,6 +239,94 @@ def transcribe_with_whisper(
     }
 
 
+# Parakeet TDT 0.6B v3 languages; anything else goes to Whisper.
+PARAKEET_LANGUAGES = set(
+    "bg hr cs da nl en et fi fr de el hu it lv lt mt pl pt ro sk sl es sv ru uk".split()
+)
+PARAKEET_CHUNK_SECONDS = 1800  # audio handed to the model at a time, bounds RAM
+_PARAKEET_CACHE: Dict[str, Any] = {}
+
+
+def _parakeet_words(segment, offset: float) -> List[Dict[str, Any]]:
+    """Group a timestamped onnx-asr segment's SentencePiece tokens into words.
+
+    A token starting with a space starts a new word. Tokens only carry a start
+    time, so a word ends where the next one starts (at most 0.5 s after its
+    last token) and the last word ends with the segment.
+    """
+    words: List[Dict[str, Any]] = []
+    logprobs = segment.logprobs or [0.0] * len(segment.tokens or [])
+    for token, ts, logprob in zip(segment.tokens or [], segment.timestamps or [], logprobs):
+        t = offset + segment.start + ts
+        if token.startswith(" ") or not words:
+            words.append({"word": token, "start": t, "last": t, "logprob": 0.0})
+        else:
+            words[-1]["word"] += token
+            words[-1]["last"] = t
+        words[-1]["logprob"] += logprob
+    segment_end = offset + segment.end
+    for i, word in enumerate(words):
+        next_start = words[i + 1]["start"] if i + 1 < len(words) else segment_end
+        word["end"] = max(word["last"] + 0.08, min(next_start, word["last"] + 0.5))
+        word["probability"] = math.exp(word.pop("logprob"))
+        del word["last"]
+    return [w for w in words if w["word"].strip()]
+
+
+def transcribe_with_parakeet(
+    video_path: Path, model_name: str, language: Optional[str] = None
+) -> Dict[str, Any]:
+    """Transcribe with NVIDIA Parakeet TDT through onnx-asr (CUDA when available).
+
+    Several times faster than Whisper on the GPU, fewer errors on the Open ASR
+    leaderboard, and it does not invent text over music or silence. Returns the
+    same result shape as ``transcribe_with_whisper``.
+    """
+    import onnx_asr
+    import onnxruntime
+
+    audio_path = _prepare_audio_for_transcription(video_path)
+    if model_name not in _PARAKEET_CACHE:
+        logger.info("Loading Parakeet model: %s", model_name)
+        # Finds CUDA/cuDNN in the nvidia-* wheels; TensorRT isn't installed, so skip it.
+        onnxruntime.preload_dlls()
+        model = onnx_asr.load_model(
+            model_name, providers=["CUDAExecutionProvider", "CPUExecutionProvider"]
+        )
+        vad = onnx_asr.load_vad("silero")
+        _PARAKEET_CACHE[model_name] = model.with_vad(vad, batch_size=16).with_timestamps()
+    asr = _PARAKEET_CACHE[model_name]
+
+    pcm = subprocess.run(
+        ["ffmpeg", "-v", "error", "-i", str(audio_path), "-ac", "1", "-ar", "16000", "-f", "s16le", "-"],
+        capture_output=True,
+        check=True,
+    ).stdout
+    samples = np.frombuffer(pcm, np.int16)
+    chunk = PARAKEET_CHUNK_SECONDS * 16000
+    segments: List[Dict[str, Any]] = []
+    # ponytail: a word spoken across a 30-minute chunk edge can be split or lost.
+    for begin in range(0, len(samples), chunk):
+        waveform = samples[begin:begin + chunk].astype(np.float32) / 32768
+        offset = begin / 16000
+        for seg in asr.recognize(waveform, sample_rate=16000):
+            words = _parakeet_words(seg, offset)
+            if words:
+                segments.append({
+                    "start": offset + seg.start,
+                    "end": offset + seg.end,
+                    "text": " " + seg.text.strip(),
+                    "words": words,
+                })
+        logger.info("Parakeet transcribed %.0f / %.0f s", min(len(samples), begin + chunk) / 16000, len(samples) / 16000)
+    return {
+        "text": "".join(s["text"] for s in segments),
+        "segments": segments,
+        # Parakeet doesn't report the language; v2 is English-only.
+        "language": language or ("en" if "v2" in model_name else None),
+    }
+
+
 def _whisper_result_to_transcript_data(whisper_result: Dict[str, Any]) -> Dict[str, Any]:
     """Convert a Whisper result dict to the standard transcript-cache format.
 
@@ -441,6 +533,12 @@ def _get_transcript_with_whisper(video_path: Path, runtime_config) -> str:
     """Get transcript using local Whisper with word-level timestamps."""
     model_name = runtime_config.whisper_model
     language = runtime_config.transcription_language or None
+    parakeet = runtime_config.parakeet_model
+    use_parakeet = parakeet.lower() != "off" and (
+        not language or language.split("_", 1)[0] in PARAKEET_LANGUAGES
+    )
+    if use_parakeet:
+        model_name = parakeet
     # A retry after a cancel or a failed analysis reuses the finished transcript
     # instead of re-running Whisper over the whole VOD.
     whisper_key = f"{model_name}:{language or 'auto'}"
@@ -453,8 +551,18 @@ def _get_transcript_with_whisper(video_path: Path, runtime_config) -> str:
             for u in cached.get("utterances") or []
         )
 
-    logger.info("Starting Whisper transcription with model: %s", model_name)
-    whisper_result = transcribe_with_whisper(video_path, model_name, language)
+    whisper_result = None
+    if use_parakeet:
+        logger.info("Starting Parakeet transcription with model: %s", model_name)
+        try:
+            whisper_result = transcribe_with_parakeet(video_path, model_name, language)
+        except Exception:
+            logger.exception("Parakeet transcription failed; falling back to Whisper")
+            model_name = runtime_config.whisper_model
+            whisper_key = f"{model_name}:{language or 'auto'}"
+    if whisper_result is None:
+        logger.info("Starting Whisper transcription with model: %s", model_name)
+        whisper_result = transcribe_with_whisper(video_path, model_name, language)
 
     formatted_lines = format_transcript_for_analysis(whisper_result)
     cache_transcript_data(video_path, whisper_result, whisper_key=whisper_key)

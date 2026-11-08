@@ -108,8 +108,9 @@ values for a production image requires rebuilding the frontend.
 
 ### Transcription on CPU or GPU
 
-Whisper runs through faster-whisper, which uses an NVIDIA GPU when one is visible
-and falls back to the CPU otherwise. There is no separate CPU or CUDA build to pick.
+Local transcription uses NVIDIA Parakeet (onnx-asr) and falls back to Whisper
+(faster-whisper). Both use an NVIDIA GPU when one is visible and the CPU otherwise.
+There is no separate CPU or CUDA build to pick. `PARAKEET_MODEL=off` uses Whisper only.
 
 The default Compose stack contains five services:
 
