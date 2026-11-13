@@ -317,3 +317,20 @@ test("browser export contains edited video and audio through multiple cuts", asy
   ).toBe(true);
   expect(Number(probe.format.duration)).toBeCloseTo(3, 1);
 });
+
+test("one switch bleeps every swear word and single words can opt out", async ({
+  page,
+}) => {
+  await setup(page);
+  await page.getByLabel("Word 2", { exact: true }).fill("shit");
+  await page.getByRole("tab", { name: "Audio" }).click();
+  await page.getByRole("switch", { name: "Bleep 1 swear word" }).click();
+  await page.getByRole("tab", { name: "Captions" }).click();
+  const word = page.getByRole("button", { name: "Bleep word 2" });
+  await expect(word).toHaveAttribute("aria-pressed", "true");
+  await expect(
+    page.getByRole("button", { name: "Bleep word 1" }),
+  ).toHaveAttribute("aria-pressed", "false");
+  await word.click();
+  await expect(word).toHaveAttribute("aria-pressed", "false");
+});
