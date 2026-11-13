@@ -1,4 +1,4 @@
-"""Twitch VODs: download with yt-dlp, and chat replay as a clip signal (ported from LocalClip)."""
+"""Twitch and Kick VODs and clips: download with yt-dlp, and Twitch chat replay as a clip signal."""
 
 import json
 import logging
@@ -16,9 +16,31 @@ TWITCH_VOD = re.compile(r"^https?://(?:www\.|m\.)?twitch\.tv/(?:[^/]+/)?videos?/
 CHAT_EMOTES = re.compile(r"\b(LUL|KEKW|OMEGALUL|LMAO+|LOL+|Pog\w*|POGGERS|W+|L+|clip|monkaS|ICANT|Clap|EZ)\b|\?{2,}", re.I)
 
 
+# (site, pattern capturing the id). The id names the cached file, so every pattern keeps it to [\w-].
+STREAM_SOURCES = (
+    ("twitch", TWITCH_VOD),
+    ("twitch", re.compile(
+        r"^https?://(?:clips\.twitch\.tv/(?:embed\?(?:[^#]*&)?clip=)?|(?:(?:www|go|m)\.)?twitch\.tv/(?:[^/]+/)?clip/)([\w-]+)",
+        re.I,
+    )),
+    ("kick", re.compile(r"^https?://(?:www\.)?kick\.com/[\w-]+/videos/([\da-f]{8}-(?:[\da-f]{4}-){3}[\da-f]{12})", re.I)),
+    ("kick", re.compile(r"^https?://(?:www\.)?kick\.com/[\w-]+(?:/clips/|/?\?(?:[^#]+&)?clip=)(clip_[\w-]+)", re.I)),
+)
+
+
 def get_twitch_video_id(url: str) -> Optional[str]:
+    """Numeric id of a Twitch VOD (the only kind with a chat replay)."""
     match = TWITCH_VOD.match((url or "").strip())
     return match.group(1) if match else None
+
+
+def get_stream_source(url: str) -> Optional[Tuple[str, str]]:
+    """(site, id) for a Twitch or Kick VOD or clip link, else None."""
+    for site, pattern in STREAM_SOURCES:
+        match = pattern.match((url or "").strip())
+        if match:
+            return site, match.group(1)
+    return None
 
 
 def _ydl_opts(**extra):
@@ -30,25 +52,26 @@ def get_twitch_title(url: str) -> str:
 
     try:
         with yt_dlp.YoutubeDL(_ydl_opts()) as ydl:
-            return ydl.extract_info(url, download=False).get("title") or "Twitch VOD"
+            return ydl.extract_info(url, download=False).get("title") or "Stream VOD"
     except Exception as exc:
-        logger.warning("Twitch title lookup failed: %s", exc)
-        return "Twitch VOD"
+        logger.warning("Stream title lookup failed: %s", exc)
+        return "Stream VOD"
 
 
-def download_twitch_vod(url: str) -> Path:
-    """Download a VOD at up to 1080p. Kept between runs so a retry doesn't re-download hours of video."""
+def download_stream_video(url: str) -> Path:
+    """Download a Twitch/Kick VOD or clip at up to 1080p. Kept until its generation is deleted,
+    so a retry or "+30s" doesn't re-download hours of video."""
     import yt_dlp
 
-    video_id = get_twitch_video_id(url)
-    if not video_id:
-        raise ValueError("Not a Twitch VOD link (expected twitch.tv/videos/<id>)")
-    out_dir = Path(get_config().temp_dir) / "twitch"
+    source = get_stream_source(url)
+    if not source:
+        raise ValueError("Not a Twitch or Kick VOD or clip link")
+    site, video_id = source
+    out_dir = Path(get_config().temp_dir) / site
     out_dir.mkdir(parents=True, exist_ok=True)
     target = out_dir / f"{video_id}.mp4"
     if target.exists() and target.stat().st_size > 0:
         return target
-    # ponytail: VODs are cached forever in uploads/twitch; delete by hand or add cleanup if disk fills.
     with yt_dlp.YoutubeDL(_ydl_opts(
         format="b[height<=1080]/bv*[height<=1080]+ba/b",
         outtmpl=str(out_dir / f"{video_id}.%(ext)s"),
@@ -58,7 +81,7 @@ def download_twitch_vod(url: str) -> Path:
     )) as ydl:
         ydl.download([url])
     if not target.exists():
-        raise RuntimeError("Twitch download finished but no MP4 was written")
+        raise RuntimeError("Download finished but no MP4 was written")
     return target
 
 

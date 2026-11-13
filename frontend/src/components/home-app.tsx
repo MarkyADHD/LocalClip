@@ -369,14 +369,14 @@ export default function HomeApp() {
                     <span className="mt-0.5 flex size-11 shrink-0 items-center justify-center rounded-xl bg-muted text-muted-foreground"><Youtube className="size-5" /></span>
                   )}
                   <div className="min-w-0 flex-1">
-                    <label htmlFor="youtube-url" className="sr-only">YouTube URL</label>
+                    <label htmlFor="youtube-url" className="sr-only">Video link</label>
                     <input
                       id="youtube-url"
                       ref={urlInputRef}
                       type="url"
                       autoFocus
                       autoComplete="off"
-                      placeholder="Paste a Twitch VOD or YouTube link, or drop a video file"
+                      placeholder="Paste a Twitch, Kick or YouTube link, or drop a video file"
                       
                       value={url}
                       onChange={(e) => setUrl(e.target.value)}

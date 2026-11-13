@@ -12,7 +12,7 @@ import subprocess
 import uuid
 
 from ..utils.async_helpers import run_in_thread
-from ..twitch import chat_signal_lines, download_twitch_vod, get_twitch_video_id
+from ..twitch import chat_signal_lines, download_stream_video, get_stream_source
 from ..youtube_utils import (
     async_download_youtube_video,
     async_get_youtube_video_info,
@@ -129,10 +129,10 @@ class VideoService:
     @staticmethod
     def resolve_local_video_path(url: str) -> Path:
         """Resolve uploaded-video references without exposing server filesystem paths."""
-        twitch_id = get_twitch_video_id(url)
-        if twitch_id:
-            # Twitch VODs stay downloaded, so editing and regenerating find them here.
-            return Path(get_config().temp_dir) / "twitch" / f"{twitch_id}.mp4"
+        stream = get_stream_source(url)
+        if stream:
+            # Twitch/Kick videos stay downloaded, so editing and regenerating find them here.
+            return Path(get_config().temp_dir) / stream[0] / f"{stream[1]}.mp4"
         if url.startswith(UPLOAD_URL_PREFIX):
             filename = Path(url.removeprefix(UPLOAD_URL_PREFIX)).name
             return Path(get_config().temp_dir) / "uploads" / filename
@@ -383,11 +383,14 @@ class VideoService:
         video_id = get_youtube_video_id(url)
         if video_id:
             return "youtube"
-        if get_twitch_video_id(url):
-            return "twitch"
+        stream = get_stream_source(url)
+        if stream:
+            return stream[0]
         if url.startswith(UPLOAD_URL_PREFIX):
             return "video_url"
-        raise ValueError("Only YouTube or Twitch VOD URLs, or upload:// references are supported")
+        raise ValueError(
+            "That link isn't supported. Paste a Twitch or Kick VOD or clip link, or a YouTube link, or upload a file."
+        )
 
     @staticmethod
     async def process_video_complete(
@@ -453,8 +456,8 @@ class VideoService:
                 video_path = await VideoService.download_video(url, task_id=task_id)
                 if not video_path:
                     raise Exception("Failed to download video")
-            elif source_type == "twitch":
-                video_path = await run_in_thread(download_twitch_vod, url)
+            elif source_type in ("twitch", "kick"):
+                video_path = await run_in_thread(download_stream_video, url)
             else:
                 video_path = VideoService.resolve_local_video_path(url)
                 if not video_path.exists():

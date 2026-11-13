@@ -69,7 +69,8 @@ Blocking work (ffmpeg, downloads, transcription) is wrapped in `run_in_thread()`
 
 ### Pipeline
 
-1. **Input**: Twitch VOD / YouTube URL (yt-dlp) or uploaded file.
+1. **Input**: Twitch or Kick VOD or clip (`twitch.py`, yt-dlp; cached in the state folder until the
+   generation is deleted), YouTube URL, or uploaded file.
 2. **Transcription**: faster-whisper (CTranslate2, fp16 on the GPU, VAD on) locally (`WHISPER_MODEL`).
    No torch; cuBLAS/cuDNN come from the `nvidia-*` wheels. Close games while clipping: they share the GPU.
 3. **Twitch chat signals**: for Twitch VODs, `twitch.py` downloads the chat replay and scores

@@ -18,7 +18,7 @@
 
 ![LocalClip home](docs/screenshots/home.png)
 
-Paste a Twitch VOD or a YouTube link. LocalClip downloads it, transcribes it on your GPU, reads your Twitch chat to find where it went off, and has **Claude Code** pick the best moments. Then it renders captioned 9:16 clips with your facecam stacked over your gameplay, just like the paid clipping tools do.
+Paste a Twitch or Kick VOD (or clip) or a YouTube link. LocalClip downloads it, transcribes it on your GPU, reads your Twitch chat to find where it went off, and has **Claude Code** pick the best moments. Then it renders captioned 9:16 clips with your facecam stacked over your gameplay, just like the paid clipping tools do.
 
 You don't need a subscription, you don't upload your VODs to someone else's server, and there are no watermarks or monthly clip limits. Everything runs on your machine.
 
@@ -28,7 +28,7 @@ You don't need a subscription, you don't upload your VODs to someone else's serv
 |---|---|---|
 | Price | Monthly subscription for the good stuff | **Free and open source** |
 | Where it runs | Their servers | **Your PC** (your GPU does the work) |
-| Finds the clips for you | You scrub the VOD yourself | **AI watches the whole VOD**, plus your chat |
+| Finds the clips for you | ✅ ClipGPT, in their cloud | ✅ **AI reads the whole VOD** plus your chat, on your PC |
 | Facecam + gameplay layouts | ✅ | ✅ Facecam top, Gameplay top, Floating cam, Gameplay only |
 | Animated captions | ✅ | ✅ Word-synced, several caption styles |
 | Watermark / clip limits | On the free tier | **None** |
@@ -36,7 +36,7 @@ You don't need a subscription, you don't upload your VODs to someone else's serv
 
 ## Features
 
-- **Twitch VODs and YouTube links**, or upload any video file.
+- **Twitch and Kick VODs and clips, and YouTube links**, or upload any video file.
 - **AI clip finding with Claude Code.** It reads the whole transcript and picks 15–60 second moments with a strong hook, scoring each one for virality.
 - **Twitch chat signals.** LocalClip pulls the chat replay and finds the spikes where chat exploded (KEKW, LUL, Pog, "clip it"). Claude gets those as hints.
 - **"Clip that" detection.** If you said "clip that" on stream, LocalClip notices and makes sure that moment is considered.
@@ -65,7 +65,7 @@ You don't need a subscription, you don't upload your VODs to someone else's serv
 - Windows 10 or 11 with [winget](https://learn.microsoft.com/windows/package-manager/winget/), which is built into Windows 11.
 - A **Claude subscription** (Pro or Max). LocalClip runs Claude Code on your plan, so no API key is needed.
 - An NVIDIA GPU is strongly recommended for fast transcription. It works on CPU, just slowly. 16 GB of RAM or more is recommended.
-- Plenty of disk space. VODs are big.
+- Plenty of disk space. VODs are big. Deleting a generation in LocalClip also deletes its downloaded VOD and clips.
 
 **Option A (recommended):** download **`LocalClip-Setup.exe`** from the [latest release](../../releases/latest) and run it. It installs the LocalClip app with Start menu and desktop shortcuts, then downloads LocalClip itself and asks you to sign in to Claude Code if needed. Uninstall it from Windows Settings like any app (your videos and settings in `%LOCALAPPDATA%\LocalClip` are kept).
 
@@ -81,7 +81,7 @@ Option B does the same without the setup wizard. Both:
 3. Puts the desktop app (`LocalClip.exe`) in the same folder and adds **LocalClip** and **Close LocalClip** shortcuts to your desktop and Start menu.
 4. Starts LocalClip.
 
-The first start takes a while because it downloads everything else: Python (via uv), Node, ffmpeg, PyTorch with CUDA, a portable PostgreSQL and Redis, and the Whisper model. After that it starts in seconds and opens LocalClip in its own window. Every start also pulls the latest LocalClip update, and when a new release is published a banner in the app offers **Update and restart**.
+The first start takes a while because it downloads everything else: Python (via uv), Node, ffmpeg, the CUDA libraries for Whisper, a portable PostgreSQL and Redis, and the Whisper model. After that it starts in seconds and opens LocalClip in its own window. Every start also pulls the latest LocalClip update, and when a new release is published a banner in the app offers **Update and restart**.
 
 To stop everything, close the LocalClip window. Nothing keeps running in the background. The **Close LocalClip** shortcut still works too, in case something gets stuck.
 
@@ -128,7 +128,7 @@ claude -p --model sonnet --output-format json --json-schema <clip schema> --tool
 
 That's why it uses your **Claude plan** instead of per-token billing. Only the transcript text is sent to Claude. Your video never leaves your PC. The code lives in `backend/src/claude_code.py` and `backend/src/ai.py`.
 
-> **v1 note:** in this first version of LocalClip, **only Claude Code is supported** for picking clips. **Support for local AI models** (Ollama and friends) is coming in a future release, so LocalClip will be able to run 100% offline.
+> **Prefer a local model?** Settings > AI model lists Claude Code (the default, and the best picks) plus every Ollama and LM Studio model on your PC, and any OpenAI-compatible server that's running (llama.cpp, Jan, KoboldCpp and others). Pick one and LocalClip runs 100% offline.
 
 ### Finding your facecam
 
@@ -176,7 +176,6 @@ LocalClip creates a `.env` file on first start. Things you might want to change:
 
 ## Roadmap
 
-- Local AI models for clip picking (Ollama), for fully offline use
 - More stream templates and draggable cam/gameplay regions
 - Auto-posting to TikTok / YouTube Shorts
 

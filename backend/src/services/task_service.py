@@ -188,7 +188,7 @@ class TaskService(ClipEditingMixin):
         if not title:
             if source_type == "youtube":
                 title = await self.video_service.get_video_title(url)
-            elif source_type == "twitch":
+            elif source_type in ("twitch", "kick"):
                 title = await run_in_thread(get_twitch_title, url)
             else:
                 title = "Uploaded Video"

@@ -2,7 +2,7 @@ from pathlib import Path
 
 from src.media import timeline
 from src.services.video_service import VideoService
-from src.twitch import chat_spikes, get_twitch_video_id, timestamp_label
+from src.twitch import chat_spikes, get_stream_source, get_twitch_video_id, timestamp_label
 
 
 def test_twitch_urls():
@@ -61,3 +61,21 @@ def test_signal_hints_reach_every_part_of_a_long_vod(monkeypatch):
     # 3 hints for each of the 24 ten-minute stretches, not 12 for the whole VOD.
     assert len(hint_lines) == 72
     assert hint_lines[-1] != hint_lines[0] and any(line.startswith("- [03:") for line in hint_lines)
+
+
+def test_kick_and_clip_links():
+    cases = {
+        "https://clips.twitch.tv/FaintLightGullWholeWheat": ("twitch", "FaintLightGullWholeWheat"),
+        "https://www.twitch.tv/somestreamer/clip/Faint-Light_Gull-abc123?filter=clips": ("twitch", "Faint-Light_Gull-abc123"),
+        "https://kick.com/somestreamer/videos/0d2a8b9e-1c3f-4a5b-8d7e-9f0a1b2c3d4e": ("kick", "0d2a8b9e-1c3f-4a5b-8d7e-9f0a1b2c3d4e"),
+        "https://kick.com/somestreamer/clips/clip_01HZX2ABC": ("kick", "clip_01HZX2ABC"),
+        "https://kick.com/somestreamer?clip=clip_01HZX2ABC": ("kick", "clip_01HZX2ABC"),
+        "https://www.twitch.tv/videos/42": ("twitch", "42"),
+    }
+    for url, expected in cases.items():
+        assert get_stream_source(url) == expected, url
+        assert VideoService.determine_source_type(url) == expected[0]
+        assert VideoService.resolve_local_video_path(url).parts[-2:] == (expected[0], f"{expected[1]}.mp4")
+    for url in ("https://kick.com/somestreamer", "https://www.twitch.tv/somestreamer", "https://kick.com/../videos/x"):
+        assert get_stream_source(url) is None
+    assert get_twitch_video_id("https://clips.twitch.tv/FaintLightGullWholeWheat") is None  # no chat replay for clips
