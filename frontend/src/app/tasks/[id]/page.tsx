@@ -80,6 +80,7 @@ interface Clip {
   shareability_score: number;
   hook_type: string | null;
   hook_title: string | null;
+  hashtags?: string[];
 }
 
 interface TaskDetails {

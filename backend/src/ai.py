@@ -34,7 +34,7 @@ IDEAL_CLIP_MIN_SECONDS = 25
 IDEAL_CLIP_MAX_SECONDS = 50
 MIN_ACCEPTED_CLIP_SECONDS = 15
 MAX_ACCEPTED_CLIP_SECONDS = 60
-TRANSCRIPT_ANALYSIS_CACHE_VERSION = "stream-picks-v8"
+TRANSCRIPT_ANALYSIS_CACHE_VERSION = "stream-picks-v9"
 TRANSCRIPT_ANALYSIS_MAX_ATTEMPTS = 3
 TRANSCRIPT_ANALYSIS_TIMEOUT_SECONDS = 600
 # Long transcripts are analysed in overlapping windows so every part of the
@@ -266,6 +266,22 @@ class TranscriptSegment(BaseModel):
         default=None,
         description="Optional MM:SS end of that hook line (null with hook_start_time).",
     )
+    hashtags: List[str] = Field(
+        default_factory=list,
+        description=(
+            "3-5 hashtags to post this clip with, without the # sign: the game or "
+            "topic first, then what happens in the clip. No generic filler like fyp or viral."
+        ),
+    )
+
+    @field_validator("hashtags", mode="before")
+    @classmethod
+    def _clean_hashtags(cls, value: Any) -> List[str]:
+        """Models return lists, one string, with or without #: keep up to 5 clean, distinct tags."""
+        if isinstance(value, str):
+            value = re.split(r"[\s,]+", value)
+        tags = [re.sub(r"\W", "", str(tag)).lower() for tag in value or []]
+        return list(dict.fromkeys(tag for tag in tags if tag))[:5]
 
     @field_validator("relevance_score", mode="before")
     @classmethod
@@ -808,7 +824,8 @@ JSON-only output requirements:
 - Return one valid JSON object and nothing else.
 - No Markdown, headings, bullets, code fences, or explanatory text outside JSON.
 - Top-level keys: "most_relevant_segments", "summary", "key_topics", "broll_opportunities".{' Set "broll_opportunities" to null.' if not include_broll else ''}
-- Segment keys: "start_time", "end_time", "text", "relevance_score", "reasoning", "virality", "hook_title".
+- Segment keys: "start_time", "end_time", "text", "relevance_score", "reasoning", "virality", "hook_title", "hashtags".
+- "hashtags" is 3-5 tags to post the clip with, without the # sign: the game or topic first, then what happens (no fyp/viral filler).
 - Optional segment keys "hook_start_time"/"hook_end_time": MM:SS range of the strongest 2-5 second line later in the segment (cold-open teaser), or null.
 - "hook_title" is a 3-9 word plain-text headline for the clip, in the transcript's language, grounded in the segment (no hashtags, emojis, or quotes).
 - Virality keys: "hook_score", "engagement_score", "value_score", "shareability_score", "total_score", "hook_type", "virality_reasoning".

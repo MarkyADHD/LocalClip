@@ -101,6 +101,7 @@ CREATE TABLE generated_clips (
     shareability_score INTEGER DEFAULT 0,
     hook_type VARCHAR(50),
     hook_title VARCHAR(200),         -- AI-written on-screen headline
+    hashtags VARCHAR(300),           -- space-separated, no # sign
 
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP

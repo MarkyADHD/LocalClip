@@ -51,3 +51,14 @@ def test_transcript_analysis_accepts_local_llm_broll_shape():
     assert broll.timestamp == "00:00"
     assert broll.duration == 3.0
     assert broll.search_term == "programming tutorial channels, AI comparison graphic"
+
+
+def test_hashtags_are_cleaned_whatever_shape_the_model_returns():
+    from src.ai import TranscriptSegment
+
+    base = {"start_time": "00:00", "end_time": "00:30", "text": "x"}
+    as_list = TranscriptSegment(**base, hashtags=["#ARC Raiders", "clutch!", "#clutch", "", "a", "b", "c", "d"])
+    assert as_list.hashtags == ["arcraiders", "clutch", "a", "b", "c"]
+    assert TranscriptSegment(**base, hashtags="#arcraiders, #fail funny").hashtags == ["arcraiders", "fail", "funny"]
+    assert TranscriptSegment(**base).hashtags == []
+    assert TranscriptSegment(**base, hashtags=None).hashtags == []

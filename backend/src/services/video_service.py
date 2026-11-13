@@ -354,6 +354,7 @@ class VideoService:
                 "shareability_score": segment.get("shareability_score", 0),
                 "hook_type": segment.get("hook_type"),
                 "hook_title": segment.get("hook_title"),
+                "hashtags": segment.get("hashtags") or [],
                 "keep_ranges": keep_ranges,
             }
         except Exception as e:
@@ -587,6 +588,7 @@ class VideoService:
                         "shareability_score": virality.get("shareability_score", 0),
                         "hook_type": virality.get("hook_type"),
                         "hook_title": segment.get("hook_title"),
+                        "hashtags": segment.get("hashtags") or [],
                         "hook_start_time": segment.get("hook_start_time"),
                         "hook_end_time": segment.get("hook_end_time"),
                     }
@@ -605,6 +607,7 @@ class VideoService:
                         "shareability_score": virality.get("shareability_score", 0),
                         "hook_type": virality.get("hook_type"),
                         "hook_title": getattr(segment, "hook_title", None),
+                        "hashtags": getattr(segment, "hashtags", None) or [],
                         "hook_start_time": getattr(segment, "hook_start_time", None),
                         "hook_end_time": getattr(segment, "hook_end_time", None),
                     }

@@ -451,6 +451,10 @@ class TaskService(ClipEditingMixin):
                             hook_type=clip_info.get("hook_type"),
                             hook_title=clip_info.get("hook_title"),
                         )
+                        if clip_info.get("hashtags"):
+                            await self.clip_repo.set_clip_hashtags(
+                                self.db, clip_id, clip_info["hashtags"]
+                            )
 
                         # Update task's clip IDs array
                         await self.task_repo.update_task_clips(self.db, task_id, [*clip_ids, clip_id])
