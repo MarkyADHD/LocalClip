@@ -60,3 +60,19 @@ describe("non-destructive edits", () => {
     ).toEqual({ width: 1280, height: 720 });
   });
 });
+
+describe("bleep helpers", () => {
+  it("finds swears through punctuation and case, not lookalikes", async () => {
+    const { isSwear, censor, needsServerExport } = await import("./document");
+    expect(["Fucking,", "shit!", "ASSHOLE"].every(isSwear)).toBe(true);
+    expect(["class", "assume", "shiitake", "duck"].some(isSwear)).toBe(false);
+    expect(censor("Fucking,")).toBe("F******,");
+    const doc = {
+      words: [{ id: "w", start: 0, end: 1, text: "shit", highlight: false }],
+    } as never as Parameters<typeof needsServerExport>[0];
+    expect(needsServerExport(doc)).toBe(false);
+    expect(
+      needsServerExport({ ...doc, words: [{ ...doc.words[0], bleep: true }] }),
+    ).toBe(true);
+  });
+});

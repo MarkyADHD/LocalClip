@@ -69,17 +69,23 @@ Blocking work (ffmpeg, downloads, transcription) is wrapped in `run_in_thread()`
 
 ### Pipeline
 
-1. **Input**: Twitch VOD / YouTube URL (yt-dlp) or uploaded file.
+1. **Input**: Twitch or Kick VOD or clip (`twitch.py`, yt-dlp; cached in the state folder until the
+   generation is deleted), YouTube URL, or uploaded file.
 2. **Transcription**: faster-whisper (CTranslate2, fp16 on the GPU, VAD on) locally (`WHISPER_MODEL`).
    No torch; cuBLAS/cuDNN come from the `nvidia-*` wheels. Close games while clipping: they share the GPU.
 3. **Twitch chat signals**: for Twitch VODs, `twitch.py` downloads the chat replay and scores
    activity spikes, which feed the clip selection as an extra signal.
-4. **AI analysis**: the LLM picks segments with virality scores. Default LLM is the Claude Code
+4. **AI analysis**: the LLM picks segments with virality scores; the prompts target stream
+   moments (fails, clutches, reactions, chat spikes), not tutorials or talk. Default LLM is the Claude Code
    CLI (`LLM=claude-code:sonnet`, provider `claude-code` in `ai.py`); it uses the user's local
    `claude` login. Other providers (`google-gla`, `openai`, `anthropic`, `ollama`, `openrouter`)
-   still work. Long transcripts are analysed in windows and reranked.
+   still work, plus `local:<model>` for any OpenAI-compatible server at `LOCAL_LLM_BASE_URL` (LM Studio,
+   llama.cpp, Jan, ...). Settings > AI model lists every model `local_models.py` finds on the PC
+   (`GET/PUT /admin/llm`); Ollama and LM Studio servers are started when a model needs them.
+   Long transcripts are analysed in windows and reranked.
 5. **Rendering**: 9:16 clips with face-tracked crops or a stream template, word-synced
-   captions, hook title, optional transitions/B-roll.
+   captions, hook title, optional transitions/B-roll. Two clips render at once; encodes use
+   NVENC when ffmpeg has it (`VIDEO_ENCODER=cpu` forces libx264) and fall back to the CPU on failure.
 
 ### Stream templates
 

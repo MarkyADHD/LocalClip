@@ -254,6 +254,7 @@ PUBLIC_CLIP_FIELDS = {
     "shareability_score",
     "hook_type",
     "hook_title",
+    "hashtags",
 }
 
 

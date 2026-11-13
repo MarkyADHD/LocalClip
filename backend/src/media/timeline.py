@@ -452,8 +452,34 @@ def parse_transcript_lines(transcript: str) -> List[Dict[str, Any]]:
     return lines
 
 
-def detect_audio_peak_times(video_path: Path, max_peaks: int = 8) -> List[float]:
-    """Find approximate one-second audio energy peaks with ffmpeg astats."""
+def spike_spans(
+    values: List[float],
+    window: int = 300,
+    z: float = 2.5,
+    floor: float = 0.5,
+    min_value: float = float("-inf"),
+) -> List[List[float]]:
+    """[start, end] seconds where a per-second series jumps well above its own
+    rolling median (``window`` seconds around it), checked every 5 s. Comparing
+    with the local median keeps busy or loud stretches from flagging everything."""
+    import statistics
+
+    n = len(values)
+    spans: List[List[float]] = []
+    for i in range(0, n, 5):
+        ref = values[max(0, i - window // 2):i + window // 2:5]
+        med = statistics.median(ref) if ref else 0
+        mad = statistics.median(abs(x - med) for x in ref) if ref else 0
+        if values[i] > min_value and values[i] > med + z * max(mad * 1.4826, floor):
+            if spans and i - spans[-1][1] <= 10:
+                spans[-1][1] = float(i + 5)
+            else:
+                spans.append([float(i), float(i + 5)])
+    return spans
+
+
+def audio_rms_per_second(video_path: Path) -> List[float]:
+    """Audio loudness (RMS dB) for every second of the source, via ffmpeg astats."""
     # The small transcription audio has the same track; decoding the whole VOD took minutes.
     transcription_audio = video_path.with_name(f"{video_path.stem}.transcription.mp3")
     if transcription_audio.exists() and transcription_audio.stat().st_size > 0:
@@ -481,31 +507,35 @@ def detect_audio_peak_times(video_path: Path, max_peaks: int = 8) -> List[float]
     if result.returncode != 0:
         return []
 
+    levels: List[float] = []
     current_time: Optional[float] = None
-    samples: List[Tuple[float, float]] = []
     for line in result.stderr.splitlines():
         time_match = re.search(r"pts_time:([0-9.]+)", line)
         if time_match:
             current_time = float(time_match.group(1))
             continue
-        rms_match = re.search(r"lavfi\.astats\.Overall\.RMS_level=([-0-9.]+)", line)
+        rms_match = re.search(r"lavfi\.astats\.Overall\.RMS_level=([-0-9.a-z]+)", line)
         if rms_match and current_time is not None:
+            second = int(current_time)
             try:
-                samples.append((current_time, float(rms_match.group(1))))
+                level = max(-90.0, float(rms_match.group(1)))
             except ValueError:
-                pass
+                level = -90.0
+            levels.extend([-90.0] * (second + 1 - len(levels)))
+            levels[second] = level
             current_time = None
+    return levels
 
-    if not samples:
+
+def detect_loud_spans(video_path: Path) -> List[List[float]]:
+    """Seconds where the stream suddenly gets loud (shouting, laughing, explosions)
+    compared with the surrounding five minutes, across the whole source."""
+    levels = audio_rms_per_second(video_path)
+    if not levels:
         return []
-    samples.sort(key=lambda item: item[1], reverse=True)
-    peaks: List[float] = []
-    for timestamp, _ in samples:
-        if all(abs(timestamp - existing) >= 4.0 for existing in peaks):
-            peaks.append(timestamp)
-        if len(peaks) >= max_peaks:
-            break
-    return sorted(peaks)
+    smooth = [sum(levels[max(0, i - 1):i + 2]) / len(levels[max(0, i - 1):i + 2]) for i in range(len(levels))]
+    # ponytail: at least ~6 dB over the local median and not near-silence; tune on real VODs.
+    return spike_spans(smooth, z=3.0, floor=2.0, min_value=-45.0)
 
 
 CLIP_THAT_PATTERN = re.compile(r"\bclip (that|this|it)\b", re.IGNORECASE)
@@ -532,14 +562,20 @@ def build_clip_signal_summary(
         if CLIP_THAT_PATTERN.search(line["text"])
     ]
 
+    loud_spans = detect_loud_spans(video_path)
+    loud = [
+        f"- [{timestamp_label(a)} - {timestamp_label(b)}] score=3.0: loud spike: shouting, "
+        "laughing or something loud on screen"
+        for a, b in loud_spans
+    ]
+
+    # Reaction words, not argument words: streams clip on reactions.
     trigger_pattern = re.compile(
-        r"\b(wait|what|no way|seriously|actually|but|however|because|mistake|secret|"
-        r"wild|crazy|insane|never|always|nobody|everybody|why|how|haha|laugh|lol|damn|"
-        r"shit|fuck)\b",
+        r"\b(wait|what|no way|seriously|wild|crazy|insane|bro|dude|holy|oh my god|omg|"
+        r"let'?s go|haha|laugh|lol|lmao|damn|shit|fuck|run|help|nooo+)\b",
         re.IGNORECASE,
     )
     candidates: List[Tuple[float, Dict[str, Any], str]] = []
-    audio_peaks = detect_audio_peak_times(video_path)
 
     for idx, line in enumerate(transcript_lines):
         text = line["text"]
@@ -547,16 +583,13 @@ def build_clip_signal_summary(
         reasons: List[str] = []
         if trigger_pattern.search(text):
             score += 2.0
-            reasons.append("trigger phrase")
+            reasons.append("reaction words")
         if "?" in text:
-            score += 1.5
-            reasons.append("question/hook")
+            score += 1.0
+            reasons.append("question")
         if "!" in text:
             score += 1.0
             reasons.append("emphatic delivery")
-        if re.search(r"\b(I|we)\s+(thought|realized|found|learned|made|lost|won)\b", text, re.I):
-            score += 1.0
-            reasons.append("story turn")
         if len(text.split()) <= 8:
             score += 0.5
             reasons.append("short punchy line")
@@ -574,20 +607,30 @@ def build_clip_signal_summary(
             if next_line["speaker"] != line["speaker"] and next_line["end"] - line["start"] <= 10:
                 score += 1.0
                 reasons.append("back-and-forth")
-        if any(line["start"] <= peak <= line["end"] for peak in audio_peaks):
+        if any(a <= line["end"] and line["start"] <= b for a, b in loud_spans):
             score += 1.25
             reasons.append("audio energy peak")
 
         if score > 0:
             candidates.append((score, line, ", ".join(reasons)))
 
+    # The best few per 10 minutes, so every analysis window gets hints, not just
+    # the loudest stretch of a long VOD.
     candidates.sort(key=lambda item: item[0], reverse=True)
+    per_bucket: Dict[int, int] = {}
+    picked = []
+    for item in candidates:
+        bucket = int(item[1]["start"] // 600)
+        if per_bucket.get(bucket, 0) < 3:
+            per_bucket[bucket] = per_bucket.get(bucket, 0) + 1
+            picked.append(item)
     summary_lines = [
         "Deterministic clip-worthiness signals to consider before ranking:",
         *requested,
         *(extra_lines or []),
+        *loud,
     ]
-    for score, line, reason in candidates[:12]:
+    for score, line, reason in picked:
         summary_lines.append(
             f"- [{line['start_label']} - {line['end_label']}] score={score:.1f}: {reason}; {line['text']}"
         )

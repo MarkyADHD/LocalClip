@@ -3,9 +3,10 @@
 import Link from "next/link";
 import { useEffect } from "react";
 import {
-  AudioLines, Check, ChevronLeft, ChevronRight, Clapperboard, Download, Flame, Loader2, MessageSquare,
+  AudioLines, Check, ChevronLeft, ChevronRight, Clapperboard, Copy, Download, Flame, Loader2, MessageSquare,
   Play, Scissors, Share2, Sparkles, Star, Trash2, TrendingUp,
 } from "lucide-react";
+import { toast } from "sonner";
 import { ClipCover, ScoreRing } from "@/components/app/clip-cover";
 import DynamicVideoPlayer from "@/components/dynamic-video-player";
 import { TranscriptPreview } from "@/components/transcript-preview";
@@ -32,6 +33,7 @@ export interface WallClip {
   shareability_score: number;
   hook_type: string | null;
   hook_title: string | null;
+  hashtags?: string[];
 }
 
 function clipTitle(clip: WallClip) {
@@ -154,6 +156,23 @@ export function ClipFocus({ clip, taskId, index, total, busy, editable, onNaviga
                   <DialogDescription className="mt-1 tabular-nums">
                     {clip.start_time} – {clip.end_time} · {formatClipDuration(clip.duration)}
                   </DialogDescription>
+                  {clip.hashtags && clip.hashtags.length > 0 && (
+                    <button
+                      type="button"
+                      className="mt-2 flex items-start gap-1.5 rounded-md text-left text-sm text-muted-foreground hover:text-foreground"
+                      title="Copy the title and hashtags"
+                      onClick={() => {
+                        const caption = `${clipTitle(clip)} ${clip.hashtags!.map((tag) => `#${tag}`).join(" ")}`;
+                        void navigator.clipboard.writeText(caption).then(
+                          () => toast.success("Title and hashtags copied"),
+                          () => toast.error("Could not copy. Select the text instead."),
+                        );
+                      }}
+                    >
+                      <Copy className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+                      <span>{clip.hashtags.map((tag) => `#${tag}`).join(" ")}</span>
+                    </button>
+                  )}
                 </div>
 
                 {clip.virality_score > 0 && (

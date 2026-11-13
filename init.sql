@@ -37,7 +37,7 @@ CREATE TABLE users (
 -- Source table (created before tasks since tasks reference sources)
 CREATE TABLE sources (
     id VARCHAR(36) PRIMARY KEY DEFAULT uuid_generate_v4()::text,
-    type VARCHAR(20) CHECK (type IN ('youtube', 'video_url', 'twitch')) NOT NULL,
+    type VARCHAR(20) CHECK (type IN ('youtube', 'video_url', 'twitch', 'kick')) NOT NULL,
     title VARCHAR(500) NOT NULL,
     url VARCHAR(1000),
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
@@ -101,6 +101,7 @@ CREATE TABLE generated_clips (
     shareability_score INTEGER DEFAULT 0,
     hook_type VARCHAR(50),
     hook_title VARCHAR(200),         -- AI-written on-screen headline
+    hashtags VARCHAR(300),           -- space-separated, no # sign
 
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP

@@ -1,3 +1,4 @@
+import asyncio
 from src.services import clip_service as clip_service_module
 from datetime import datetime, timezone
 from contextlib import nullcontext
@@ -669,3 +670,93 @@ async def test_legacy_queue_reservations_keep_full_arq_retention_window(age_hour
     service.task_repo.load_source_metadata = AsyncMock(return_value={})
     task = {"id": "legacy", "created_at": datetime.now(timezone.utc) - timedelta(hours=age_hours)}
     assert await service._queued_job_is_missing(task) is missing
+
+
+@pytest.mark.asyncio
+async def test_clips_render_two_at_a_time_but_save_in_order(tmp_path):
+    service = build_task_service()
+    service.config.temp_dir = str(tmp_path)
+    service.video_service.process_video_complete.return_value["segments_to_render"] = [
+        {"start": i, "end": i + 10} for i in range(4)
+    ]
+    running, peak = 0, 0
+
+    async def render(_video, _segment, index, *_args):
+        nonlocal running, peak
+        running += 1
+        peak = max(peak, running)
+        await asyncio.sleep(0.05 if index == 0 else 0.01)  # the first clip finishes last
+        running -= 1
+        return {**build_clip_result(), "path": str(tmp_path / f"clip-{index}.mp4"), "start_time": f"00:0{index}"}
+
+    service.video_service.create_single_clip = render
+    service.clip_repo.create_clip = AsyncMock(side_effect=lambda *_a, **kw: f"id-{kw['clip_order']}")
+
+    result = await service.process_task(task_id="task-1", url="upload://source.mp4", source_type="video_url")
+
+    assert result["clips_count"] == 4
+    assert peak == 2
+    saved = [call.kwargs["start_time"] for call in service.clip_repo.create_clip.await_args_list]
+    assert saved == ["00:00", "00:01", "00:02", "00:03"]
+
+
+@pytest.mark.asyncio
+async def test_cancel_mid_render_removes_unsaved_clip_files(tmp_path):
+    service = build_task_service()
+    service.config.temp_dir = str(tmp_path)
+    clips_dir = tmp_path / "clips"
+    service.video_service.process_video_complete.return_value["segments_to_render"] = [
+        {"start": i, "end": i + 10} for i in range(3)
+    ]
+    cancelled = False
+
+    async def render(_video, _segment, index, *_args):
+        nonlocal cancelled
+        await asyncio.sleep(0.01 if index == 0 else 0.05)
+        path = clips_dir / f"clip-{index}.mp4"
+        path.write_bytes(b"x")
+        cancelled = True  # the user cancels while clip 2 is still rendering
+        return {**build_clip_result(), "path": str(path)}
+
+    async def should_cancel():
+        return cancelled
+
+    service.video_service.create_single_clip = render
+
+    with pytest.raises(Exception):
+        await service.process_task(
+            task_id="task-1", url="upload://source.mp4", source_type="video_url", should_cancel=should_cancel
+        )
+
+    await asyncio.sleep(0.1)  # any render left running would write its file now
+    assert list(clips_dir.glob("*.mp4")) == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("vod_shared", [False, True])
+async def test_delete_task_removes_its_files_but_keeps_a_shared_vod(tmp_path, vod_shared):
+    from unittest.mock import MagicMock, patch
+
+    service = build_task_service()
+    service.config.temp_dir = str(tmp_path)
+    clip = tmp_path / "clips" / "clip_1.mp4"
+    vod = tmp_path / "twitch" / "123.mp4"
+    other_vod = tmp_path / "twitch" / "1234.mp4"
+    sidecars = [vod.with_name("123.transcription.mp3"), vod.with_name("123.transcript_cache.json")]
+    for path in [clip, clip.with_suffix(".source_map.json"), vod, other_vod, *sidecars]:
+        path.parent.mkdir(exist_ok=True)
+        path.write_bytes(b"x")
+    service.task_repo.get_task_by_id = AsyncMock(
+        return_value={"status": "completed", "source_url": "https://www.twitch.tv/videos/123"}
+    )
+    service.clip_repo.get_clips_by_task = AsyncMock(return_value=[{"file_path": str(clip)}])
+    service.task_repo.delete_task = AsyncMock()
+    service.db.info = {}
+    service.db.execute = AsyncMock(return_value=MagicMock(first=lambda: (1,) if vod_shared else None))
+
+    with patch("src.services.video_service.get_config", return_value=service.config):
+        await service.delete_task("task-1")
+
+    assert not clip.exists() and not clip.with_suffix(".source_map.json").exists()
+    assert other_vod.exists()
+    assert all(path.exists() == vod_shared for path in [vod, *sidecars])

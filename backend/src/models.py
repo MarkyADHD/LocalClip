@@ -222,7 +222,7 @@ class Source(Base):
 
     # Add check constraint for type enum
     __table_args__ = (
-        CheckConstraint("type IN ('youtube', 'video_url', 'twitch')", name="check_source_type"),
+        CheckConstraint("type IN ('youtube', 'video_url', 'twitch', 'kick')", name="check_source_type"),
     )
 
     # Relationships - Source can have multiple tasks

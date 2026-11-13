@@ -52,7 +52,7 @@ export function GenerationCard({ generation, selected, onToggle, selectionDisabl
             </div>
           ) : null}
           <div className="absolute inset-x-3 bottom-2.5 flex items-center justify-between text-[11px] font-medium text-white/90">
-            <span className="flex items-center gap-1.5"><SourceIcon className="size-3.5" aria-hidden />{generation.source_type === "youtube" ? "YouTube" : generation.source_type === "twitch" ? "Twitch" : "Upload"}</span>
+            <span className="flex items-center gap-1.5"><SourceIcon className="size-3.5" aria-hidden />{({ youtube: "YouTube", twitch: "Twitch", kick: "Kick" } as Record<string, string>)[generation.source_type] ?? "Upload"}</span>
             {generation.clips_count > 0 && <span className="tabular-nums">{generation.clips_count} {generation.clips_count === 1 ? "clip" : "clips"}</span>}
           </div>
         </ClipCover>

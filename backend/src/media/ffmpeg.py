@@ -1,5 +1,6 @@
 """Ffmpeg helpers for the video pipeline."""
 
+from functools import lru_cache
 from typing import List
 from typing import Optional
 from pathlib import Path
@@ -7,6 +8,7 @@ from typing import Tuple
 from ..clip_source_map import normalize_source_ranges
 from ..config import get_config
 import json
+import os
 import re
 import subprocess
 from .common import (
@@ -34,16 +36,68 @@ def clamp_even(value: int, minimum: int, maximum: int) -> int:
 
 
 def run_ffmpeg_command(command: List[str], timeout: int = 900) -> subprocess.CompletedProcess:
-    """Run ffmpeg/ffprobe and log stderr on failure."""
+    """Run ffmpeg/ffprobe and log stderr on failure.
+
+    A failed GPU (NVENC) encode is retried once with the CPU encoder, so a busy
+    or missing GPU never costs a clip.
+    """
     result = subprocess.run(
         command,
         capture_output=True,
         text=True,
         timeout=timeout,
     )
+    if result.returncode != 0 and "h264_nvenc" in command:
+        logger.warning("GPU encode failed, retrying on the CPU:\n%s", result.stderr[-2000:])
+        return run_ffmpeg_command(cpu_encode_fallback(command), timeout)
     if result.returncode != 0:
         logger.error("Command failed: %s\n%s", " ".join(command), result.stderr[-4000:])
     return result
+
+
+@lru_cache(maxsize=1)
+def nvenc_available() -> bool:
+    """True when ffmpeg can encode H.264 on an NVIDIA GPU (checked once).
+
+    VIDEO_ENCODER=cpu forces libx264."""
+    if os.getenv("VIDEO_ENCODER", "auto").strip().lower() == "cpu":
+        return False
+    try:
+        probe = subprocess.run(
+            ["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "color=s=256x256:d=0.2",
+             "-c:v", "h264_nvenc", "-f", "null", "-"],
+            capture_output=True,
+            timeout=30,
+        )
+    except Exception:
+        return False
+    logger.info("Video encoder: %s", "NVENC (GPU)" if probe.returncode == 0 else "libx264 (CPU)")
+    return probe.returncode == 0
+
+
+def _nvenc_args(quality: int, preset: str) -> List[str]:
+    # Constant-quality VBR; -cq tracks libx264's -crf closely enough at these levels.
+    return ["-c:v", "h264_nvenc", "-preset", preset, "-tune", "hq", "-rc", "vbr",
+            "-cq", str(quality), "-b:v", "0"]
+
+
+def _x264_args(quality: int, preset: str) -> List[str]:
+    return ["-c:v", "libx264", "-preset", preset, "-crf", str(quality)]
+
+
+def cpu_encode_fallback(command: List[str]) -> List[str]:
+    """Swap the NVENC video args in an ffmpeg command for libx264 equivalents."""
+    i = command.index("h264_nvenc") - 1
+    quality = command[command.index("-cq", i) + 1]
+    preset = FINAL_VIDEO_PRESET if command[i + 3] != "p1" else "veryfast"
+    return command[:i] + _x264_args(int(quality), preset) + command[i + len(_nvenc_args(0, "")):]
+
+
+def intermediate_video_encode_args() -> List[str]:
+    """Video args for the near-lossless cut that later passes read from."""
+    if nvenc_available():
+        return _nvenc_args(INTERMEDIATE_CRF, "p1") + ["-pix_fmt", "yuv420p"]
+    return _x264_args(INTERMEDIATE_CRF, "veryfast") + ["-pix_fmt", "yuv420p"]
 
 
 def ffprobe_has_audio(video_path: Path) -> bool:
@@ -214,11 +268,16 @@ def build_final_video_encode_args(
     preset: str = FINAL_VIDEO_PRESET,
     fps: int = OUTPUT_FPS,
 ) -> List[str]:
-    """libx264 args for the quality-determining final pass (CFR, H.264 High)."""
-    return [
-        "-c:v", "libx264",
-        "-preset", preset,
-        "-crf", str(crf),
+    """Args for the quality-determining final pass (CFR, H.264 High): NVENC on
+    an NVIDIA GPU, libx264 otherwise."""
+    if nvenc_available():
+        return _nvenc_args(crf, "p5") + [
+            "-pix_fmt", "yuv420p",
+            "-profile:v", "high",
+            "-r", str(fps),
+            "-g", "120",
+        ]
+    return _x264_args(crf, preset) + [
         "-pix_fmt", "yuv420p",
         "-profile:v", "high",
         "-level", "4.1",
@@ -342,8 +401,7 @@ def render_ranges_crossfade_ffmpeg(
         "ffmpeg", "-y", *seek, "-i", str(video_path),
         "-filter_complex", ";".join(parts),
         *map_args,
-        "-c:v", "libx264", "-preset", "veryfast", "-crf", str(INTERMEDIATE_CRF),
-        "-pix_fmt", "yuv420p",
+        *intermediate_video_encode_args(),
     ]
     if has_audio:
         command += ["-c:a", "aac", "-b:a", "192k"]
@@ -376,14 +434,7 @@ def render_source_ranges_ffmpeg(
             *audio_stream_map_args(audio_stream),
             "-t",
             f"{end - start:.3f}",
-            "-c:v",
-            "libx264",
-            "-preset",
-            "veryfast",
-            "-crf",
-            str(INTERMEDIATE_CRF),
-            "-pix_fmt",
-            "yuv420p",
+            *intermediate_video_encode_args(),
             "-c:a",
             "aac",
             "-b:a",
@@ -437,14 +488,7 @@ def render_source_ranges_ffmpeg(
         "-filter_complex",
         ";".join(filter_parts),
         *map_args,
-        "-c:v",
-        "libx264",
-        "-preset",
-        "veryfast",
-        "-crf",
-        str(INTERMEDIATE_CRF),
-        "-pix_fmt",
-        "yuv420p",
+        *intermediate_video_encode_args(),
     ]
     if has_audio:
         command.extend(["-c:a", "aac", "-b:a", "192k"])

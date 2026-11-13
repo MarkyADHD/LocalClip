@@ -89,7 +89,7 @@ from .media.timeline import (
     _merge_intervals,
     _normalize_cleanup_token,
     build_clip_signal_summary,
-    detect_audio_peak_times,
+    detect_loud_spans,
     get_absolute_words_in_range,
     get_transcript_text_in_range,
     get_words_for_keep_ranges,

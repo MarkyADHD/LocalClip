@@ -171,6 +171,15 @@ def _assemblyai_speech_models_value(speech_model: str) -> List[str]:
     return ["universal-3-pro", "universal-2"]
 
 
+WHISPER_GPU_BATCH_SIZE = 16  # lower it if a small GPU runs out of VRAM
+
+
+def _whisper_on_gpu() -> bool:
+    import ctranslate2
+
+    return ctranslate2.get_cuda_device_count() > 0
+
+
 def _get_whisper_model(model_name: str = "base"):
     """Load and cache a faster-whisper model by name (fp16 on the GPU, int8 on CPU)."""
     if not _WHISPER_AVAILABLE:
@@ -209,13 +218,19 @@ def transcribe_with_whisper(
     )
     # VAD skips music and silence, and not conditioning on earlier text stops
     # Whisper looping made-up lines over them; both are also most of the speedup.
-    segments, info = model.transcribe(
-        str(audio_path),
+    options = dict(
         language=whisper_language,
         word_timestamps=True,
         condition_on_previous_text=False,
         vad_filter=True,
     )
+    if _whisper_on_gpu():
+        # Decoding many speech chunks per GPU call is ~3x faster than one at a time.
+        segments, info = _whisper.BatchedInferencePipeline(model=model).transcribe(
+            str(audio_path), batch_size=WHISPER_GPU_BATCH_SIZE, **options
+        )
+    else:
+        segments, info = model.transcribe(str(audio_path), **options)
     result_segments = [
         {
             "start": segment.start,
