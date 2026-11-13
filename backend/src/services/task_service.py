@@ -2,12 +2,14 @@
 Task service - orchestrates task creation and processing workflow.
 """
 
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Dict, Any, Optional, Callable
 import logging
 from datetime import datetime
 from pathlib import Path
 import asyncio
+import glob
 import json
 import hashlib
 from time import perf_counter
@@ -700,11 +702,49 @@ class TaskService(ClipEditingMixin):
     @serialized_task_edit
     async def delete_task(self, task_id: str) -> None:
         """Delete a task and all its associated clips."""
+        task = await self.task_repo.get_task_by_id(self.db, task_id) or {}
+        clips = await self.clip_repo.get_clips_by_task(self.db, task_id)
+        url = task.get("source_url")
+        # (A task that is still processing can't get here: the edit lock refuses it.)
+        source_in_use = bool(
+            url
+            and (
+                await self.db.execute(
+                    text(
+                        "SELECT 1 FROM tasks t JOIN sources s ON t.source_id = s.id "
+                        "WHERE s.url = :url AND t.id != :task_id LIMIT 1"
+                    ),
+                    {"url": url, "task_id": task_id},
+                )
+            ).first()
+        )
+
         # Delete all clips for this task
         await self.clip_repo.delete_clips_by_task(self.db, task_id)
 
         # Delete the task
         await self.task_repo.delete_task(self.db, task_id)
+
+        # Free the disk too: a VOD is many GB and nothing else ever removed it.
+        temp_dir = Path(self.config.temp_dir).resolve()
+        doomed = []
+        for clip in clips:
+            if clip.get("file_path"):
+                clip_path = Path(clip["file_path"])
+                doomed += [clip_path, clip_path.with_suffix(".source_map.json")]
+        if url and not source_in_use:
+            try:
+                source = self.video_service.resolve_local_video_path(url)
+                # The VOD plus its transcription audio and transcript cache.
+                doomed += source.parent.glob(f"{glob.escape(source.stem)}.*")
+            except ValueError:
+                pass  # YouTube downloads are already removed after processing
+        for path in doomed:
+            try:
+                if path.resolve().is_relative_to(temp_dir):
+                    path.unlink(missing_ok=True)
+            except OSError as e:
+                logger.warning("Could not remove %s: %s", path, e)
 
         logger.info(f"Deleted task {task_id} and all associated clips")
 

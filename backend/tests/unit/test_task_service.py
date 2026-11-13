@@ -730,3 +730,33 @@ async def test_cancel_mid_render_removes_unsaved_clip_files(tmp_path):
 
     await asyncio.sleep(0.1)  # any render left running would write its file now
     assert list(clips_dir.glob("*.mp4")) == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("vod_shared", [False, True])
+async def test_delete_task_removes_its_files_but_keeps_a_shared_vod(tmp_path, vod_shared):
+    from unittest.mock import MagicMock, patch
+
+    service = build_task_service()
+    service.config.temp_dir = str(tmp_path)
+    clip = tmp_path / "clips" / "clip_1.mp4"
+    vod = tmp_path / "twitch" / "123.mp4"
+    other_vod = tmp_path / "twitch" / "1234.mp4"
+    sidecars = [vod.with_name("123.transcription.mp3"), vod.with_name("123.transcript_cache.json")]
+    for path in [clip, clip.with_suffix(".source_map.json"), vod, other_vod, *sidecars]:
+        path.parent.mkdir(exist_ok=True)
+        path.write_bytes(b"x")
+    service.task_repo.get_task_by_id = AsyncMock(
+        return_value={"status": "completed", "source_url": "https://www.twitch.tv/videos/123"}
+    )
+    service.clip_repo.get_clips_by_task = AsyncMock(return_value=[{"file_path": str(clip)}])
+    service.task_repo.delete_task = AsyncMock()
+    service.db.info = {}
+    service.db.execute = AsyncMock(return_value=MagicMock(first=lambda: (1,) if vod_shared else None))
+
+    with patch("src.services.video_service.get_config", return_value=service.config):
+        await service.delete_task("task-1")
+
+    assert not clip.exists() and not clip.with_suffix(".source_map.json").exists()
+    assert other_vod.exists()
+    assert all(path.exists() == vod_shared for path in [vod, *sidecars])
