@@ -163,7 +163,6 @@ LocalClip creates a `.env` file on first start. Things you might want to change:
 | `LLM` | `claude-code:sonnet` | Claude model for picking clips (`claude-code:opus` works too) |
 | `WHISPER_MODEL_SIZE` | `turbo` | `small` / `medium` for weaker GPUs, `large-v3` for best accuracy |
 | `TRANSCRIPTION_LANGUAGE` | auto | Force a language, e.g. `en` or `es` |
-| `MAX_CLIPS` | `10` | Most clips per VOD |
 | `MAX_VIDEO_DURATION` | `43200` | Longest VOD in seconds (12 hours) |
 
 ## Troubleshooting
