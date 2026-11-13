@@ -1,6 +1,6 @@
 // LocalClip desktop app: a window around the same launcher the LocalClip shortcut runs.
 // Opening it starts LocalClip.ps1 hidden and shows the app once it's up; closing the window runs
-// Close LocalClip.ps1. It also shows a banner when a newer GitHub release is out.
+// Close LocalClip.ps1. Before starting, it installs a newer GitHub release of itself if there is one.
 #![windows_subsystem = "windows"]
 
 use std::os::windows::process::CommandExt;
@@ -23,7 +23,8 @@ static LAUNCHER_PID: AtomicU32 = AtomicU32::new(0);
 enum Msg {
     Ready,
     Failed(String),
-    Update,
+    Status(String),
+    Install(PathBuf),
 }
 
 fn main() {
@@ -46,15 +47,8 @@ fn main() {
         .unwrap();
 
     let mut context = WebContext::new(Some(dir.join(".localclip").join("webview")));
-    let proxy = event_loop.create_proxy();
     let webview = WebViewBuilder::new_with_web_context(&mut context)
         .with_html(LOADING_PAGE)
-        .with_initialization_script(update_banner_script())
-        .with_ipc_handler(move |req| {
-            if req.body() == "update" {
-                let _ = proxy.send_event(Msg::Update);
-            }
-        })
         // Links to other sites open in the normal browser instead of replacing the app.
         .with_navigation_handler(|url| {
             let local = url.starts_with(APP_URL) || url.starts_with("http://127.0.0.1");
@@ -73,6 +67,17 @@ fn main() {
     let proxy = event_loop.create_proxy();
     let launch_dir = dir.clone();
     std::thread::spawn(move || {
+        // "--updated" is how the updater reopens the app: don't check again, so a failed install can't loop.
+        if !env::args().any(|a| a == "--updated") {
+            if let Some(version) = newer_release() {
+                let _ = proxy.send_event(Msg::Status(format!("Updating to LocalClip {version}...")));
+                if let Some(setup) = download_setup() {
+                    let _ = proxy.send_event(Msg::Install(setup));
+                    return;
+                }
+                let _ = proxy.send_event(Msg::Status("Starting LocalClip...".into()));
+            }
+        }
         let _ = proxy.send_event(launch(&launch_dir));
     });
 
@@ -86,9 +91,13 @@ fn main() {
                 // ponytail: Rust's {:?} string escaping happens to be a valid JS string literal.
                 let _ = webview.evaluate_script(&format!("showError({log:?})"));
             }
-            Event::UserEvent(Msg::Update) => {
-                start_updater(&exe);
-                shut_down(&window, &dir, control_flow);
+            Event::UserEvent(Msg::Status(text)) => {
+                let _ = webview.evaluate_script(&format!("document.querySelector('h2').textContent = {text:?}"));
+            }
+            // Nothing has been started yet, so there is nothing to shut down.
+            Event::UserEvent(Msg::Install(setup)) => {
+                start_installer(&setup, &exe);
+                *control_flow = ControlFlow::Exit;
             }
             Event::WindowEvent { event: WindowEvent::CloseRequested, .. } => shut_down(&window, &dir, control_flow),
             _ => {}
@@ -147,18 +156,43 @@ fn shut_down(window: &tao::window::Window, dir: &Path, control_flow: &mut Contro
     *control_flow = ControlFlow::Exit;
 }
 
-// Downloads and silently runs the latest LocalClip-Setup.exe once this process has exited, then
-// reopens LocalClip (the installed copy, or this exe if it wasn't installed by the setup).
-fn start_updater(exe: &Path) {
-    let exe = exe.display().to_string().replace('\'', "''");
+fn curl(args: &[&str]) -> Option<String> {
+    let out = Command::new("curl").args(["-sf", "-m"]).args(args).creation_flags(NO_WINDOW).output().ok()?;
+    out.status.success().then(|| String::from_utf8_lossy(&out.stdout).into_owned())
+}
+
+// The latest release's version, if it is newer than this exe. github.com/<repo>/releases/latest redirects
+// to .../releases/tag/v<version>, so the redirect target is all we need (no API, no rate limit).
+fn newer_release() -> Option<String> {
+    let url = curl(&["5", "-o", "NUL", "-w", "%{redirect_url}", &format!("https://github.com/{REPO}/releases/latest")])?;
+    newer_version(&url, env!("CARGO_PKG_VERSION"))
+}
+
+fn newer_version(release_url: &str, current: &str) -> Option<String> {
+    let parse = |v: &str| v.split('.').map(|n| n.parse::<u32>().ok()).collect::<Option<Vec<_>>>();
+    let latest = release_url.rsplit_once("/tag/v")?.1.trim();
+    (parse(latest)? > parse(current)?).then(|| latest.to_string())
+}
+
+fn download_setup() -> Option<PathBuf> {
+    let setup = env::temp_dir().join("LocalClip-Setup.exe");
+    let url = format!("https://github.com/{REPO}/releases/latest/download/LocalClip-Setup.exe");
+    curl(&["600", "-L", "-o", setup.to_str()?, &url])?;
+    Some(setup)
+}
+
+// Silently runs the downloaded LocalClip-Setup.exe once this process has exited, then reopens LocalClip
+// (the installed copy, or this exe if it wasn't installed by the setup).
+fn start_installer(setup: &Path, exe: &Path) {
+    let quote = |p: &Path| p.display().to_string().replace('\'', "''");
     let script = format!(
-        "$ProgressPreference='SilentlyContinue'; $setup=\"$env:TEMP\\LocalClip-Setup.exe\"; \
-         try {{ Invoke-WebRequest https://github.com/{REPO}/releases/latest/download/LocalClip-Setup.exe -OutFile $setup -UseBasicParsing; \
-         Wait-Process -Id {pid} -ErrorAction SilentlyContinue; Start-Process $setup '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART' -Wait }} \
-         catch {{ Wait-Process -Id {pid} -ErrorAction SilentlyContinue }}; \
+        "Wait-Process -Id {pid} -ErrorAction SilentlyContinue; \
+         try {{ Start-Process '{setup}' '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART' -Wait }} catch {{}}; \
          $installed=\"$env:LOCALAPPDATA\\Programs\\LocalClip\\LocalClip.exe\"; \
-         Start-Process $(if (Test-Path $installed) {{ $installed }} else {{ '{exe}' }})",
-        pid = std::process::id()
+         Start-Process $(if (Test-Path $installed) {{ $installed }} else {{ '{exe}' }}) '--updated'",
+        pid = std::process::id(),
+        setup = quote(setup),
+        exe = quote(exe)
     );
     let _ = Command::new("powershell")
         .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", &script])
@@ -166,34 +200,19 @@ fn start_updater(exe: &Path) {
         .spawn();
 }
 
+#[test]
+fn newer_version_compares_numbers() {
+    let url = |v: &str| format!("https://github.com/{REPO}/releases/tag/v{v}");
+    assert_eq!(newer_version(&url("1.10.0"), "1.9.3").as_deref(), Some("1.10.0"));
+    assert_eq!(newer_version(&url("1.3.0"), "1.3.0"), None);
+    assert_eq!(newer_version(&url("1.2.9"), "1.3.0"), None);
+    assert_eq!(newer_version("", "1.3.0"), None);
+    assert_eq!(newer_version(&url("<script>"), "1.3.0"), None);
+}
+
 fn open_in_browser(url: &str) {
     let _ = Command::new("explorer").arg(url).spawn();
 }
-
-fn update_banner_script() -> String {
-    UPDATE_BANNER.replace("__VERSION__", env!("CARGO_PKG_VERSION")).replace("__REPO__", REPO)
-}
-
-const UPDATE_BANNER: &str = r#"
-if (window.top === window && location.origin === "http://localhost:3107" && !sessionStorage.getItem("lc-update-seen")) {
-  sessionStorage.setItem("lc-update-seen", "1");
-  const parts = v => v.replace(/^v/, "").split(".").map(Number);
-  const newer = (a, b) => { const x = parts(a), y = parts(b); for (let i = 0; i < 3; i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0); return false; };
-  fetch("https://api.github.com/repos/__REPO__/releases/latest").then(r => r.ok ? r.json() : null).then(rel => {
-    if (!rel || !newer(rel.tag_name, "__VERSION__")) return;
-    const bar = document.createElement("div");
-    bar.style.cssText = "position:fixed;right:16px;bottom:16px;z-index:2147483647;display:flex;gap:10px;align-items:center;padding:12px 14px;border-radius:10px;background:#18181b;color:#fafafa;font:14px system-ui,sans-serif;box-shadow:0 8px 24px rgba(0,0,0,.35)";
-    bar.innerHTML = '<span>LocalClip ' + rel.tag_name + ' is available.</span>' +
-      '<a href="' + rel.html_url + '" target="_blank" style="color:#a1a1aa">What\'s new</a>' +
-      '<button style="background:#fafafa;color:#18181b;border:0;border-radius:6px;padding:6px 10px;cursor:pointer;font:inherit">Update and restart</button>' +
-      '<button aria-label="Later" style="background:none;color:#a1a1aa;border:0;cursor:pointer;font:inherit">Later</button>';
-    const [update, later] = bar.querySelectorAll("button");
-    update.onclick = () => { update.textContent = "Updating..."; window.ipc.postMessage("update"); };
-    later.onclick = () => bar.remove();
-    document.body.appendChild(bar);
-  }).catch(() => {});
-}
-"#;
 
 const LOADING_PAGE: &str = r#"<!doctype html>
 <html><head><meta charset="utf-8"><style>

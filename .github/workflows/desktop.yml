@@ -20,7 +20,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build LocalClip.exe
         working-directory: desktop
-        run: cargo build --release --locked
+        run: cargo test --release --locked && cargo build --release --locked
       - run: Copy-Item desktop/target/release/localclip.exe LocalClip.exe
       - name: Build LocalClip-Setup.exe
         run: |

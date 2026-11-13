@@ -50,7 +50,7 @@ You don't need a subscription, you don't upload your VODs to someone else's serv
 - **+30s before / +30s after.** Open a clip and extend it either way as many times as you like until the length is right. Each press re-renders the clip from the VOD.
 - **Editor.** Trim, split, merge, edit captions and export presets for TikTok, Shorts and Reels.
 - **A real Windows app.** `LocalClip.exe` opens in its own window with its own taskbar icon. Closing the window shuts everything down (handy before you game).
-- **Update prompt.** When a new LocalClip release is out, the app tells you and updates itself with one click.
+- **Automatic updates.** Every time you open LocalClip it checks GitHub for a new release and installs it before starting.
 
 <p align="center">
   <img src="docs/screenshots/templates.png" width="49%" alt="Framing templates" />
@@ -81,7 +81,7 @@ Option B does the same without the setup wizard. Both:
 3. Puts the desktop app (`LocalClip.exe`) in the same folder and adds **LocalClip** and **Close LocalClip** shortcuts to your desktop and Start menu.
 4. Starts LocalClip.
 
-The first start takes a while because it downloads everything else: Python (via uv), Node, ffmpeg, the CUDA libraries for Whisper, a portable PostgreSQL and Redis, and the Whisper model. After that it starts in seconds and opens LocalClip in its own window. Every start also pulls the latest LocalClip update, and when a new release is published a banner in the app offers **Update and restart**.
+The first start takes a while because it downloads everything else: Python (via uv), Node, ffmpeg, the CUDA libraries for Whisper, a portable PostgreSQL and Redis, and the Whisper model. After that it starts in seconds and opens LocalClip in its own window. Every start also pulls the latest LocalClip update, and when a new release of the app itself is published, it downloads and installs it first, then reopens.
 
 To stop everything, close the LocalClip window. Nothing keeps running in the background. The **Close LocalClip** shortcut still works too, in case something gets stuck.
 

@@ -30,7 +30,7 @@ Name: "{autodesktop}\LocalClip"; Filename: "{app}\LocalClip.exe"
 Name: "{autoprograms}\Close LocalClip"; Filename: "{localappdata}\LocalClip\Close LocalClip.cmd"; IconFilename: "{app}\LocalClip.exe"
 
 [Run]
-; Visible, because the first install may ask you to sign in to Claude Code. Skipped for silent in-app updates.
+; Visible, because the first install may ask you to sign in to Claude Code. Skipped for the app's silent self-updates.
 Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -Command ""$env:LOCALCLIP_SETUP='1'; try {{ & '{tmp}\install.ps1' } catch {{ Write-Host $_ -ForegroundColor Red; pause }"""; StatusMsg: "Downloading LocalClip..."; Check: not WizardSilent
 Filename: "{app}\LocalClip.exe"; Description: "Start LocalClip"; Flags: postinstall nowait skipifsilent
 
