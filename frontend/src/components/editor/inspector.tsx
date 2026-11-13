@@ -13,6 +13,7 @@ import {
   RotateCcw,
   Trash2,
   Volume2,
+  VolumeX,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -33,6 +34,7 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import {
   DEFAULT_EFFECTS,
   clamp,
+  isSwear,
   replaceWords,
   uid,
   type EditDocument,
@@ -123,6 +125,10 @@ export function Inspector({
   const scriptWords = useRef(doc.words);
   const [script, setScript] = useState<string | null>(null),
     [applying, setApplying] = useState(false);
+  const swearCount = doc.words.filter((w) => isSwear(w.text)).length,
+    allBleeped =
+      swearCount > 0 &&
+      doc.words.every((w) => !isSwear(w.text) || w.bleep);
   const caption = (change: Partial<CaptionStyle>, group = "caption-style") =>
     update((d) => ({ ...d, captions: { ...d.captions, ...change } }), group);
   return (
@@ -482,6 +488,29 @@ export function Inspector({
                         <Button
                           size="icon-sm"
                           variant="ghost"
+                          aria-label={`Bleep word ${i + 1}`}
+                          title="Bleep this word"
+                          aria-pressed={Boolean(word.bleep)}
+                          className={cn(
+                            "size-7",
+                            word.bleep
+                              ? "bg-red-100 text-red-800 hover:bg-red-200"
+                              : "text-muted-foreground",
+                          )}
+                          onClick={() =>
+                            update((d) => ({
+                              ...d,
+                              words: d.words.map((w) =>
+                                w.id === word.id ? { ...w, bleep: !w.bleep } : w,
+                              ),
+                            }))
+                          }
+                        >
+                          <VolumeX className="size-3.5" />
+                        </Button>
+                        <Button
+                          size="icon-sm"
+                          variant="ghost"
                           aria-label={`Delete word ${i + 1}`}
                           className="size-7 text-muted-foreground hover:text-destructive"
                           onClick={() =>
@@ -748,6 +777,28 @@ export function Inspector({
                   before exporting.
                 </p>
               )}
+            </Section>
+            <Section
+              title="Bleep swear words"
+              description="Beeps over the word and stars it out in the caption. Toggle single words in the Captions tab."
+            >
+              <SwitchRow
+                id="bleep-swears"
+                label={
+                  swearCount
+                    ? `Bleep ${swearCount} swear word${swearCount === 1 ? "" : "s"}`
+                    : "No swear words found"
+                }
+                checked={allBleeped}
+                onChange={(on) =>
+                  update((d) => ({
+                    ...d,
+                    words: d.words.map((w) =>
+                      isSwear(w.text) ? { ...w, bleep: on } : w,
+                    ),
+                  }))
+                }
+              />
             </Section>
           </TabsContent>
           <TabsContent value="effects" className="space-y-6 p-4">

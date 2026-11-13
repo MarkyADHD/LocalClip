@@ -9,6 +9,8 @@ export interface CaptionWord {
   end: number;
   text: string;
   highlight: boolean;
+  /** Beep over the word and star it out in the caption. */
+  bleep?: boolean;
 }
 export interface CaptionStyle {
   enabled: boolean;
@@ -64,6 +66,17 @@ export interface EditorState {
   original: EditDocument;
   jobs: ExportJob[];
 }
+// ponytail: a short English list; per-word toggles in the Captions tab cover anything it misses.
+const SWEARS =
+  /^(fuck\w*|motherfuck\w*|shit\w*|bullshit|bitch\w*|cunts?|dick(head)?s?|cocks?|puss(y|ies)|ass(hole)?s?|bastards?|pricks?|twats?|wank\w*|slut\w*|whores?|goddamn\w*|damn(ed)?|piss(ed|ing)?|crap)$/i;
+export const isSwear = (text: string) =>
+  SWEARS.test(text.replace(/[^\p{L}]/gu, ""));
+/** f*** : keep the first letter of each word, star the rest (same as the export). */
+export const censor = (text: string) =>
+  text.replace(/(?<=[\p{L}\p{N}_])[\p{L}\p{N}_]/gu, "*");
+/** Edits only the server can render (the in-browser export keeps the clip's own audio). */
+export const needsServerExport = (doc: EditDocument) =>
+  doc.words.some((w) => w.bleep);
 export const DEFAULT_EFFECTS: Effects = {
   brightness: 100,
   contrast: 100,

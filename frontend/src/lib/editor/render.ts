@@ -1,6 +1,7 @@
 import {
   captionGroups,
   frameRect,
+  censor,
   mappedWords,
   type EditDocument,
 } from "./document";
@@ -48,7 +49,12 @@ export function drawEditorFrame(
   if (!doc.captions.enabled) return;
   let groups = groupCache.get(doc);
   if (!groups) {
-    groups = captionGroups(mappedWords(doc), doc.captions.wordsPerLine);
+    groups = captionGroups(
+      mappedWords(doc).map((w) =>
+        w.bleep ? { ...w, text: censor(w.text) } : w,
+      ),
+      doc.captions.wordsPerLine,
+    );
     groupCache.set(doc, groups);
   }
   const group = groups.find(

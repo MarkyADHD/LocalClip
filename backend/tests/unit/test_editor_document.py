@@ -167,3 +167,38 @@ def test_cancelled_render_does_not_publish_output(tmp_path):
     (tmp_path / f"cancel-{job_id}").touch()
     with pytest.raises(InterruptedError):
         run_render(["sleep", "10"], tmp_path, job_id, 1)
+
+
+def _pcm(path, rate=8000):
+    import numpy as np
+
+    raw = subprocess.run(
+        ["ffmpeg", "-v", "error", "-i", str(path), "-f", "f32le", "-ac", "1", "-ar", str(rate), "-"],
+        capture_output=True, check=True,
+    ).stdout
+    return np.frombuffer(raw, dtype="float32")
+
+
+@pytest.mark.skipif(not shutil.which("ffmpeg"), reason="ffmpeg required")
+def test_bleep_beeps_only_over_the_word_and_stars_the_caption(tmp_path):
+    from src.editor_document import censor, write_ass
+
+    assert censor("fucking,") == "f******,"
+    # A silent clip, so any sound in the export is the bleep tone.
+    subprocess.run(
+        ["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=24:duration=3",
+         "-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo", "-shortest", "-c:v", "libx264",
+         "-pix_fmt", "yuv420p", "-c:a", "aac", str(tmp_path / "clean.mp4")],
+        check=True, capture_output=True,
+    )
+    doc = document(
+        segments=[{"id": "a", "start": 0, "end": 3}],
+        words=[{"id": "w", "start": 1, "end": 1.5, "text": "shit", "bleep": True}],
+    )
+    write_ass(tmp_path / "c.ass", doc, 1080, 1920)
+    assert "s***" in (tmp_path / "c.ass").read_text() and "shit" not in (tmp_path / "c.ass").read_text()
+    render_document(tmp_path, "b" * 32, doc, "tiktok")
+    pcm = _pcm(tmp_path / f"export-{'b' * 32}.mp4")
+    assert abs(pcm[int(1.1 * 8000):int(1.4 * 8000)]).max() > 0.05
+    assert abs(pcm[: int(0.8 * 8000)]).max() < 0.01 and abs(pcm[int(1.8 * 8000):]).max() < 0.01
+

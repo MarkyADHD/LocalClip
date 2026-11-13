@@ -165,6 +165,23 @@ export function Preview({
             video.currentTime = segment.end;
           }
         }
+        const at = outputTime(
+          doc,
+          Math.min(segmentIndex, doc.segments.length - 1),
+          video.currentTime,
+        );
+        // Preview a bleep as silence (the export adds the beep).
+        if (audioRef.current)
+          audioRef.current.gain.gain.value =
+            doc.muted ||
+            doc.words.some(
+              (w) =>
+                w.bleep &&
+                video.currentTime >= w.start - 0.05 &&
+                video.currentTime < w.end + 0.05,
+            )
+              ? 0
+              : doc.volume;
         const context = canvas.getContext("2d");
         if (context)
           drawEditorFrame(
@@ -172,11 +189,7 @@ export function Preview({
             doc,
             video.videoWidth || asset.width,
             video.videoHeight || asset.height,
-            outputTime(
-              doc,
-              Math.min(segmentIndex, doc.segments.length - 1),
-              video.currentTime,
-            ),
+            at,
             (rect) =>
               context.drawImage(video, rect.x, rect.y, rect.width, rect.height),
           );

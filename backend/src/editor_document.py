@@ -12,6 +12,7 @@ from typing import Literal
 import hashlib
 import json
 import os
+import re
 import subprocess
 import time
 import uuid
@@ -41,6 +42,7 @@ class Word(Model):
     end: float = Field(gt=0)
     text: str = Field(max_length=120)
     highlight: bool = False
+    bleep: bool = False  # beep over the word and star it out in the caption
 
     @model_validator(mode="after")
     def ordered(self):
@@ -76,6 +78,11 @@ class Effects(Model):
     saturation: float = Field(default=100, ge=0, le=220)
     blur: float = Field(default=0, ge=0, le=8)
     hue: float = Field(default=0, ge=-180, le=180)
+
+
+def censor(text: str) -> str:
+    """f*** : keep the first letter of each word, star the rest."""
+    return re.sub(r"(?<=\w)\w", "*", text)
 
 
 class EditDocument(Model):
@@ -233,7 +240,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 "{\\c"
                 + _ass_color(style.accent if word["highlight"] else style.color)
                 + "}"
-                + _escape_ass_text(word["text"]).replace("\n", " ").replace("\r", " ")
+                + _escape_ass_text(
+                    censor(word["text"]) if word["bleep"] else word["text"]
+                ).replace("\n", " ").replace("\r", " ")
                 for word in group
             )
             position = f"{{\\pos({width / 2:.2f},{height * style.y:.2f})}}"
@@ -352,10 +361,31 @@ def render_document(directory: Path, job_id: str, document: EditDocument, preset
     filters.append(
         f"[video]{geometry},{effects},ass={_escape_filter_path(ass)}:fontsdir={_escape_filter_path(fonts or Path('fonts'))}[outv]"
     )
+    total = sum(s.end - s.start for s in document.segments)
+    tracks = []
     if audio:
-        filters.append(
-            f"[audio]volume={0 if document.muted else document.volume}[outa]"
+        voice = f"[audio]volume={0 if document.muted else document.volume}"
+        bleeps = "+".join(
+            f"between(t,{max(0, w['start'] - 0.05):.3f},{w['end'] + 0.05:.3f})"
+            for w in mapped_words(document)
+            if w["bleep"]
         )
+        if bleeps and not document.muted:
+            # Silence the word and put a 1 kHz tone over it (sine is 1/8 scale, so x2 = a clear -12 dB beep).
+            voice += f",volume=0:enable='{bleeps}'"
+            filters.append(
+                f"sine=frequency=1000:sample_rate=48000:duration={total:.3f},"
+                f"volume=2,volume=0:enable='not({bleeps})'[beep]"
+            )
+            tracks.append("[beep]")
+        filters.append(voice + "[voice]")
+        tracks.append("[voice]")
+    if len(tracks) > 1:
+        filters.append(
+            "".join(tracks) + f"amix=inputs={len(tracks)}:normalize=0[outa]"
+        )
+    elif tracks:
+        filters.append(f"{tracks[0]}anull[outa]")
     output = directory / f"export-{job_id}.mp4"
     command = [
         "ffmpeg",
@@ -367,7 +397,7 @@ def render_document(directory: Path, job_id: str, document: EditDocument, preset
         "-map",
         "[outv]",
     ]
-    if audio:
+    if tracks:
         command += ["-map", "[outa]", "-c:a", "aac", "-b:a", "192k"]
     command += [
         "-c:v",
@@ -387,9 +417,7 @@ def render_document(directory: Path, job_id: str, document: EditDocument, preset
         str(output),
     ]
     try:
-        run_render(
-            command, directory, job_id, sum(s.end - s.start for s in document.segments)
-        )
+        run_render(command, directory, job_id, total)
         if (directory / f"cancel-{job_id}").exists():
             raise InterruptedError("Export cancelled")
     except BaseException:

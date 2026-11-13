@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/dialog";
 import {
   editDuration,
+  needsServerExport,
   outputSize,
   timecode,
   type EditDocument,
@@ -175,7 +176,8 @@ export function ExportPanel({
     controller.current = control;
     try {
       await save();
-      if (mode === "browser" && !batch) {
+      // Bleeps are mixed by the server render only.
+      if (mode === "browser" && !batch && !needsServerExport(doc)) {
         setProgress(0);
         await exportDraft(
           `${endpoint}/media/clean.mp4`,
