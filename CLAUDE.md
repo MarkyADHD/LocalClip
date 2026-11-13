@@ -78,7 +78,10 @@ Blocking work (ffmpeg, downloads, transcription) is wrapped in `run_in_thread()`
    moments (fails, clutches, reactions, chat spikes), not tutorials or talk. Default LLM is the Claude Code
    CLI (`LLM=claude-code:sonnet`, provider `claude-code` in `ai.py`); it uses the user's local
    `claude` login. Other providers (`google-gla`, `openai`, `anthropic`, `ollama`, `openrouter`)
-   still work. Long transcripts are analysed in windows and reranked.
+   still work, plus `local:<model>` for any OpenAI-compatible server at `LOCAL_LLM_BASE_URL` (LM Studio,
+   llama.cpp, Jan, ...). Settings > AI model lists every model `local_models.py` finds on the PC
+   (`GET/PUT /admin/llm`); Ollama and LM Studio servers are started when a model needs them.
+   Long transcripts are analysed in windows and reranked.
 5. **Rendering**: 9:16 clips with face-tracked crops or a stream template, word-synced
    captions, hook title, optional transitions/B-roll. Two clips render at once; encodes use
    NVENC when ffmpeg has it (`VIDEO_ENCODER=cpu` forces libx264) and fall back to the CPU on failure.
