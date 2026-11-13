@@ -162,7 +162,7 @@ test("drafts survive clip switching and reload, undo restores an edit", async ({
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(e.message));
   await setup(page);
-  await page.getByRole("tab", { name: "Framing" }).click();
+  await page.getByRole("tab", { name: "Layout" }).click();
   await page.getByRole("slider", { name: "Zoom", exact: true }).focus();
   await page.keyboard.press("ArrowRight");
   await expect(
@@ -178,12 +178,12 @@ test("drafts survive clip switching and reload, undo restores an edit", async ({
     page.getByRole("button", { name: "Edit clip 2", exact: true }),
   ).toHaveAttribute("aria-pressed", "true");
   await page.getByRole("button", { name: "Edit clip 1", exact: true }).click();
-  await page.getByRole("tab", { name: "Framing" }).click();
+  await page.getByRole("tab", { name: "Layout" }).click();
   await expect(
     page.getByRole("slider", { name: "Zoom", exact: true }),
   ).toHaveAttribute("aria-valuenow", "1.01");
   await page.reload();
-  await page.getByRole("tab", { name: "Framing" }).click();
+  await page.getByRole("tab", { name: "Layout" }).click();
   await expect(
     page.getByRole("slider", { name: "Zoom", exact: true }),
   ).toHaveAttribute("aria-valuenow", "1.01");
@@ -210,7 +210,7 @@ test("splits and restores non-destructively with keyboard and precise trim", asy
   await setup(page);
   await page.getByLabel("In point seconds").fill("0.25");
   await page.getByLabel("Out point seconds").fill("2.75");
-  await page.getByLabel("Seek to word 2", { exact: true }).click();
+  await page.getByLabel("Word 2", { exact: true }).click();
   await page.getByRole("button", { name: "Split at playhead" }).click();
   await expect(page.getByText("Segment 2", { exact: true })).toBeVisible();
   await page
@@ -236,7 +236,7 @@ test("background export sends the complete edited document", async ({
     return r.fulfill({ json: { id: "job", status: "queued", progress: 0 } });
   });
   await page.getByLabel("Word 1", { exact: true }).fill("Edited");
-  await page.getByRole("tab", { name: "Framing" }).click();
+  await page.getByRole("tab", { name: "Layout" }).click();
   await page.getByRole("radio", { name: "Square", exact: true }).click();
   await page.getByRole("button", { name: "Export", exact: true }).click();
   await expect(page.getByRole("dialog").getByText(/1080 × 1080/)).toBeVisible();
@@ -268,6 +268,7 @@ test("preview, caption dragging and responsive layout", async ({
   await page.mouse.down();
   await page.mouse.move(box.x + box.width / 2, box.y + box.height * 0.6);
   await page.mouse.up();
+  await page.getByText("Customise the style").click();
   await expect(
     page.getByRole("slider", { name: "Subtitle vertical position" }),
   ).not.toHaveAttribute("aria-valuenow", "78");
@@ -291,9 +292,9 @@ test("browser export contains edited video and audio through multiple cuts", asy
   page,
 }, info) => {
   await setup(page);
-  await page.getByLabel("Seek to word 2", { exact: true }).click();
+  await page.getByLabel("Word 2", { exact: true }).click();
   await page.getByRole("button", { name: "Split at playhead" }).click();
-  await page.getByRole("tab", { name: "Framing" }).click();
+  await page.getByRole("tab", { name: "Layout" }).click();
   await page.getByRole("radio", { name: "Original", exact: true }).click();
   await page.getByRole("button", { name: "Export", exact: true }).click();
   await page.getByRole("button", { name: /On this device/ }).click();
@@ -326,11 +327,46 @@ test("one switch bleeps every swear word and single words can opt out", async ({
   await page.getByRole("tab", { name: "Audio" }).click();
   await page.getByRole("switch", { name: "Bleep 1 swear word" }).click();
   await page.getByRole("tab", { name: "Captions" }).click();
-  const word = page.getByRole("button", { name: "Bleep word 2" });
-  await expect(word).toHaveAttribute("aria-pressed", "true");
+  await page.getByLabel("Word 1", { exact: true }).click();
   await expect(
     page.getByRole("button", { name: "Bleep word 1" }),
   ).toHaveAttribute("aria-pressed", "false");
+  await page.getByLabel("Word 2", { exact: true }).click();
+  const word = page.getByRole("button", { name: "Bleep word 2" });
+  await expect(word).toHaveAttribute("aria-pressed", "true");
   await word.click();
   await expect(word).toHaveAttribute("aria-pressed", "false");
+});
+
+test("layout, caption look, hook title and safe zone", async ({ page }) => {
+  await setup(page);
+  let request: { document: Record<string, unknown> } | undefined;
+  await page.route("**/editor/exports", (r) => {
+    request = r.request().postDataJSON();
+    return r.fulfill({ json: { id: "job", status: "queued", progress: 0 } });
+  });
+  await page.getByRole("button", { name: "Hype", exact: true }).click();
+  await page.getByLabel("Hook title").fill("Wait for it");
+  await page.getByRole("tab", { name: "Layout" }).click();
+  await page.getByRole("button", { name: "Cam top", exact: true }).click();
+  await expect(page.getByLabel("Facecam area")).toBeVisible();
+  await page.getByRole("combobox", { name: "Safe zones" }).click();
+  await page.getByRole("option", { name: "TikTok safe zone" }).click();
+  await expect(page.getByLabel("TikTok safe zone")).toBeVisible();
+  // Trim by dragging the end of the clip on the timeline.
+  const handle = page.getByRole("slider", { name: "Trim end" }),
+    box = (await handle.boundingBox())!;
+  await page.mouse.move(box.x + 4, box.y + 20);
+  await page.mouse.down();
+  await page.mouse.move(box.x - 200, box.y + 20, { steps: 4 });
+  await page.mouse.up();
+  await expect(page.getByLabel("Out point seconds")).not.toHaveValue("3");
+  await page.getByRole("button", { name: "Export", exact: true }).click();
+  await page.getByRole("button", { name: "Export clip", exact: true }).click();
+  await expect.poll(() => request).toBeTruthy();
+  expect(request!.document).toMatchObject({
+    title: "Wait for it",
+    framing: { layout: "cam_top" },
+    captions: { font: "THEBOLDFONT", uppercase: true, active: true },
+  });
 });

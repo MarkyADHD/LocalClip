@@ -11,6 +11,7 @@ from src.editor_document import (
     RevisionConflict,
     caption_groups,
     editor_dir,
+    layout_filter,
     mapped_words,
     output_size,
     render_document,
@@ -202,3 +203,46 @@ def test_bleep_beeps_only_over_the_word_and_stars_the_caption(tmp_path):
     assert abs(pcm[int(1.1 * 8000):int(1.4 * 8000)]).max() > 0.05
     assert abs(pcm[: int(0.8 * 8000)]).max() < 0.01 and abs(pcm[int(1.8 * 8000):]).max() < 0.01
 
+
+
+def test_spoken_word_and_title_reach_the_captions(tmp_path):
+    from src.editor_document import write_ass
+
+    doc = document(
+        segments=[{"id": "a", "start": 0, "end": 2}],
+        words=[
+            {"id": "1", "start": 0, "end": 0.4, "text": "oh"},
+            {"id": "2", "start": 0.5, "end": 1, "text": "no"},
+        ],
+        captions={"active": True, "uppercase": True, "accent": "#00FF00"},
+        title="Wait for it",
+    )
+    write_ass(tmp_path / "c.ass", doc, 1080, 1920)
+    events = [
+        line for line in (tmp_path / "c.ass").read_text().splitlines() if line.startswith("Dialogue")
+    ]
+    assert len(events) == 3 and "WAIT" in events[0]
+    green = "{\\c&H0000FF00&}"
+    # Each word is lit while it is spoken, and until the next one starts.
+    assert green + "OH" in events[1] and green + "NO" not in events[1]
+    assert "0:00:00.00,0:00:00.50" in events[1]
+    assert green + "NO" in events[2] and green + "OH" not in events[2]
+
+
+@pytest.mark.skipif(not shutil.which("ffmpeg"), reason="ffmpeg is required")
+@pytest.mark.parametrize("layout", ["crop", "cam_top", "cam_bottom", "floating"])
+@pytest.mark.parametrize("fit", ["cover", "contain"])
+def test_every_layout_renders_at_the_output_size(tmp_path, layout, fit):
+    doc = document(framing={"layout": layout, "fit": fit, "zoom": 1.3, "x": 0.2})
+    out = tmp_path / "out.png"
+    subprocess.run(
+        ["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "testsrc2=size=1280x720:duration=0.1",
+         "-filter_complex", "[0:v]null[video];" + layout_filter(doc.framing, 1280, 720, 1080, 1920),
+         "-map", "[framed]", "-frames:v", "1", str(out)],
+        check=True,
+    )
+    size = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "stream=width,height", "-of", "csv=p=0", str(out)],
+        capture_output=True, text=True, check=True,
+    ).stdout.strip()
+    assert size == "1080,1920"

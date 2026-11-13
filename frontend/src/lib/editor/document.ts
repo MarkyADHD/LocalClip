@@ -14,13 +14,36 @@ export interface CaptionWord {
 }
 export interface CaptionStyle {
   enabled: boolean;
-  font: "TikTokSans-Regular" | "Poppins-ExtraBold" | "THEBOLDFONT";
+  font: keyof typeof CAPTION_FONTS;
   size: number;
   color: string;
   accent: string;
   y: number;
   background: boolean;
   wordsPerLine: number;
+  uppercase: boolean;
+  /** Outline thickness as a percentage of the font size (unused with a text background). */
+  outline: number;
+  /** Colour the word being spoken with the highlight colour. */
+  active: boolean;
+}
+/** Bundled caption fonts (file stems in backend/fonts); keep in sync with editor_document.py. */
+export const CAPTION_FONTS = {
+  "TikTokSans-Regular": "TikTok Sans",
+  "TikTokSans-Bold": "TikTok Sans Bold",
+  "Poppins-ExtraBold": "Poppins Extra Bold",
+  THEBOLDFONT: "The Bold Font",
+  "Anton-Regular": "Anton",
+  "BebasNeue-Regular": "Bebas Neue",
+  "ArchivoBlack-Regular": "Archivo Black",
+  "Bangers-Regular": "Bangers",
+} as const;
+/** A region of the source frame, normalised 0..1. */
+export interface Region {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
 }
 export interface Framing {
   aspect: "vertical" | "square" | "original";
@@ -28,6 +51,9 @@ export interface Framing {
   zoom: number;
   x: number;
   y: number;
+  /** crop: one crop of the frame. The others stack or float the facecam (`cam`) with the gameplay. */
+  layout: "crop" | "cam_top" | "cam_bottom" | "floating";
+  cam: Region;
 }
 export interface Effects {
   brightness: number;
@@ -45,6 +71,34 @@ export interface EditDocument {
   effects: Effects;
   volume: number;
   muted: boolean;
+  /** Hook title shown at the top for the whole clip; empty for none. */
+  title: string;
+}
+const DEFAULT_CAM: Region = { x: 0, y: 0.6, w: 0.3, h: 0.4 };
+const normalized = new WeakMap<EditDocument, EditDocument>();
+/** Drafts saved before a field existed load with its default (same defaults as the server model). */
+export function normalize(doc: EditDocument): EditDocument {
+  let result = normalized.get(doc);
+  if (!result) {
+    result = {
+      ...doc,
+      title: doc.title ?? "",
+      captions: {
+        ...doc.captions,
+        uppercase: doc.captions.uppercase ?? false,
+        outline: doc.captions.outline ?? 4,
+        active: doc.captions.active ?? false,
+      },
+      framing: {
+        ...doc.framing,
+        layout: doc.framing.layout ?? "crop",
+        cam: doc.framing.cam ?? DEFAULT_CAM,
+      },
+    };
+    normalized.set(doc, result);
+    normalized.set(result, result);
+  }
+  return result;
 }
 export interface ExportJob {
   id: string;
@@ -118,6 +172,38 @@ export function frameRect(
     width: w,
     height: h,
   };
+}
+/** The source pixels shown for `region` in a pane of the given aspect: grown around its centre, kept in frame. */
+export function regionCrop(
+  region: Region,
+  aspect: number,
+  sw: number,
+  sh: number,
+) {
+  let w = region.w * sw,
+    h = region.h * sh;
+  if (w / h < aspect) w = h * aspect;
+  else h = w / aspect;
+  if (w > sw) [w, h] = [sw, sw / aspect];
+  if (h > sh) [w, h] = [sh * aspect, sh];
+  return {
+    x: clamp((region.x + region.w / 2) * sw - w / 2, 0, sw - w),
+    y: clamp((region.y + region.h / 2) * sh - h / 2, 0, sh - h),
+    width: w,
+    height: h,
+  };
+}
+/** Maps a time on the edited timeline back to its segment and source time. */
+export function sourceTime(doc: EditDocument, time: number) {
+  let cursor = 0;
+  for (let index = 0; index < doc.segments.length; index++) {
+    const s = doc.segments[index],
+      length = s.end - s.start;
+    if (time < cursor + length || index === doc.segments.length - 1)
+      return { index, time: clamp(s.start + time - cursor, s.start, s.end) };
+    cursor += length;
+  }
+  return { index: 0, time: 0 };
 }
 export function mappedWords(doc: EditDocument): CaptionWord[] {
   const result: CaptionWord[] = [];

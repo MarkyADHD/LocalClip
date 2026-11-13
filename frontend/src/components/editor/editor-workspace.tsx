@@ -17,7 +17,6 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -28,7 +27,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Separator } from "@/components/ui/separator";
 import { downloadBlob } from "@/lib/clip-actions";
 import {
   clamp,
@@ -42,7 +40,7 @@ import { Preview } from "./preview";
 import { Timeline } from "./timeline";
 import { Inspector, type InspectorTab } from "./inspector";
 import { ExportPanel, readyEditor, type ClipSummary } from "./export-panel";
-import { Keys, Panel, PanelHeader, ToolButton } from "./studio-ui";
+import { Keys, ToolButton } from "./studio-ui";
 
 const SHORTCUTS: [string[], string][] = [
   [["Space"], "Play / pause"],
@@ -51,6 +49,7 @@ const SHORTCUTS: [string[], string][] = [
   [["I"], "Set in point"],
   [["O"], "Set out point"],
   [["S"], "Split at playhead"],
+  [["Del"], "Remove the selected segment"],
   [["Ctrl/⌘", "Z"], "Undo"],
   [["Ctrl/⌘", "Shift", "Z"], "Redo"],
   [["Ctrl/⌘", "S"], "Save draft"],
@@ -94,9 +93,20 @@ export function EditorWorkspace({
     [combining, setCombining] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const index = doc ? Math.min(segmentIndex, doc.segments.length - 1) : 0;
+  const segments = useRef(doc?.segments);
+  segments.current = doc?.segments;
   const seek = useCallback((value: number) => {
     setTime(value);
     setSeekRequest({ time: value, nonce: Date.now() });
+    // Jumping into another segment (from the transcript, say) selects it, so Split and trim act there.
+    setSegmentIndex((current) => {
+      const list = segments.current ?? [],
+        inside = (i: number) =>
+          list[i] && value >= list[i].start && value <= list[i].end;
+      if (inside(current)) return current;
+      const found = list.findIndex((_, i) => inside(i));
+      return found < 0 ? current : found;
+    });
   }, []);
   const switchClip = async (id: string) => {
     if (id === clip.id) return;
@@ -252,6 +262,14 @@ export function EditorWorkspace({
         event.preventDefault();
         editor.update((d) => splitSegment(d, index, time));
       }
+      if ((key === "delete" || key === "backspace") && doc.segments.length > 1) {
+        event.preventDefault();
+        editor.update((d) => ({
+          ...d,
+          segments: d.segments.filter((_, i) => i !== index),
+        }));
+        setSegmentIndex(Math.max(0, index - 1));
+      }
       if (key === "?") setHelpOpen(true);
     };
     window.addEventListener("keydown", handle);
@@ -270,86 +288,93 @@ export function EditorWorkspace({
   ]);
   const saved = editor.status === "All changes saved",
     saving = editor.status === "Saving…";
+  // The studio is dark like every video editor; menus and dialogs render outside it, so the page goes dark too.
+  useEffect(() => {
+    const root = document.documentElement;
+    if (root.classList.contains("dark")) return;
+    root.classList.add("dark");
+    return () => root.classList.remove("dark");
+  }, []);
   return (
-    <div className="min-h-[calc(100dvh-73px)] bg-muted/40">
-      <div className="border-b bg-background">
-        <div className="mx-auto flex max-w-[1800px] flex-wrap items-center justify-between gap-x-6 gap-y-3 px-4 py-4 sm:px-6">
-          <div className="flex min-w-0 items-center gap-3">
-            <Button variant="outline" size="icon" asChild>
-              <Link href={`/tasks/${taskId}`} aria-label="Back to generation">
-                <ArrowLeft />
-              </Link>
-            </Button>
-            <div className="min-w-0">
-              <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <Link
-                  href={`/tasks/${taskId}`}
-                  className="truncate hover:text-foreground"
-                >
-                  Generation
-                </Link>
-                <span aria-hidden>/</span>
-                <span className="text-foreground">Clip {clip.clip_order}</span>
-              </p>
-              <h1 className="truncate font-display text-xl font-bold tracking-tight">
-                {title}
-              </h1>
-            </div>
-          </div>
-          <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
-            <span
-              role="status"
-              aria-live="polite"
-              className={cn(
-                "mr-auto flex items-center gap-1.5 text-xs text-muted-foreground sm:mr-2",
-                editor.error && "text-destructive",
-              )}
-            >
-              {saved ? (
-                <Check className="size-3.5" />
-              ) : saving ? (
-                <Loader2 className="size-3.5 animate-spin" />
-              ) : editor.error ? (
-                <CloudOff className="size-3.5" />
-              ) : null}
-              {editor.status}
-            </span>
-            <div className="flex items-center rounded-md border bg-background shadow-xs">
-              <ToolButton
-                label="Undo"
-                shortcut={["Ctrl/⌘", "Z"]}
-                className="rounded-r-none"
-                disabled={!editor.canUndo}
-                onClick={editor.undo}
-              >
-                <Undo2 />
-              </ToolButton>
-              <Separator orientation="vertical" className="!h-5" />
-              <ToolButton
-                label="Redo"
-                shortcut={["Ctrl/⌘", "Shift", "Z"]}
-                className="rounded-l-none"
-                disabled={!editor.canRedo}
-                onClick={editor.redo}
-              >
-                <Redo2 />
-              </ToolButton>
-            </div>
-            <ToolButton
-              label="Keyboard shortcuts"
-              shortcut="?"
-              onClick={() => setHelpOpen(true)}
-            >
-              <Keyboard />
-            </ToolButton>
-            <Button disabled={!doc} onClick={() => setExportOpen(true)}>
-              <Download />
-              Export
-            </Button>
-          </div>
+    <div className="fixed inset-0 z-50 flex flex-col bg-background text-foreground">
+      <header className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b bg-card px-3 py-2">
+        <Button variant="ghost" size="icon-sm" asChild>
+          <Link href={`/tasks/${taskId}`} aria-label="Back to generation">
+            <ArrowLeft />
+          </Link>
+        </Button>
+        <div className="min-w-0 flex-1">
+          <h1 className="truncate text-sm font-semibold">
+            {clip.hook_title || `Clip ${clip.clip_order}`}
+          </h1>
+          <p className="truncate text-xs text-muted-foreground">
+            Clip {clip.clip_order} · {title}
+          </p>
         </div>
-      </div>
-      <div className="mx-auto max-w-[1800px] space-y-3 px-4 pt-4 sm:px-6 empty:hidden">
+        <span
+          role="status"
+          aria-live="polite"
+          className={cn(
+            "flex items-center gap-1.5 text-xs text-muted-foreground",
+            editor.error && "text-destructive",
+          )}
+        >
+          {saved ? (
+            <Check className="size-3.5" />
+          ) : saving ? (
+            <Loader2 className="size-3.5 animate-spin" />
+          ) : editor.error ? (
+            <CloudOff className="size-3.5" />
+          ) : null}
+          <span className="max-sm:hidden">{editor.status}</span>
+        </span>
+        <div className="flex items-center">
+          <ToolButton
+            label="Undo"
+            shortcut={["Ctrl/⌘", "Z"]}
+            size="icon-sm"
+            disabled={!editor.canUndo}
+            onClick={editor.undo}
+          >
+            <Undo2 />
+          </ToolButton>
+          <ToolButton
+            label="Redo"
+            shortcut={["Ctrl/⌘", "Shift", "Z"]}
+            size="icon-sm"
+            disabled={!editor.canRedo}
+            onClick={editor.redo}
+          >
+            <Redo2 />
+          </ToolButton>
+          <ToolButton
+            label="Restore original"
+            size="icon-sm"
+            disabled={!doc}
+            onClick={() => setRestoreOpen(true)}
+          >
+            <RotateCcw />
+          </ToolButton>
+          <ToolButton
+            label="Keyboard shortcuts"
+            shortcut="?"
+            size="icon-sm"
+            onClick={() => setHelpOpen(true)}
+          >
+            <Keyboard />
+          </ToolButton>
+        </div>
+        <Button
+          size="sm"
+          className="bg-brand text-brand-foreground hover:bg-brand/90"
+          disabled={!doc}
+          onClick={() => setExportOpen(true)}
+        >
+          <Download />
+          Export
+        </Button>
+      </header>
+      <div className="shrink-0 space-y-2 px-3 pt-2 empty:hidden">
         {editor.error && (
           <Alert variant="destructive">
             <AlertCircle />
@@ -417,209 +442,162 @@ export function EditorWorkspace({
           </Alert>
         )}
       </div>
-      <div className="mx-auto grid max-w-[1800px] grid-cols-1 items-start gap-4 p-4 sm:px-6 md:grid-cols-[minmax(0,1fr)_300px] xl:grid-cols-[232px_minmax(0,1fr)_340px] 2xl:grid-cols-[260px_minmax(0,1fr)_380px]">
-        <Panel
-          aria-label="Your clips"
-          className="md:col-span-2 xl:col-span-1 xl:sticky xl:top-4"
-        >
-          <PanelHeader title="Clips">
-            <Badge variant="secondary" className="tabular-nums">
-              {clips.length}
-            </Badge>
-          </PanelHeader>
-          <ul className="flex gap-2 overflow-x-auto p-2 xl:max-h-[calc(100dvh-330px)] xl:flex-col xl:overflow-x-visible xl:overflow-y-auto">
-            {clips.map((c) => {
-              const active = c.id === clip.id,
-                order = selected.indexOf(c.id);
-              return (
-                <li
-                  key={c.id}
-                  className={cn(
-                    "group relative flex w-60 shrink-0 gap-3 rounded-lg border border-transparent p-2 transition-colors hover:bg-accent xl:w-auto",
-                    active && "border-border bg-accent",
-                  )}
-                >
-                  <span
-                    aria-hidden
-                    className="relative flex h-16 w-10 shrink-0 items-center justify-center overflow-hidden rounded-md bg-muted text-muted-foreground"
-                    style={{
-                      backgroundImage: `url(/api/tasks/${taskId}/clips/${c.id}/editor/media/thumbnails.jpg)`,
-                      backgroundSize: "auto 100%",
-                    }}
-                  >
-                    <Film className="size-4" />
-                    {active && (
-                      <span className="absolute inset-0 ring-2 ring-primary ring-inset rounded-md" />
-                    )}
-                  </span>
-                  <button
-                    className="min-w-0 flex-1 text-left outline-none after:absolute after:inset-0 after:rounded-lg focus-visible:after:ring-[3px] focus-visible:after:ring-ring/50"
-                    onClick={() => void switchClip(c.id)}
-                    aria-pressed={active}
-                    aria-label={`Edit clip ${c.clip_order}`}
-                  >
-                    <span className="flex items-center justify-between gap-2 text-xs">
-                      <span className="font-medium">Clip {c.clip_order}</span>
-                      <span className="text-muted-foreground tabular-nums">
-                        {timecode(c.duration)}
-                      </span>
-                    </span>
-                    <span className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
-                      {c.text || "Your next story starts here"}
-                    </span>
-                  </button>
-                  <span className="relative z-10 flex flex-col items-center justify-between">
-                    <Checkbox
-                      aria-label={`Select clip ${c.clip_order} for combine`}
-                      title="Select to combine"
-                      checked={order >= 0}
-                      onCheckedChange={(checked) =>
-                        setSelected((ids) =>
-                          checked
-                            ? [...ids, c.id]
-                            : ids.filter((id) => id !== c.id),
-                        )
-                      }
-                      className={cn(
-                        "bg-background transition-opacity",
-                        order < 0 &&
-                          "opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100",
-                      )}
-                    />
-                    {order >= 0 && (
-                      <span className="text-[10px] font-medium text-muted-foreground tabular-nums">
-                        #{order + 1}
-                      </span>
-                    )}
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
-          <div className="space-y-2 border-t p-3">
-            {selected.length >= 2 ? (
-              <>
-                <Button
-                  size="sm"
-                  className="w-full"
-                  disabled={combining}
-                  onClick={() => void combine()}
-                >
-                  {combining ? (
-                    <Loader2 className="animate-spin" />
-                  ) : (
-                    <Layers />
-                  )}
-                  {combining ? "Combining…" : `Combine ${selected.length} drafts`}
-                </Button>
-                <p className="text-xs text-muted-foreground">
-                  Uses selection order and the first clip’s style. Originals are
-                  kept.
-                </p>
-              </>
-            ) : (
-              <p className="text-xs text-muted-foreground">
-                {selected.length === 1
-                  ? "Select one more clip to combine."
-                  : "Tick two or more clips to combine them into one draft."}
-              </p>
-            )}
-            <Separator />
-            <Button
-              size="sm"
-              variant="ghost"
-              className="-ml-2"
-              disabled={!doc}
-              onClick={() => setRestoreOpen(true)}
+      <div className="flex min-h-0 flex-1 max-lg:flex-col max-lg:overflow-y-auto">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col max-lg:flex-none">
+          <div className="flex min-h-0 flex-1 max-lg:flex-col">
+            <aside
+              aria-label="Your clips"
+              className="flex shrink-0 flex-col border-r bg-card lg:w-44"
             >
-              <RotateCcw />
-              Restore original
-            </Button>
-            <p className="text-xs text-muted-foreground">
-              Generated clips are never overwritten. Every change here is an
-              editable draft.
-            </p>
-          </div>
-        </Panel>
-        {doc && asset?.status === "ready" ? (
-          <>
-            <main className="flex min-w-0 flex-col gap-4">
+              <ul className="flex min-h-0 flex-1 gap-1 overflow-auto p-1.5 lg:flex-col">
+                {clips.map((c) => {
+                  const active = c.id === clip.id,
+                    order = selected.indexOf(c.id);
+                  return (
+                    <li
+                      key={c.id}
+                      className={cn(
+                        "group relative flex w-44 shrink-0 gap-2 rounded-md p-1.5 transition-colors hover:bg-accent lg:w-auto",
+                        active && "bg-accent ring-1 ring-brand",
+                      )}
+                    >
+                      <span
+                        aria-hidden
+                        className="flex h-14 w-9 shrink-0 items-center justify-center overflow-hidden rounded bg-muted text-muted-foreground"
+                        style={{
+                          backgroundImage: `url(/api/tasks/${taskId}/clips/${c.id}/editor/media/thumbnails.jpg)`,
+                          backgroundSize: "auto 100%",
+                          backgroundPosition: "center",
+                        }}
+                      >
+                        <Film className="size-3.5 opacity-40" />
+                      </span>
+                      <button
+                        className="min-w-0 flex-1 text-left outline-none after:absolute after:inset-0 after:rounded-md focus-visible:after:ring-[3px] focus-visible:after:ring-ring/50"
+                        onClick={() => void switchClip(c.id)}
+                        aria-pressed={active}
+                        aria-label={`Edit clip ${c.clip_order}`}
+                      >
+                        <span className="flex items-center justify-between gap-2 text-[11px]">
+                          <span className="font-medium">Clip {c.clip_order}</span>
+                          <span className="text-muted-foreground tabular-nums">
+                            {timecode(c.duration).replace(/\.\d+$/, "")}
+                          </span>
+                        </span>
+                        <span className="mt-0.5 line-clamp-2 text-[11px] leading-snug text-muted-foreground">
+                          {c.hook_title || c.text}
+                        </span>
+                      </button>
+                      <Checkbox
+                        aria-label={`Select clip ${c.clip_order} for combine`}
+                        title="Add to a montage"
+                        checked={order >= 0}
+                        onCheckedChange={(checked) =>
+                          setSelected((ids) =>
+                            checked
+                              ? [...ids, c.id]
+                              : ids.filter((id) => id !== c.id),
+                          )
+                        }
+                        className={cn(
+                          "absolute right-1.5 bottom-1.5 z-10 bg-background transition-opacity",
+                          order < 0 &&
+                            "opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100",
+                        )}
+                      />
+                    </li>
+                  );
+                })}
+              </ul>
+              {clips.length > 1 && (
+                <div className="space-y-1.5 border-t p-2">
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    className="h-7 w-full text-xs"
+                    disabled={combining || selected.length < 2}
+                    onClick={() => void combine()}
+                  >
+                    {combining ? <Loader2 className="animate-spin" /> : <Layers />}
+                    {combining
+                      ? "Building…"
+                      : selected.length >= 2
+                        ? `Montage of ${selected.length}`
+                        : "Make a montage"}
+                  </Button>
+                  <p className="text-[11px] leading-snug text-muted-foreground max-lg:hidden">
+                    {selected.length >= 2
+                      ? "Joined in the order you ticked them, as a new clip."
+                      : "Tick two or more clips to join them into one."}
+                  </p>
+                </div>
+              )}
+            </aside>
+            {doc && asset?.status === "ready" ? (
               <Preview
                 doc={doc}
                 asset={asset}
                 endpoint={endpoint}
                 segmentIndex={index}
                 select={setSegmentIndex}
-                time={time}
                 onTime={setTime}
                 seekRequest={seekRequest}
-                tab={tab}
                 update={editor.update}
                 videoRef={videoRef}
               />
-              <Timeline
-                doc={doc}
-                asset={asset}
-                endpoint={endpoint}
-                currentTime={time}
-                index={index}
-                select={setSegmentIndex}
-                seek={seek}
-                update={editor.update}
-              />
-            </main>
-            <Inspector
+            ) : (
+              <div className="flex min-h-[420px] flex-1 flex-col items-center justify-center p-8 text-center">
+                <div className="mb-5 flex size-14 items-center justify-center rounded-full bg-muted">
+                  {editor.error ? (
+                    <AlertCircle className="size-6 text-destructive" />
+                  ) : (
+                    <Film className="size-6 text-muted-foreground" />
+                  )}
+                </div>
+                <h2 className="font-display text-xl font-bold">
+                  {editor.error
+                    ? "Let’s get your preview back"
+                    : "Getting this clip ready to edit"}
+                </h2>
+                <p className="mt-2 max-w-sm text-sm text-muted-foreground">
+                  {editor.error
+                    ? "Your original clip is safe. Retry preparation to continue."
+                    : "Loading the video, word timings and facecam position. This only happens once per clip."}
+                </p>
+                {!editor.error && (
+                  <Loader2 className="mt-5 size-5 animate-spin text-muted-foreground" />
+                )}
+              </div>
+            )}
+          </div>
+          {doc && asset?.status === "ready" && (
+            <Timeline
               doc={doc}
               asset={asset}
-              tab={tab}
-              setTab={setTab}
-              time={time}
+              endpoint={endpoint}
+              currentTime={time}
+              index={index}
+              select={setSegmentIndex}
               seek={seek}
               update={editor.update}
-              applyAll={applyAll}
             />
-          </>
-        ) : (
-          <Panel className="flex min-h-[420px] flex-col items-center justify-center p-8 text-center md:col-span-2 xl:min-h-[640px]">
-            <div className="mb-5 flex size-14 items-center justify-center rounded-full bg-muted">
-              {editor.error ? (
-                <AlertCircle className="size-6 text-destructive" />
-              ) : (
-                <Film className="size-6 text-muted-foreground" />
-              )}
-            </div>
-            <h2 className="font-display text-xl font-bold">
-              {editor.error
-                ? "Let’s get your preview back"
-                : "Preparing your editing canvas"}
-            </h2>
-            <p className="mt-2 max-w-sm text-sm text-muted-foreground">
-              {editor.error
-                ? "Your original clip is safe. Retry preparation to continue."
-                : "Loading the original video, word timings, thumbnails, and audio waveform. This only happens once per clip."}
-            </p>
-            {!editor.error && (
-              <Loader2 className="mt-5 size-5 animate-spin text-muted-foreground" />
-            )}
-          </Panel>
+          )}
+        </div>
+        {doc && asset?.status === "ready" && (
+          <Inspector
+            doc={doc}
+            asset={asset}
+            tab={tab}
+            setTab={setTab}
+            time={time}
+            seek={seek}
+            update={editor.update}
+            applyAll={applyAll}
+            videoRef={videoRef}
+            suggestedTitle={clip.hook_title}
+          />
         )}
       </div>
-      <footer className="mx-auto hidden max-w-[1800px] flex-wrap items-center justify-end gap-x-4 gap-y-2 px-6 pb-6 text-xs text-muted-foreground md:flex">
-        {(
-          [
-            ["Space", "Play"],
-            ["I", "In"],
-            ["O", "Out"],
-            ["S", "Split"],
-            ["?", "All shortcuts"],
-          ] as const
-        ).map(([key, label]) => (
-          <span key={key} className="flex items-center gap-1.5">
-            <Keys keys={key} />
-            {label}
-          </span>
-        ))}
-      </footer>
       {doc && asset && (
         <ExportPanel
           open={exportOpen}
