@@ -6,6 +6,7 @@ import subprocess
 import uuid
 
 from ..editor_document import (
+    CaptionStyle,
     EditDocument,
     atomic_json,
     editor_dir,
@@ -23,6 +24,9 @@ def read_state(directory: Path):
     if state.get("status") == "ready":
         state["draft"] = json.loads((directory / "draft.json").read_text())
         state["original"] = json.loads((directory / "original.json").read_text())
+        # Drafts saved before a field existed get its default.
+        for document in (state["draft"]["document"], state["original"]):
+            document.update(EditDocument.model_validate(document).model_dump())
     return state
 
 
@@ -118,7 +122,10 @@ async def prepare_editor(ctx, task_id: str, clip_id: str, filename: str):
     )
     from ..clip_editor import _caption_words_with_timings
     from ..clip_source_map import load_clip_caption_settings
+    from ..media.stream_layouts import FULLSCREEN_CAM_WIDTH, detect_facecam, pad_face
+    from typing import get_args
 
+    CAPTION_FONTS = get_args(CaptionStyle.model_fields["font"].annotation)
     directory = editor_dir(get_config().temp_dir, task_id, clip_id, filename)
     downloaded_source = None
     source_url = None
@@ -174,6 +181,12 @@ async def prepare_editor(ctx, task_id: str, clip_id: str, filename: str):
             if not rendered:
                 raise ValueError("Could not prepare the original video")
             metadata = await run_in_thread(make_assets, directory)
+            try:
+                face = await run_in_thread(detect_facecam, clean)
+            except Exception:  # no detector or unreadable frames: the box can be drawn by hand
+                face = None
+            # A face this wide is a full-screen camera, not an overlay to cut out.
+            cam = pad_face(face) if face and face[2] <= FULLSCREEN_CAM_WIDTH else None
             transcript = load_cached_transcript_data(source)
             timed = get_words_for_keep_ranges(transcript, ranges) if transcript else []
             words = _caption_words_with_timings(
@@ -187,17 +200,21 @@ async def prepare_editor(ctx, task_id: str, clip_id: str, filename: str):
                         "framing": {
                             "aspect": "original"
                             if source_settings.get("output_format") == "original"
-                            else "vertical"
+                            else "vertical",
+                            # Open with the stream template the clip was generated with.
+                            "layout": {
+                                "facecam_top": "cam_top",
+                                "gameplay_top": "cam_bottom",
+                                "floating_cam": "floating",
+                            }.get(source_settings.get("output_format"), "crop")
+                            if cam
+                            else "crop",
+                            **({"cam": dict(zip("xywh", cam))} if cam else {}),
                         },
                         "captions": {
                             "enabled": source_settings.get("add_subtitles", True),
                             "font": task.get("font_family")
-                            if task.get("font_family")
-                            in {
-                                "TikTokSans-Regular",
-                                "Poppins-ExtraBold",
-                                "THEBOLDFONT",
-                            }
+                            if task.get("font_family") in CAPTION_FONTS
                             else "TikTokSans-Regular",
                             "color": task.get("font_color") or "#FFFFFF",
                             "y": max(

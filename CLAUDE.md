@@ -95,6 +95,11 @@ the biggest face.
 
 ### Clip editing
 
+The studio (`frontend/src/components/editor/`, `/tasks/[id]/edit`) edits a draft document
+(`editor_document.py` / `lib/editor/document.ts`: cuts, words, caption style, layout, title). The
+preview and in-browser export draw it on a canvas (`lib/editor/render.ts`); the server export builds
+the same picture with ffmpeg + libass (`layout_filter`, `write_ass`). Change both together. See `docs/editor.md`.
+
 Trim, split, merge, captions, export presets, plus
 `POST /tasks/{id}/clips/{clip_id}/extend` with `{"before": s, "after": s}` which re-renders the
 clip from the source with extra time (the UI's "+30s" buttons; max 600s each side).

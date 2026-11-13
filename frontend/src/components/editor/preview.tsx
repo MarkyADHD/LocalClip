@@ -6,7 +6,6 @@ import {
   SkipBack,
   SkipForward,
   Repeat,
-  Scan,
   VolumeX,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -23,19 +22,24 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+
+/** Rough share of a 9:16 frame each app covers with its own UI (they shift between app versions). */
+const SAFE_ZONES = {
+  tiktok: { label: "TikTok", top: 7, bottom: 19, right: 12 },
+  reels: { label: "Reels", top: 11, bottom: 21, right: 12 },
+  shorts: { label: "Shorts", top: 14, bottom: 20, right: 13 },
+} as const;
+type SafeZone = keyof typeof SAFE_ZONES | "off";
 import {
   clamp,
-  editDuration,
   frameRect,
   outputSize,
   outputTime,
-  timecode,
   type EditDocument,
   type EditorState,
 } from "@/lib/editor/document";
 import { drawEditorFrame, loadEditorFont } from "@/lib/editor/render";
-import type { InspectorTab } from "./inspector";
-import { Panel, ToolButton } from "./studio-ui";
+import { ToolButton } from "./studio-ui";
 
 interface Props {
   doc: EditDocument;
@@ -43,10 +47,8 @@ interface Props {
   endpoint: string;
   segmentIndex: number;
   select: (index: number) => void;
-  time: number;
   onTime: (time: number) => void;
   seekRequest: { time: number; nonce: number };
-  tab: InspectorTab;
   update: (change: (doc: EditDocument) => EditDocument, group?: string) => void;
   videoRef: React.RefObject<HTMLVideoElement | null>;
 }
@@ -56,10 +58,8 @@ export function Preview({
   endpoint,
   segmentIndex,
   select,
-  time,
   onTime,
   seekRequest,
-  tab,
   update,
   videoRef,
 }: Props) {
@@ -69,7 +69,7 @@ export function Preview({
     audioRef = useRef<{ context: AudioContext; gain: GainNode } | null>(null);
   const [playing, setPlaying] = useState(false),
     [loop, setLoop] = useState(true),
-    [guides, setGuides] = useState(false),
+    [zone, setZone] = useState<SafeZone>("off"),
     [rate, setRate] = useState(1),
     [mediaError, setMediaError] = useState(false),
     [fontError, setFontError] = useState(false);
@@ -79,6 +79,8 @@ export function Preview({
     startX: number;
     startY: number;
     captionY: number;
+    caption: boolean;
+    moved: boolean;
   } | null>(null);
   const size = outputSize(doc, asset.width, asset.height);
   useEffect(() => {
@@ -210,43 +212,18 @@ export function Preview({
     );
     onTime(video.currentTime);
   };
-  const hint = fontError
-    ? "Caption font could not load. Check your connection before exporting."
-    : tab === "framing"
-      ? "Drag the video to reframe · captions stay in place"
-      : tab === "captions"
-        ? "Drag vertically to position captions"
-        : null;
+  const safe = zone !== "off" && doc.framing.aspect === "vertical" && SAFE_ZONES[zone];
   return (
-    <Panel aria-label="Video preview">
-      <div className="flex items-center justify-between gap-3 border-b px-4 py-2">
-        <div className="flex items-center gap-2 text-sm font-semibold">
-          Preview
-          <span className="text-xs font-normal text-muted-foreground tabular-nums">
-            {size.width} × {size.height} · {Math.round(asset.fps)} fps
-          </span>
-        </div>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Toggle
-              size="sm"
-              pressed={guides}
-              onPressedChange={setGuides}
-              aria-label="Safe area"
-            >
-              <Scan />
-              <span className="hidden sm:inline">Safe area</span>
-            </Toggle>
-          </TooltipTrigger>
-          <TooltipContent>Show where platform UI covers the video</TooltipContent>
-        </Tooltip>
-      </div>
+    <section
+      aria-label="Video preview"
+      className="flex min-h-0 min-w-0 flex-1 flex-col bg-canvas max-lg:h-[70dvh] max-lg:flex-none"
+    >
       <div
         ref={stageRef}
-        className="relative flex h-[clamp(340px,calc(100dvh-640px),520px)] items-center justify-center bg-stone-950 bg-[radial-gradient(ellipse_at_50%_40%,var(--color-stone-800),transparent_70%)] px-6 py-5 max-md:h-[415px] max-md:px-4"
+        className="relative flex min-h-0 flex-1 items-center justify-center p-4"
       >
         <div
-          className="relative max-h-full max-w-full overflow-hidden rounded-md bg-black shadow-2xl ring-1 ring-white/10"
+          className="relative max-h-full max-w-full overflow-hidden rounded-lg bg-black shadow-2xl ring-1 ring-white/10"
           style={{
             aspectRatio: `${size.width}/${size.height}`,
             width: `${previewWidth}px`,
@@ -278,13 +255,20 @@ export function Preview({
           />
           <canvas
             ref={canvasRef}
-            width={Math.round((size.width / size.height) * 640)}
-            height={640}
+            width={Math.round((size.width / size.height) * 960)}
+            height={960}
             aria-label="Edited video preview"
-            className={`block h-full w-full touch-none ${tab === "framing" || tab === "captions" ? "cursor-move" : "cursor-default"}`}
+            title="Drag the captions or the video to move them. Click to play or pause."
+            className="block h-full w-full cursor-grab touch-none active:cursor-grabbing"
             onPointerDown={(e) => {
-              if (tab !== "framing" && tab !== "captions") return;
+              const box = e.currentTarget.getBoundingClientRect();
               drag.current = {
+                // Grab the captions near their line; anywhere else moves the video.
+                caption:
+                  doc.captions.enabled &&
+                  Math.abs((e.clientY - box.top) / box.height - doc.captions.y) <
+                    0.08,
+                moved: false,
                 x: e.clientX,
                 y: e.clientY,
                 startX: doc.framing.x,
@@ -298,7 +282,9 @@ export function Preview({
               const box = e.currentTarget.getBoundingClientRect(),
                 deltaX = e.clientX - drag.current.x,
                 deltaY = e.clientY - drag.current.y;
-              if (tab === "captions") {
+              if (!drag.current.moved && Math.hypot(deltaX, deltaY) < 4) return;
+              drag.current.moved = true;
+              if (drag.current.caption) {
                 const y = clamp(
                   drag.current.captionY + deltaY / box.height,
                   0.1,
@@ -309,12 +295,17 @@ export function Preview({
                   "drag-caption",
                 );
               } else {
+                // In the stacked layouts the drag moves the gameplay inside its band.
+                const stacked =
+                    doc.framing.aspect !== "original" &&
+                    doc.framing.layout.startsWith("cam_"),
+                  paneHeight = box.height * (stacked ? 0.6 : 1);
                 const rect = frameRect(
-                  doc.framing,
+                  stacked ? { ...doc.framing, fit: "cover" } : doc.framing,
                   asset.width,
                   asset.height,
                   box.width,
-                  box.height,
+                  paneHeight,
                 );
                 const x = clamp(
                     drag.current.startX +
@@ -326,8 +317,8 @@ export function Preview({
                   ),
                   y = clamp(
                     drag.current.startY +
-                      (Math.abs(box.height - rect.height) > 1
-                        ? deltaY / (box.height - rect.height)
+                      (Math.abs(paneHeight - rect.height) > 1
+                        ? deltaY / (paneHeight - rect.height)
                         : 0),
                     0,
                     1,
@@ -339,17 +330,34 @@ export function Preview({
               }
             }}
             onPointerUp={() => {
+              if (drag.current && !drag.current.moved) void play();
               drag.current = null;
             }}
             onPointerCancel={() => {
               drag.current = null;
             }}
           />
-          {guides && (
-            <div className="pointer-events-none absolute inset-x-[8%] top-[10%] bottom-[20%] rounded-lg border border-dashed border-white/60">
-              <span className="absolute -top-5 text-[10px] text-white/70">
-                Keep important content here
-              </span>
+          {safe && (
+            <div
+              aria-label={`${safe.label} safe zone`}
+              className="pointer-events-none absolute inset-0 text-[10px] font-medium text-white/90 [&>div]:absolute [&>div]:bg-red-500/30 [&>div]:outline [&>div]:outline-dashed [&>div]:outline-1 [&>div]:outline-red-300/70"
+            >
+              <div
+                className="inset-x-0 top-0 flex items-center justify-center"
+                style={{ height: `${safe.top}%` }}
+              >
+                {safe.label} header
+              </div>
+              <div
+                className="inset-x-0 bottom-0 flex items-center justify-center"
+                style={{ height: `${safe.bottom}%` }}
+              >
+                Caption, sound and nav
+              </div>
+              <div
+                className="right-0 top-[45%]"
+                style={{ width: `${safe.right}%`, bottom: `${safe.bottom}%` }}
+              />
             </div>
           )}
           {mediaError && (
@@ -368,15 +376,13 @@ export function Preview({
             </div>
           )}
         </div>
-        {hint && (
-          <p
-            className={`absolute inset-x-0 bottom-1.5 px-4 text-center text-[11px] ${fontError ? "text-amber-300" : "text-stone-400"}`}
-          >
-            {hint}
+        {fontError && (
+          <p className="absolute inset-x-0 bottom-1 px-4 text-center text-[11px] text-amber-300">
+            Caption font could not load. Check your connection before exporting.
           </p>
         )}
       </div>
-      <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 border-t px-3 py-2.5 sm:px-4">
+      <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 border-t bg-card px-3 py-1.5">
         <div className="flex items-center gap-1">
           <Tooltip>
             <TooltipTrigger asChild>
@@ -420,7 +426,7 @@ export function Preview({
             <SkipBack />
           </ToolButton>
           <Button
-            size="icon-lg"
+            size="icon"
             className="rounded-full"
             aria-label={playing ? "Pause" : "Play"}
             onClick={() => void play()}
@@ -435,32 +441,35 @@ export function Preview({
             <SkipForward />
           </ToolButton>
         </div>
-        <div className="flex items-center justify-end gap-2 text-xs tabular-nums">
+        <div className="flex items-center justify-end gap-2">
           {doc.muted && (
             <VolumeX
               aria-label="Muted"
               className="size-3.5 text-muted-foreground"
             />
           )}
-          <span className="whitespace-nowrap font-medium">
-            {timecode(
-              clamp(
-                outputTime(
-                  doc,
-                  Math.min(segmentIndex, doc.segments.length - 1),
-                  time,
-                ),
-                0,
-                editDuration(doc),
-              ),
-            )}
-            <span className="font-normal text-muted-foreground max-sm:hidden">
-              {" "}
-              / {timecode(editDuration(doc))}
-            </span>
+          <span className="text-[11px] tabular-nums text-muted-foreground max-md:hidden">
+            {size.width} × {size.height} · {Math.round(asset.fps)} fps
           </span>
+          <Select value={zone} onValueChange={(v) => setZone(v as SafeZone)}>
+            <SelectTrigger
+              size="sm"
+              aria-label="Safe zones"
+              className="h-8 border-transparent text-xs shadow-none hover:bg-accent"
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent align="end">
+              <SelectItem value="off">Safe zones off</SelectItem>
+              {Object.entries(SAFE_ZONES).map(([id, z]) => (
+                <SelectItem key={id} value={id}>
+                  {z.label} safe zone
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       </div>
-    </Panel>
+    </section>
   );
 }

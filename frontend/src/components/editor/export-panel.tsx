@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   AlertCircle,
   Cloud,
+  Copy,
   Download,
   Loader2,
   Monitor,
@@ -42,6 +43,8 @@ export interface ClipSummary {
   duration: number;
   text: string;
   video_url: string;
+  hook_title?: string | null;
+  hashtags?: string[];
 }
 interface Job extends ExportJob {
   endpoint: string;
@@ -253,6 +256,12 @@ export function ExportPanel({
       disabled: busy || !browserSupport?.supported,
     },
   ];
+  const postCaption = [
+    doc.title || clip.hook_title,
+    ...(clip.hashtags ?? []).map((tag) => `#${tag}`),
+  ]
+    .filter(Boolean)
+    .join(" ");
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogContent className="max-h-[90vh] gap-5 overflow-y-auto sm:max-w-lg">
@@ -324,6 +333,27 @@ export function ExportPanel({
             </p>
           )}
         </div>
+        {postCaption && (
+          <div className="space-y-2">
+            <p className="text-xs font-medium text-muted-foreground">
+              Caption for your post
+            </p>
+            <button
+              type="button"
+              className="flex w-full items-start gap-2 rounded-lg border p-3 text-left text-sm transition-colors hover:bg-accent"
+              title="Copy the title and hashtags"
+              onClick={() =>
+                void navigator.clipboard.writeText(postCaption).then(
+                  () => toast.success("Title and hashtags copied"),
+                  () => toast.error("Could not copy. Select the text instead."),
+                )
+              }
+            >
+              <Copy className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+              <span>{postCaption}</span>
+            </button>
+          </div>
+        )}
         {error && (
           <Alert variant="destructive">
             <AlertCircle />

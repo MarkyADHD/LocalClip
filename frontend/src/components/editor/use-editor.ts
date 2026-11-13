@@ -1,7 +1,11 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { formatSupportMessage, parseApiError } from "@/lib/api-error";
-import type { EditDocument, EditorState } from "@/lib/editor/document";
+import {
+  normalize,
+  type EditDocument,
+  type EditorState,
+} from "@/lib/editor/document";
 
 export async function editorRequest<T>(
   url: string,
@@ -211,6 +215,12 @@ export function useEditor(endpoint: string) {
         } catch {
           /* An unreadable local cache never prevents server recovery. */
         }
+        // A local cache written before a field existed loads with its default.
+        h = {
+          past: h.past.map(normalize),
+          present: normalize(h.present),
+          future: h.future.map(normalize),
+        };
         historyRef.current = h;
         setHistory(h);
         setStatus(

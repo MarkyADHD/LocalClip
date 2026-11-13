@@ -53,15 +53,35 @@ class Word(Model):
 
 class CaptionStyle(Model):
     enabled: bool = True
-    font: Literal["TikTokSans-Regular", "Poppins-ExtraBold", "THEBOLDFONT"] = (
-        "Poppins-ExtraBold"
-    )
+    # Bundled fonts (file stems in backend/fonts); keep in sync with CAPTION_FONTS in document.ts.
+    font: Literal[
+        "TikTokSans-Regular",
+        "TikTokSans-Bold",
+        "Poppins-ExtraBold",
+        "THEBOLDFONT",
+        "Anton-Regular",
+        "BebasNeue-Regular",
+        "ArchivoBlack-Regular",
+        "Bangers-Regular",
+    ] = "Poppins-ExtraBold"
     size: int = Field(default=54, ge=20, le=100)
     color: str = Field(default="#FFFFFF", pattern=r"^#[0-9a-fA-F]{6}$")
     accent: str = Field(default="#FACC15", pattern=r"^#[0-9a-fA-F]{6}$")
     y: float = Field(default=0.78, ge=0.1, le=0.9)
     background: bool = True
     wordsPerLine: int = Field(default=4, ge=1, le=8)
+    uppercase: bool = False
+    outline: float = Field(default=4, ge=0, le=12)  # % of the font size
+    active: bool = False  # colour the word being spoken
+
+
+class Region(Model):
+    """Part of the source frame, normalised 0..1."""
+
+    x: float = Field(default=0, ge=0, le=1)
+    y: float = Field(default=0.6, ge=0, le=1)
+    w: float = Field(default=0.3, ge=0.05, le=1)
+    h: float = Field(default=0.4, ge=0.05, le=1)
 
 
 class Framing(Model):
@@ -70,6 +90,9 @@ class Framing(Model):
     zoom: float = Field(default=1, ge=1, le=3)
     x: float = Field(default=0.5, ge=0, le=1)
     y: float = Field(default=0.5, ge=0, le=1)
+    # crop: one crop of the frame. The others stack or float the facecam (`cam`) with the gameplay.
+    layout: Literal["crop", "cam_top", "cam_bottom", "floating"] = "crop"
+    cam: Region = Field(default_factory=Region)
 
 
 class Effects(Model):
@@ -94,6 +117,7 @@ class EditDocument(Model):
     effects: Effects = Field(default_factory=Effects)
     volume: float = Field(default=1, ge=0, le=2)
     muted: bool = False
+    title: str = Field(default="", max_length=80)  # hook title at the top; empty for none
 
     def validate_duration(self, duration: float):
         if any(s.end > duration + 0.05 for s in self.segments):
@@ -212,13 +236,95 @@ def caption_groups(words: list[dict], count: int):
     return groups
 
 
+def _em_scale(font_path) -> float:
+    """libass sizes a font by its line height (OS/2 win ascent + descent); the preview's canvas sizes
+    it by the em square. This factor makes an ASS Fontsize draw glyphs as large as the preview does."""
+    import struct
+
+    try:
+        data = Path(font_path).read_bytes()
+        tables = {
+            data[12 + i * 16 : 16 + i * 16]: struct.unpack(">I", data[20 + i * 16 : 24 + i * 16])[0]
+            for i in range(struct.unpack(">H", data[4:6])[0])
+        }
+        units = struct.unpack(">H", data[tables[b"head"] + 18 : tables[b"head"] + 20])[0]
+        ascent, descent = struct.unpack(">HH", data[tables[b"OS/2"] + 74 : tables[b"OS/2"] + 78])
+        return (ascent + descent) / units
+    except Exception:  # not a plain TrueType/OpenType file: keep libass's own sizing
+        return 1.0
+
+
+TITLE_Y = 0.14  # where the hook title sits; same in render.ts
+CAM_SHARE = 0.4  # facecam band height in the stacked layouts (same as the stream templates)
+
+
+def _even(value: float) -> int:
+    return max(2, round(value / 2) * 2)
+
+
+def layout_filter(framing: Framing, sw: int, sh: int, width: int, height: int) -> str:
+    """filter_complex from [video] (source size) to [framed] (output size); mirrors drawLayout in render.ts."""
+    layout = "crop" if framing.aspect == "original" else framing.layout
+
+    def scaled(pw: int, ph: int, fit=max):
+        scale = fit(pw / sw, ph / sh) * framing.zoom
+        return _even(sw * scale), _even(sh * scale)
+
+    def cover(pw: int, ph: int) -> str:
+        rw, rh = scaled(pw, ph)
+        return f"scale={rw}:{rh},crop={pw}:{ph}:{(rw - pw) * framing.x}:{(rh - ph) * framing.y}"
+
+    def cam(pw: int, ph: int) -> str:
+        r, aspect = framing.cam, pw / ph
+        w, h = r.w * sw, r.h * sh
+        w, h = (h * aspect, h) if w / h < aspect else (w, w / aspect)
+        if w > sw:
+            w, h = sw, sw / aspect
+        if h > sh:
+            w, h = sh * aspect, sh
+        w, h = int(w) // 2 * 2, int(h) // 2 * 2
+        x = min(max((r.x + r.w / 2) * sw - w / 2, 0), sw - w)
+        y = min(max((r.y + r.h / 2) * sh - h / 2, 0), sh - h)
+        return f"crop={w}:{h}:{int(x)}:{int(y)},scale={pw}:{ph}"
+
+    bw, bh = _even(width / 4), _even(height / 4)
+    blur = f"scale={bw}:{bh}:force_original_aspect_ratio=increase,crop={bw}:{bh},gblur=sigma=8,scale={width}:{height}"
+    if layout == "crop":
+        rw, rh = scaled(width, height, max if framing.fit == "cover" else min)
+        cw, ch = min(width, rw), min(height, rh)
+        crop = f"scale={rw}:{rh},crop={cw}:{ch}:{(rw - cw) * framing.x}:{(rh - ch) * framing.y}"
+        if (cw, ch) == (width, height):
+            return f"[video]{crop},setsar=1[framed]"
+        return (
+            f"[video]split[bg0][fg0];[bg0]{blur}[bg];[fg0]{crop}[fg];"
+            f"[bg][fg]overlay={(width - cw) * framing.x}:{(height - ch) * framing.y},setsar=1[framed]"
+        )
+    if layout == "floating":
+        band = min(height, _even(width * sh / sw))
+        top = (height - band) / 2
+        cw = _even(width * 0.6)
+        ch = _even(cw * 460 / 648)
+        return (
+            f"[video]split=3[bg0][g0][c0];[bg0]{blur}[bg];[g0]scale={width}:{band}[g];"
+            f"[c0]{cam(cw, ch)}[c];[bg][g]overlay=0:{top}[t];"
+            f"[t][c]overlay={(width - cw) / 2}:{max(0, top - ch - height / 80)},setsar=1[framed]"
+        )
+    cam_h = _even(height * CAM_SHARE)
+    order = "[c][g]" if layout == "cam_top" else "[g][c]"
+    return (
+        f"[video]split[g0][c0];[g0]{cover(width, height - cam_h)}[g];"
+        f"[c0]{cam(width, cam_h)}[c];{order}vstack,setsar=1[framed]"
+    )
+
+
 def write_ass(path: Path, document: EditDocument, width: int, height: int):
     from .clip_editor import _ass_color, _ass_timestamp, _escape_ass_text
     from .font_registry import get_font_family_name, find_font_path
 
     style = document.captions
-    size = style.size * width / 1080
     font_path = find_font_path(style.font)
+    em = style.size * width / 1080
+    size = em * (_em_scale(font_path) if font_path else 1)
     font = (get_font_family_name(font_path) if font_path else None) or "Arial"
     header = f"""[Script Info]
 ScriptType: v4.00+
@@ -228,27 +334,52 @@ WrapStyle: 0
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,{font},{size},{_ass_color(style.color)},&H000000FF,&H00101010,&H80101010,0,0,0,0,100,100,0,0,{3 if style.background else 1},{max(1, size * 0.1) if style.background else max(1, size * 0.04)},0,5,{int(width * 0.08)},{int(width * 0.08)},0,1
+Style: Default,{font},{size},{_ass_color(style.color)},&H000000FF,&H00101010,&H80101010,0,0,0,0,100,100,0,0,{3 if style.background else 1},{max(1, em * 0.1) if style.background else em * style.outline / 100},0,5,{int(width * 0.08)},{int(width * 0.08)},0,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
+    def text_of(word):
+        text = censor(word["text"]) if word.get("bleep") else word["text"]
+        text = text.upper() if style.uppercase else text
+        return _escape_ass_text(text).replace("\n", " ").replace("\r", " ")
+
+    def event(start, end, y, words, accent):
+        text = " ".join(
+            "{\\c" + _ass_color(style.accent if accent(i) else style.color) + "}" + text_of(word)
+            for i, word in enumerate(words)
+        )
+        return (
+            f"Dialogue: 0,{_ass_timestamp(start)},{_ass_timestamp(end)},Default,,0,0,0,,"
+            f"{{\\pos({width / 2:.2f},{height * y:.2f})}}{text}\n"
+        )
+
     lines = []
+    if document.title.strip():
+        total = sum(s.end - s.start for s in document.segments)
+        words = [{"text": text} for text in document.title.split()]
+        lines.append(event(0, total, TITLE_Y, words, lambda i: False))
     if style.enabled:
         for group in caption_groups(mapped_words(document), style.wordsPerLine):
-            text = " ".join(
-                "{\\c"
-                + _ass_color(style.accent if word["highlight"] else style.color)
-                + "}"
-                + _escape_ass_text(
-                    censor(word["text"]) if word["bleep"] else word["text"]
-                ).replace("\n", " ").replace("\r", " ")
-                for word in group
-            )
-            position = f"{{\\pos({width / 2:.2f},{height * style.y:.2f})}}"
-            lines.append(
-                f"Dialogue: 0,{_ass_timestamp(group[0]['start'])},{_ass_timestamp(max(w['end'] for w in group))},Default,,0,0,0,,{position}{text}\n"
-            )
+            end = max(w["end"] for w in group)
+            if not style.active:
+                lines.append(
+                    event(group[0]["start"], end, style.y, group, lambda i: group[i]["highlight"])
+                )
+                continue
+            # One event per spoken word; it stays lit until the next word starts.
+            for spoken, word in enumerate(group):
+                until = group[spoken + 1]["start"] if spoken + 1 < len(group) else end
+                if until > word["start"]:
+                    lines.append(
+                        event(
+                            word["start"],
+                            until,
+                            style.y,
+                            group,
+                            lambda i: group[i]["highlight"] or i == spoken,
+                        )
+                    )
     path.write_text(header + "".join(lines))
 
 
@@ -307,14 +438,7 @@ def render_document(directory: Path, job_id: str, document: EditDocument, preset
     source = directory / "clean.mp4"
     sw, sh = _ffprobe_size(source)
     width, height = output_size(document, sw, sh)
-    framing, fx = document.framing, document.effects
-    scale = (max if framing.fit == "cover" else min)(
-        width / sw, height / sh
-    ) * framing.zoom
-    rw, rh = max(2, round(sw * scale / 2) * 2), max(2, round(sh * scale / 2) * 2)
-    # Crop overflow and position letterboxing using the same normalized anchor.
-    cw, ch = min(width, rw), min(height, rh)
-    geometry = f"scale={rw}:{rh},crop={cw}:{ch}:{(rw - cw) * framing.x}:{(rh - ch) * framing.y},pad={width}:{height}:{(width - cw) * framing.x}:{(height - ch) * framing.y}:black,setsar=1"
+    fx = document.effects
     # CSS brightness/contrast use RGB multiplication followed by a midpoint shift.
     gain = fx.brightness / 100 * fx.contrast / 100
     offset = 128 * (1 - fx.contrast / 100)
@@ -358,8 +482,9 @@ def render_document(directory: Path, job_id: str, document: EditDocument, preset
     ass = directory / f"captions-{job_id}.ass"
     write_ass(ass, document, width, height)
     fonts = ass_fonts_dir(document.captions.font)
+    filters.append(layout_filter(document.framing, sw, sh, width, height))
     filters.append(
-        f"[video]{geometry},{effects},ass={_escape_filter_path(ass)}:fontsdir={_escape_filter_path(fonts or Path('fonts'))}[outv]"
+        f"[framed]{effects},ass={_escape_filter_path(ass)}:fontsdir={_escape_filter_path(fonts or Path('fonts'))}[outv]"
     )
     total = sum(s.end - s.start for s in document.segments)
     tracks = []

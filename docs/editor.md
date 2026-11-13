@@ -6,28 +6,44 @@ caption styling, framing, audio gain, and video effects separately from the medi
 
 ## Editing
 
-- Select a clip in the left sidebar. Drafts autosave to the server and are also
-  cached locally for recovery after an interrupted save.
-- Use the thumbnail/waveform timeline to seek and drag the trim handles, or enter
-  exact in/out seconds. Split, duplicate, remove, and reorder segments. Playback
-  follows the resulting segment order; looping can be disabled.
-- Correct individual words and their timestamps in **Captions**. Highlights apply
-  to individual occurrences, including non-English words. The script editor keeps
-  unchanged words anchored when adding or replacing text; review inserted timings.
-- Drag the preview vertically to position captions. Use **Framing** to drag the
-  subject, choose fit/fill, zoom, and select vertical, square, or original format.
-- **Audio** controls exported gain/muting. Playback speed changes preview only.
-- **Effects** affect the video independently of the caption layer.
+![The studio](images/editor/studio.jpg)
+
+The studio is full screen: clips on the left, preview in the middle, tools on the
+right, timeline along the bottom. Drafts autosave to the server and are also cached
+locally for recovery after an interrupted save.
+
+- **Timeline**: segments sit in playback order. Drag the orange ends of the selected
+  segment to trim it, click or drag anywhere to scrub, and use Split, Remove,
+  Duplicate and the arrows to cut and reorder. The row underneath shows every caption
+  word where it is spoken. In/Out take exact seconds.
+- **Layout**: 9:16, 1:1 or the original shape, then how the frame is filled. Fill and
+  Fit crop one picture (Fit puts a blurred copy behind it). Cam top, Cam bottom and
+  Floating cam cut the facecam out of the stream and place it with the gameplay, like
+  the stream templates. The facecam is found when the clip is first opened; drag the
+  blue box in the Layout tab to correct it. Drag the video in the preview to reframe.
+- **Captions**: pick a look (Clean, Karaoke, Hype, Impact, Comic, Boxed) and fine-tune
+  it under Customise: font, size, colours, outline, ALL CAPS, and lighting up the word
+  being spoken. Drag the captions in the preview to move them.
+- **Transcript**: type over any word. Clicking a word jumps to it and offers
+  Highlight, Bleep, Delete and its timing. "Edit as text" rewrites whole phrases and
+  keeps unchanged words anchored.
+- **Hook title**: one line at the top for the whole clip, in the caption style.
+- **Safe zones**: the menu under the preview shades what TikTok, Reels or Shorts cover
+  with their own buttons (approximate; the apps move them).
+- **Audio** controls exported gain, muting and swear bleeps. Playback speed changes
+  preview only. **Effects** affect the video, not the captions.
 - Undo/redo covers draft changes. **Restore original** resets the editing baseline
   and is itself undoable. Original generated files remain on the results page.
 - Caption styles can be saved on the current device and applied to all task clips.
-- Select multiple clips to combine their saved cuts and words into a **new** clip.
-  Selection order controls sequence. The first clip supplies caption, framing,
-  effect, and audio settings for the combined draft. Input clips stay intact.
+- Tick two or more clips and press **Make a montage** to join their cuts and words
+  into a **new** clip, in the order ticked. The first clip supplies the style.
+  Input clips stay intact.
+- The export dialog shows the title and hashtags for the post; click to copy.
 
 Shortcuts: Space plays/pauses; arrows step frames; Shift+arrows jump one second;
-I/O set boundaries; S splits; Ctrl/Cmd+Z undoes; Ctrl/Cmd+Shift+Z redoes;
-Ctrl/Cmd+S saves. Shortcuts are inactive in text fields and dialogs.
+I/O set boundaries; S splits; Del removes the selected segment; Ctrl/Cmd+Z undoes;
+Ctrl/Cmd+Shift+Z redoes; Ctrl/Cmd+S saves. Shortcuts are inactive in text fields and
+dialogs.
 
 ## Export
 
@@ -46,8 +62,9 @@ without AAC encoding use Opus in MP4 and show a compatibility notice. Background
 export is the most compatible choice. Keep the editor open for a browser export.
 
 The server uses FFmpeg/libass, while browser export uses canvas/WebCodecs. Both
-consume the same cut, word, style, framing, audio, and effects document. Font
-rasterization and color filtering can differ slightly between rendering engines.
+consume the same cut, word, style, layout, audio, and effects document, and caption
+sizes are matched per font. Line wrapping, blur and color filtering can differ slightly
+between rendering engines.
 
 ## Persistence and operation
 

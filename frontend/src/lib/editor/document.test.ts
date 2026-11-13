@@ -76,3 +76,35 @@ describe("bleep helpers", () => {
     ).toBe(true);
   });
 });
+
+describe("layouts and older drafts", () => {
+  it("grows the facecam box to the pane's shape and keeps it in frame", async () => {
+    const { regionCrop } = await import("./document");
+    // A tall box in the corner, shown in a wide pane: widened, pushed back inside the frame.
+    const crop = regionCrop({ x: 0, y: 0.5, w: 0.1, h: 0.5 }, 2, 1280, 720);
+    expect(crop).toEqual({ x: 0, y: 360, width: 720, height: 360 });
+  });
+  it("maps timeline time back to the cut it falls in", async () => {
+    const { sourceTime } = await import("./document");
+    const doc = {
+      ...draft,
+      segments: [
+        { id: "b", start: 2, end: 3 },
+        { id: "a", start: 0, end: 1 },
+      ],
+    };
+    expect(sourceTime(doc, 0.5)).toEqual({ index: 0, time: 2.5 });
+    expect(sourceTime(doc, 1.25)).toEqual({ index: 1, time: 0.25 });
+    expect(sourceTime(doc, 99)).toEqual({ index: 1, time: 1 });
+  });
+  it("gives a draft saved by an older version the new defaults", async () => {
+    const { normalize } = await import("./document");
+    const old = structuredClone(draft) as unknown as Record<string, never>;
+    delete old.title;
+    delete (old.framing as Record<string, never>).layout;
+    const next = normalize(old as unknown as typeof draft);
+    expect(next.title).toBe("");
+    expect(next.framing.layout).toBe("crop");
+    expect(normalize(next)).toBe(next);
+  });
+});
