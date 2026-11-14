@@ -107,7 +107,7 @@ function SwitchRow({
 }
 
 /** One-click looks; each sets every style field it shows so presets never mix. */
-const PRESETS: [string, Partial<CaptionStyle>][] = [
+export const PRESETS: [string, Partial<CaptionStyle>][] = [
   ["Clean", { font: "TikTokSans-Bold", color: "#FFFFFF", accent: "#FACC15", background: false, uppercase: false, outline: 5, active: false }],
   ["Karaoke", { font: "Poppins-ExtraBold", color: "#FFFFFF", accent: "#FACC15", background: false, uppercase: false, outline: 6, active: true }],
   ["Hype", { font: "THEBOLDFONT", color: "#FFFFFF", accent: "#A3E635", background: false, uppercase: true, outline: 7, active: true }],

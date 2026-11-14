@@ -325,11 +325,11 @@ def layout_filter(framing: Framing, sw: int, sh: int, width: int, height: int) -
     )
 
 
-def write_ass(path: Path, document: EditDocument, width: int, height: int):
-    from .clip_editor import _ass_color, _ass_timestamp, _escape_ass_text
+def ass_header(style: CaptionStyle, width: int, height: int, name: str = "Default") -> tuple[str, str]:
+    """(script header, style line) for one caption/text style; sizes match the canvas preview."""
+    from .clip_editor import _ass_color
     from .font_registry import get_font_family_name, find_font_path
 
-    style = document.captions
     font_path = find_font_path(style.font)
     em = style.size * width / 1080
     size = em * (_em_scale(font_path) if font_path else 1)
@@ -342,53 +342,63 @@ WrapStyle: 0
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,{font},{size},{_ass_color(style.color)},&H000000FF,&H00101010,&H80101010,0,0,0,0,100,100,0,0,{3 if style.background else 1},{max(1, em * 0.1) if style.background else em * style.outline / 100},0,5,{int(width * 0.08)},{int(width * 0.08)},0,1
-
-[Events]
-Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
+    line = f"Style: {name},{font},{size},{_ass_color(style.color)},&H000000FF,&H00101010,&H80101010,0,0,0,0,100,100,0,0,{3 if style.background else 1},{max(1, em * 0.1) if style.background else em * style.outline / 100},0,5,{int(width * 0.08)},{int(width * 0.08)},0,1\n"
+    return header, line
+
+
+ASS_EVENTS = "\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
+
+
+def ass_event(style: CaptionStyle, width, height, start, end, y, words, accent, x=0.5, name="Default", tags=""):
+    """One Dialogue line: `words` centred on (x, y); accent(i) lights word i."""
+    from .clip_editor import _ass_color, _ass_timestamp, _escape_ass_text
+
     def text_of(word):
         text = censor(word["text"]) if word.get("bleep") else word["text"]
         text = text.upper() if style.uppercase else text
         return _escape_ass_text(text).replace("\n", " ").replace("\r", " ")
 
-    def event(start, end, y, words, accent):
-        text = " ".join(
-            "{\\c" + _ass_color(style.accent if accent(i) else style.color) + "}" + text_of(word)
-            for i, word in enumerate(words)
-        )
-        return (
-            f"Dialogue: 0,{_ass_timestamp(start)},{_ass_timestamp(end)},Default,,0,0,0,,"
-            f"{{\\pos({width / 2:.2f},{height * y:.2f})}}{text}\n"
-        )
+    text = " ".join(
+        "{\\c" + _ass_color(style.accent if accent(i) else style.color) + "}" + text_of(word)
+        for i, word in enumerate(words)
+    )
+    return (
+        f"Dialogue: 0,{_ass_timestamp(start)},{_ass_timestamp(end)},{name},,0,0,0,,"
+        f"{{\\pos({width * x:.2f},{height * y:.2f}){tags}}}{text}\n"
+    )
 
+
+def caption_events(style: CaptionStyle, words: list[dict]):
+    """(start, end, group, accent) for every caption on screen, from timeline-mapped words."""
+    events = []
+    for group in caption_groups(words, style.wordsPerLine):
+        end = max(w["end"] for w in group)
+        if not style.active:
+            events.append((group[0]["start"], end, group, lambda i, g=group: g[i].get("highlight", False)))
+            continue
+        # One event per spoken word; it stays lit until the next word starts.
+        for spoken, word in enumerate(group):
+            until = group[spoken + 1]["start"] if spoken + 1 < len(group) else end
+            if until > word["start"]:
+                events.append(
+                    (word["start"], until, group, lambda i, g=group, s=spoken: g[i].get("highlight", False) or i == s)
+                )
+    return events
+
+
+def write_ass(path: Path, document: EditDocument, width: int, height: int):
+    style = document.captions
+    header, line = ass_header(style, width, height)
     lines = []
     if document.title.strip():
         total = sum(s.end - s.start for s in document.segments)
         words = [{"text": text} for text in document.title.split()]
-        lines.append(event(0, total, TITLE_Y, words, lambda i: False))
+        lines.append(ass_event(style, width, height, 0, total, TITLE_Y, words, lambda i: False))
     if style.enabled:
-        for group in caption_groups(mapped_words(document), style.wordsPerLine):
-            end = max(w["end"] for w in group)
-            if not style.active:
-                lines.append(
-                    event(group[0]["start"], end, style.y, group, lambda i: group[i]["highlight"])
-                )
-                continue
-            # One event per spoken word; it stays lit until the next word starts.
-            for spoken, word in enumerate(group):
-                until = group[spoken + 1]["start"] if spoken + 1 < len(group) else end
-                if until > word["start"]:
-                    lines.append(
-                        event(
-                            word["start"],
-                            until,
-                            style.y,
-                            group,
-                            lambda i: group[i]["highlight"] or i == spoken,
-                        )
-                    )
-    path.write_text(header + "".join(lines))
+        for start, end, group, accent in caption_events(style, mapped_words(document)):
+            lines.append(ass_event(style, width, height, start, end, style.y, group, accent))
+    path.write_text(header + line + ASS_EVENTS + "".join(lines))
 
 
 def run_render(

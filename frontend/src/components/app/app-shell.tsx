@@ -5,7 +5,7 @@ import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  CornerDownLeft, Film, Plus, Search, Settings, Sparkles,
+  Clapperboard, CornerDownLeft, Film, Plus, Search, Settings, Sparkles,
 } from "lucide-react";
 import { useSession } from "@/lib/auth-client";
 import { fetchGenerations, timeAgo, type GenerationSummary } from "@/lib/generations";
@@ -20,6 +20,7 @@ type NavItem = { href: string; label: string; icon: typeof Film; match: (path: s
 const NAV: NavItem[] = [
   { href: "/", label: "Create", icon: Sparkles, match: (p) => p === "/" },
   { href: "/list", label: "Library", icon: Film, match: (p) => p.startsWith("/list") || p.startsWith("/tasks") },
+  { href: "/projects", label: "Video editor", icon: Clapperboard, match: (p) => p.startsWith("/projects") },
   { href: "/settings", label: "Settings", icon: Settings, match: (p) => p === "/settings" },
 ];
 
@@ -30,7 +31,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const [paletteOpen, setPaletteOpen] = useState(false);
   // The editor needs every pixel — collapse the sidebar to an icon rail there.
-  const compact = /^\/tasks\/[^/]+\/edit/.test(pathname);
+  const compact = /^\/tasks\/[^/]+\/edit|^\/projects\/./.test(pathname);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
