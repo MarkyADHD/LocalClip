@@ -17,8 +17,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ...config import get_config
 from ...database import get_db
 from ...editor_document import RevisionConflict, atomic_json, editor_lock
+from ...project_ai import ask, read_proposals, remove_proposal
 from ...project_document import (
     ProjectDocument,
+    project_words,
     asset_dir,
     project_dir,
     projects_root,
@@ -123,7 +125,11 @@ async def get_project(project_id: str, request: Request, db: AsyncSession = Depe
 @router.get("/{project_id}/assets")
 async def get_assets(project_id: str, request: Request, db: AsyncSession = Depends(get_db)):
     directory = await owned(request, db, project_id)
-    return {"assets": list(read_assets(directory).values()), "jobs": jobs(directory)}
+    return {
+        "assets": list(read_assets(directory).values()),
+        "jobs": jobs(directory),
+        "proposals": read_proposals(directory),
+    }
 
 
 @router.patch("/{project_id}")
@@ -311,17 +317,9 @@ def job_file(directory: Path, job_id: str) -> Path:
     return path
 
 
-@router.post("/{project_id}/exports", status_code=202)
-async def start_export(project_id: str, request: Request, db: AsyncSession = Depends(get_db)):
-    directory = await owned(request, db, project_id)
-    payload = await _read_json_object(request)
-    try:
-        document = ProjectDocument.model_validate(payload.get("document"))
-    except (ValueError, ValidationError) as error:
-        raise HTTPException(400, str(error))
+async def queue_export(directory: Path, project_id: str, document: ProjectDocument, quality: str) -> dict:
     if document.duration <= 0:
         raise HTTPException(400, "There is nothing on the timeline to export")
-    quality = payload.get("quality", "standard")
     if quality not in {"high", "standard", "small"}:
         raise HTTPException(400, "Unknown export quality")
     exports = directory / "exports"
@@ -338,6 +336,22 @@ async def start_export(project_id: str, request: Request, db: AsyncSession = Dep
         atomic_json(exports / f"job-{job_id}.json", {"status": "failed", "progress": 0, "error": WORKER_DOWN})
         raise HTTPException(503, WORKER_DOWN)
     return {"id": job_id, "status": "queued", "progress": 0}
+
+
+def parse_document(value) -> ProjectDocument:
+    try:
+        return ProjectDocument.model_validate(value)
+    except (ValueError, ValidationError) as error:
+        raise HTTPException(400, str(error))
+
+
+@router.post("/{project_id}/exports", status_code=202)
+async def start_export(project_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    directory = await owned(request, db, project_id)
+    payload = await _read_json_object(request)
+    return await queue_export(
+        directory, project_id, parse_document(payload.get("document")), payload.get("quality", "standard")
+    )
 
 
 @router.delete("/{project_id}/exports/{job_id}")
@@ -366,3 +380,31 @@ async def export_file(
         raise HTTPException(409, "Export is not ready")
     name = re.sub(r"[^\w .-]+", "", read_json(directory / "project.json")["name"]).strip() or "localclip"
     return FileResponse(output, media_type="video/mp4", filename=f"{name}.mp4", headers={"Cache-Control": "private, no-store"})
+
+
+# ---------------------------------------------------------------- assistant
+
+
+@router.post("/{project_id}/assistant")
+async def assistant(project_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    """Asks the AI model for edits. Returns proposals only; the editor applies what the user accepts."""
+    directory = await owned(request, db, project_id)
+    payload = await _read_json_object(request)
+    message = str(payload.get("message") or "").strip()[:4000]
+    if not message:
+        raise HTTPException(400, "Type what you want changed")
+    document = parse_document(payload.get("document"))
+    history = [h for h in payload.get("history") or [] if isinstance(h, dict)]
+    words = await run_in_thread(project_words, directory, document)
+    try:
+        return await ask(document, words, message, history)
+    except Exception as error:
+        raise HTTPException(502, f"The AI model could not answer: {str(error)[:300]}")
+
+
+@router.delete("/{project_id}/proposals/{proposal_id}")
+async def dismiss_proposal(project_id: str, proposal_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    directory = await owned(request, db, project_id)
+    with editor_lock(directory):
+        remove_proposal(directory, proposal_id)
+    return {"ok": True}

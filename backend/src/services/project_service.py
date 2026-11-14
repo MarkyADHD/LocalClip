@@ -21,8 +21,7 @@ from ..project_document import (
     project_dir,
     read_assets,
     read_json,
-    read_words,
-    timeline_words,
+    project_words,
     write_chunk_ass,
 )
 from ..utils.async_helpers import run_in_thread
@@ -316,8 +315,7 @@ def render_project(directory: Path, job_id: str) -> None:
     assets = read_assets(directory)
     if document.duration <= 0:
         raise ValueError("There is nothing on the timeline to export.")
-    cache: dict[str, list[dict]] = {}
-    words = timeline_words(document, lambda a: cache.setdefault(a, read_words(directory, a) if a in assets else []))
+    words = project_words(directory, document)
     fonts = ass_fonts_dir(document.captions.font)
     encode = export_encode_args(request.get("quality", "standard"), document.fps)
     bounds = chunk_bounds(document)

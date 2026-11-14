@@ -5,6 +5,7 @@ import type {
   Asset,
   Assets,
   ProjectDocument,
+  ProposedEdit,
   Word,
 } from "@/lib/project/document";
 
@@ -13,6 +14,12 @@ export interface ExportJob {
   status: "queued" | "rendering" | "completed" | "failed" | "cancelled";
   progress: number;
   error?: string;
+}
+/** Edits left by an MCP client (Claude Code, Claude Desktop), waiting to be accepted. */
+export interface Proposal {
+  id: string;
+  reply: string;
+  edits: ProposedEdit[];
 }
 interface History {
   past: ProjectDocument[];
@@ -33,6 +40,7 @@ export function useProject(id: string) {
   const [name, setName] = useState("");
   const [assetList, setAssetList] = useState<Asset[]>([]);
   const [jobs, setJobs] = useState<ExportJob[]>([]);
+  const [proposals, setProposals] = useState<Proposal[]>([]);
   const [history, setHistory] = useState<History | null>(null);
   const [status, setStatus] = useState("Loading…");
   const [error, setError] = useState<string | null>(null);
@@ -155,17 +163,18 @@ export function useProject(id: string) {
   }, []);
 
   const refresh = useCallback(async () => {
-    const next = await editorRequest<{ assets: Asset[]; jobs: ExportJob[] }>(`${endpoint}/assets`);
+    const next = await editorRequest<{ assets: Asset[]; jobs: ExportJob[]; proposals: Proposal[] }>(`${endpoint}/assets`);
     setAssetList(next.assets);
     setJobs(next.jobs);
+    setProposals((old) => (JSON.stringify(old) === JSON.stringify(next.proposals) ? old : next.proposals));
   }, [endpoint]);
   // Follow anything still being worked on: a file being prepared, a transcript, an export.
   const busy =
     assetList.some((a) => a.status === "preparing" || a.transcript === "pending") ||
     jobs.some((j) => j.status === "queued" || j.status === "rendering");
+  // When nothing is running, a slower look still picks up edits proposed from outside (MCP).
   useEffect(() => {
-    if (!busy) return;
-    const timer = setInterval(() => void refresh().catch(() => {}), 2000);
+    const timer = setInterval(() => !document.hidden && void refresh().catch(() => {}), busy ? 2000 : 6000);
     return () => clearInterval(timer);
   }, [busy, refresh]);
 
@@ -211,6 +220,7 @@ export function useProject(id: string) {
     assets,
     assetList,
     jobs,
+    proposals,
     refresh,
     doc: history?.present ?? null,
     update,

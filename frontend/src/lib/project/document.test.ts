@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   addAssetClip,
+  applyEdits,
   clipEnd,
   cutRanges,
   cutSavings,
@@ -105,5 +106,23 @@ describe("project document", () => {
     expect(next.clips[1].start).toBe(20); // lands after the first clip, never on top of it
     next = deleteClips(next, new Set([a.id]), true);
     expect(next.clips.map((c) => c.start)).toEqual([0]);
+  });
+
+  it("applies accepted assistant edits in one go", () => {
+    const withText = { ...doc, tracks: [...doc.tracks, { id: "t1", kind: "text" as const, name: "Text", muted: false, hidden: false, locked: false }] };
+    const next = applyEdits(withText, [
+      { kind: "cut", ranges: [{ asset: "vid", start: 10, end: 20 }], time: 10, seconds: 10, text: "", note: "" },
+      { kind: "chapter", time: 30, text: "Later" },
+      { kind: "chapter", time: 0, text: "Intro" },
+      { kind: "text", time: 2, seconds: 3, text: "Hi" },
+      { kind: "title", text: "A title" },
+    ]);
+    expect(docDuration(next)).toBeCloseTo(90);
+    expect(next.cuts).toMatchObject([{ asset: "vid", start: 10, end: 20, reason: "ai" }]);
+    expect(next.title).toBe("A title");
+    expect(next.chapters.map((c) => c.title)).toEqual(["Intro", "Later"]);
+    // The chapter after the cut moved with the video; the text before it stayed.
+    expect(next.chapters[1].time).toBeCloseTo(20);
+    expect(next.clips.find((c) => c.text)).toMatchObject({ start: 2, duration: 3, text: { content: "Hi" } });
   });
 });

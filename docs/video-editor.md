@@ -34,3 +34,19 @@ export picks up where it stopped. Change the preview and the export together.
 
 `prepare_asset`, `transcribe_asset` and `export_project` run in the ARQ worker
 (`services/project_service.py`). Routes are in `api/routes/projects.py`.
+
+## Assistant and MCP
+
+The AI tab sends the timeline's transcript and the request to the model picked in Settings
+(`project_ai.py`, `POST /projects/{id}/assistant`). The answer is a list of proposed edits (cuts,
+chapters, title, description, on-screen text). Nothing is changed on the server: the editor shows
+the edits, and applies the ones the user keeps with `applyEdits` as one undoable change. Cuts are
+stored as source ranges, so they still hit the right words if the timeline moved meanwhile.
+
+On a self-hosted install the backend is also an MCP server (`mcp_server.py`):
+
+    claude mcp add --transport http localclip http://localhost:8000/mcp/
+
+Its tools read projects, transcripts and timelines, start exports, and `propose_edits`, which leaves
+edits in the project's `proposals.json` for the AI tab to show. The editor checks for them every few
+seconds.

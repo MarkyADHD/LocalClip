@@ -243,6 +243,13 @@ def timeline_words(document: ProjectDocument, words_of) -> list[dict]:
     return result
 
 
+def project_words(directory: Path, document: ProjectDocument) -> list[dict]:
+    """The timeline's spoken words, read from the project's transcripts."""
+    assets = read_assets(directory)
+    cache: dict[str, list[dict]] = {}
+    return timeline_words(document, lambda a: cache.setdefault(a, read_words(directory, a) if a in assets else []))
+
+
 def _ass_time_tags(clip: Clip, a: float, b: float) -> str:
     """Fade a text clip in and out with libass's own timing (ms from the event's start)."""
     if not (clip.fadeIn or clip.fadeOut):

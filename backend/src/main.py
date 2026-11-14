@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from .config import Config, get_config, set_config_override
 from .database import AsyncSessionLocal, close_db, configure_database, get_db, init_db
+from .mcp_server import create_mcp
 from .runtime_settings import load_runtime_settings_cache
 from .workers.job_queue import JobQueue
 from .api.routes import tasks
@@ -55,6 +56,9 @@ def create_app(
             engine=session_maker.kw.get("bind"),
         )
 
+    # The video editor's MCP server, for Claude Code and other MCP clients on this PC.
+    mcp = create_mcp() if runtime_config.self_host else None
+
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         """Application lifespan: startup and shutdown events."""
@@ -69,7 +73,11 @@ def create_app(
             await queue_adapter.get_pool()
             logger.info("✅ Job queue initialized")
 
-            yield
+            if mcp:
+                async with mcp.session_manager.run():
+                    yield
+            else:
+                yield
         finally:
             logger.info("🛑 Shutting down LocalClip API...")
             await close_db()
@@ -170,6 +178,8 @@ def create_app(
     from .api.routes.projects import router as projects_router
     app.include_router(projects_router)
     app.include_router(admin_router)
+    if mcp:
+        app.mount("/mcp", mcp.streamable_http_app())
 
     from .api.routes.media import router as media_router
     from .api.routes.feedback import router as feedback_router

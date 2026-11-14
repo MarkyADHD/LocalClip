@@ -977,3 +977,36 @@ export function removeTrack(doc: ProjectDocument, id: string): ProjectDocument {
   if (!track || doc.clips.some((c) => c.track === id) || doc.tracks.filter((t) => t.kind === track.kind).length < 2) return doc;
   return { ...doc, tracks: doc.tracks.filter((t) => t.id !== id) };
 }
+
+/** An edit proposed by the assistant or over MCP (backend/src/project_ai.py). */
+export type ProposedEdit =
+  | { kind: "cut"; ranges: { asset: string; start: number; end: number }[]; time: number; seconds: number; text: string; note: string }
+  | { kind: "chapter"; time: number; text: string }
+  | { kind: "text"; time: number; seconds: number; text: string }
+  | { kind: "title" | "description"; text: string };
+
+/** Applies the accepted edits as one change. Proposed chapters replace the chapters already there. */
+export function applyEdits(doc: ProjectDocument, edits: ProposedEdit[]): ProjectDocument {
+  let next = doc;
+  const chapters = edits.filter((e) => e.kind === "chapter");
+  if (chapters.length)
+    next = { ...next, chapters: chapters.map((c) => ({ time: c.time, title: c.text })).sort((a, b) => a.time - b.time) };
+  for (const edit of edits) {
+    if (edit.kind === "title") next = { ...next, title: edit.text.slice(0, 200) };
+    else if (edit.kind === "description") next = { ...next, description: edit.text };
+    else if (edit.kind === "text") {
+      const before = new Set(next.clips.map((c) => c.id));
+      next = addTextClip(next, edit.time);
+      next = {
+        ...next,
+        clips: next.clips.map((c) =>
+          before.has(c.id) || !c.text ? c : { ...c, duration: round(edit.seconds), text: { ...c.text, content: edit.text } },
+        ),
+      };
+    }
+  }
+  // Cuts go last: they are source ranges, and closing their gaps moves everything placed above.
+  for (const edit of edits)
+    if (edit.kind === "cut") for (const range of edit.ranges) next = cutSource(next, range.asset, range.start, range.end, "ai");
+  return next;
+}

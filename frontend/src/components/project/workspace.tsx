@@ -12,6 +12,7 @@ import {
   Plus,
   Redo2,
   Scissors,
+  Sparkles,
   Trash2,
   Type,
   Undo2,
@@ -38,6 +39,7 @@ import type { Engine } from "./engine";
 import { ExportDialog } from "./export-dialog";
 import { CaptionSettings, Properties } from "./inspector";
 import { MediaBin } from "./media-bin";
+import { Assistant } from "./assistant";
 import { Publish } from "./publish";
 import { Timeline } from "./timeline";
 import { TranscriptPanel } from "./transcript";
@@ -181,11 +183,15 @@ export function ProjectWorkspace({ id }: { id: string }) {
           </main>
           <aside className="min-h-0 border-l bg-card" aria-label="Tools">
             <Tabs value={tab} onValueChange={setTab} className="flex h-full min-h-0 flex-col gap-0">
-              <TabsList className="m-2 grid shrink-0 grid-cols-4">
+              <TabsList className="m-2 grid shrink-0 grid-cols-5">
                 <TabsTrigger value="transcript">Transcript</TabsTrigger>
                 <TabsTrigger value="clip">Clip</TabsTrigger>
                 <TabsTrigger value="captions">Captions</TabsTrigger>
                 <TabsTrigger value="publish">Publish</TabsTrigger>
+                <TabsTrigger value="assistant" className="relative">
+                  <Sparkles /> AI
+                  {project.proposals.length > 0 && <span className="absolute right-1 top-1 size-1.5 rounded-full bg-brand" />}
+                </TabsTrigger>
               </TabsList>
               <TabsContent value="transcript" className="min-h-0 flex-1">
                 <TranscriptPanel project={project} engine={engine} />
@@ -198,6 +204,9 @@ export function ProjectWorkspace({ id }: { id: string }) {
               </TabsContent>
               <TabsContent value="publish" className="min-h-0 flex-1 overflow-y-auto">
                 <Publish project={project} engine={engine} lines={lines} />
+              </TabsContent>
+              <TabsContent value="assistant" className="min-h-0 flex-1">
+                <Assistant project={project} engine={engine} />
               </TabsContent>
             </Tabs>
           </aside>
