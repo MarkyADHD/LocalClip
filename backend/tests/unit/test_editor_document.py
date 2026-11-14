@@ -246,3 +246,36 @@ def test_every_layout_renders_at_the_output_size(tmp_path, layout, fit):
         capture_output=True, text=True, check=True,
     ).stdout.strip()
     assert size == "1080,1920"
+
+
+def test_render_log_is_closed_before_delete_and_honours_shared_cancel(
+    tmp_path, monkeypatch
+):
+    """Windows cannot delete an open file, which broke every montage."""
+    from pathlib import Path
+    from src.editor_document import run_render
+
+    opened = []
+    real_open, real_unlink = Path.open, Path.unlink
+
+    def tracking_open(self, *args, **kwargs):
+        handle = real_open(self, *args, **kwargs)
+        opened.append((self, handle))
+        return handle
+
+    def windows_unlink(self, *args, **kwargs):
+        assert all(h.closed for p, h in opened if p == self), f"{self} is still open"
+        return real_unlink(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", tracking_open)
+    monkeypatch.setattr(Path, "unlink", windows_unlink)
+    job_id = "b" * 32
+    work = tmp_path / "work"
+    work.mkdir()
+    run_render(["true"], work, job_id, 1)
+    assert not (work / f"log-{job_id}.txt").exists()
+
+    shared_cancel = tmp_path / f"cancel-{job_id}"
+    shared_cancel.touch()
+    with pytest.raises(InterruptedError):
+        run_render(["sleep", "10"], work, job_id, 1, shared_cancel)

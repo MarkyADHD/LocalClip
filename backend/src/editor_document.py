@@ -142,7 +142,15 @@ def atomic_json(path: Path, value: dict):
     temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}")
     try:
         temporary.write_text(json.dumps(value, allow_nan=False))
-        os.replace(temporary, path)
+        for attempt in range(20):
+            try:
+                os.replace(temporary, path)
+                break
+            except PermissionError:
+                # Windows refuses to replace a file while a status poll is reading it.
+                if attempt == 19:
+                    raise
+                time.sleep(0.05)
     finally:
         temporary.unlink(missing_ok=True)
 
@@ -383,55 +391,75 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     path.write_text(header + "".join(lines))
 
 
-def run_render(command: list[str], directory: Path, job_id: str, duration: float):
+def run_render(
+    command: list[str],
+    directory: Path,
+    job_id: str,
+    duration: float,
+    cancel_path: Path | None = None,
+):
     """Poll a cancellable child without buffering unbounded ffmpeg logs."""
     status_path = directory / f"job-{job_id}.json"
     progress_path = directory / f"progress-{job_id}.txt"
     log_path = directory / f"log-{job_id}.txt"
-    with log_path.open("w+") as log:
-        process = subprocess.Popen(
-            command[:1] + ["-progress", str(progress_path), "-nostats"] + command[1:],
-            stdout=subprocess.DEVNULL,
-            stderr=log,
-        )
-        try:
-            while process.poll() is None:
-                if (directory / f"cancel-{job_id}").exists():
-                    raise InterruptedError("Export cancelled")
-                percent = 0
-                if progress_path.exists():
-                    for line in progress_path.read_text().splitlines():
-                        if line.startswith("out_time_us="):
-                            try:
-                                percent = min(
-                                    99,
-                                    int(
-                                        float(line.split("=", 1)[1])
-                                        / 1_000_000
-                                        / duration
-                                        * 100
-                                    ),
-                                )
-                            except ValueError:
-                                pass
-                atomic_json(status_path, {"status": "rendering", "progress": percent})
-                time.sleep(0.25)
-            if process.returncode:
-                log.seek(0)
-                raise RuntimeError("Video rendering failed: " + log.read()[-1500:])
-        finally:
-            if process.poll() is None:
-                process.terminate()
-                try:
-                    process.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    process.kill()
-                    process.wait()
-            progress_path.unlink(missing_ok=True)
-            log_path.unlink(missing_ok=True)
+    cancel_path = cancel_path or directory / f"cancel-{job_id}"
+    try:
+        with log_path.open("w+") as log:
+            process = subprocess.Popen(
+                command[:1]
+                + ["-progress", str(progress_path), "-nostats"]
+                + command[1:],
+                stdout=subprocess.DEVNULL,
+                stderr=log,
+            )
+            try:
+                while process.poll() is None:
+                    if cancel_path.exists():
+                        raise InterruptedError("Export cancelled")
+                    percent = 0
+                    if progress_path.exists():
+                        for line in progress_path.read_text().splitlines():
+                            if line.startswith("out_time_us="):
+                                try:
+                                    percent = min(
+                                        99,
+                                        int(
+                                            float(line.split("=", 1)[1])
+                                            / 1_000_000
+                                            / duration
+                                            * 100
+                                        ),
+                                    )
+                                except ValueError:
+                                    pass
+                    atomic_json(
+                        status_path, {"status": "rendering", "progress": percent}
+                    )
+                    time.sleep(0.25)
+                if process.returncode:
+                    log.seek(0)
+                    raise RuntimeError("Video rendering failed: " + log.read()[-1500:])
+            finally:
+                if process.poll() is None:
+                    process.terminate()
+                    try:
+                        process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        process.wait()
+    finally:
+        # Only after the log is closed: Windows cannot delete an open file.
+        progress_path.unlink(missing_ok=True)
+        log_path.unlink(missing_ok=True)
 
 
-def render_document(directory: Path, job_id: str, document: EditDocument, preset: str):
+def render_document(
+    directory: Path,
+    job_id: str,
+    document: EditDocument,
+    preset: str,
+    cancel_path: Path | None = None,
+):
     from .clip_editor import _ffprobe_size, _escape_filter_path
     from .video_utils import ass_fonts_dir
 
@@ -542,8 +570,9 @@ def render_document(directory: Path, job_id: str, document: EditDocument, preset
         str(output),
     ]
     try:
-        run_render(command, directory, job_id, total)
-        if (directory / f"cancel-{job_id}").exists():
+        cancel_path = cancel_path or directory / f"cancel-{job_id}"
+        run_render(command, directory, job_id, total, cancel_path)
+        if cancel_path.exists():
             raise InterruptedError("Export cancelled")
     except BaseException:
         output.unlink(missing_ok=True)
