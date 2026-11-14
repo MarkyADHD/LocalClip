@@ -361,3 +361,21 @@ async def test_every_strong_candidate_is_kept_without_a_clip_cap(monkeypatch):
     result = await ai.get_most_relevant_parts_by_transcript(_transcript(60 * 60))
 
     assert len(result.most_relevant_segments) == 24
+
+
+def test_clip_that_always_gets_a_clip():
+    from src.ai import TranscriptSegment, _parse_transcript_lines, add_requested_clips
+
+    lines = _parse_transcript_lines(
+        "[09:10 - 09:14] okay we push now\n"
+        "[09:20 - 09:50] oh my god no way he just did that\n"
+        "[10:00 - 10:03] chat clip that\n"
+        "[10:04 - 10:06] clip it clip it\n"
+        "[20:00 - 20:02] somebody clip that"
+    )
+    picked = TranscriptSegment(start_time="19:20", end_time="20:00", text="already picked by the AI")
+    result = add_requested_clips([picked], lines)
+    # 10:00 gets a forced clip from the line ~45 s back; the repeat at 10:04 and the
+    # one the AI already covered at 20:00 do not add more.
+    assert [(s.start_time, s.end_time) for s in result] == [("09:10", "10:03"), ("19:20", "20:00")]
+    assert "no way he just did that" in result[0].text

@@ -538,7 +538,6 @@ def detect_loud_spans(video_path: Path) -> List[List[float]]:
     return spike_spans(smooth, z=3.0, floor=2.0, min_value=-45.0)
 
 
-CLIP_THAT_PATTERN = re.compile(r"\bclip (that|this|it)\b", re.IGNORECASE)
 
 
 def build_clip_signal_summary(
@@ -548,6 +547,7 @@ def build_clip_signal_summary(
 
     ``extra_lines`` are pre-formatted signal lines from other sources (Twitch chat spikes).
     """
+    from ..ai import CLIP_THAT_PATTERN
     from ..twitch import timestamp_label
 
     transcript_lines = parse_transcript_lines(transcript)

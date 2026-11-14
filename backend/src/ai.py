@@ -1569,6 +1569,64 @@ def _validate_segments(
     return validated_segments
 
 
+CLIP_THAT_PATTERN = re.compile(r"\bclip (that|this|it)\b", re.IGNORECASE)
+CLIP_THAT_SECONDS_BEFORE = 45
+
+
+def add_requested_clips(
+    selected: List[TranscriptSegment], transcript_lines: List[Dict[str, Any]]
+) -> List[TranscriptSegment]:
+    """Guarantee a clip for every "clip that" the streamer said.
+
+    The AI already gets these as its strongest signal, but it can still skip one or drop it
+    in the rerank. Any "clip that" whose lead-up no selected clip covers gets its own clip
+    of the ~45 s before it, put first.
+    """
+    forced: List[TranscriptSegment] = []
+    for line in transcript_lines:
+        if not CLIP_THAT_PATTERN.search(line["text"]):
+            continue
+        said_at, end = line["start_seconds"], line["end_seconds"]
+        lead_up = (max(0, said_at - 30), end)
+        if any(
+            min(lead_up[1], b) - max(lead_up[0], a) >= 15
+            for a, b in map(_segment_bounds_seconds, forced + selected)
+        ):
+            continue
+        # Start on a line boundary 30-60 s back when there is one, so it doesn't open mid-sentence.
+        target = max(0, said_at - CLIP_THAT_SECONDS_BEFORE)
+        starts = [
+            other["start_seconds"]
+            for other in transcript_lines
+            if said_at - 60 <= other["start_seconds"] <= said_at - 30
+        ]
+        start = min(starts, key=lambda s: abs(s - target)) if starts else target
+        forced.append(
+            TranscriptSegment(
+                start_time=_format_transcript_timestamp(start),
+                end_time=_format_transcript_timestamp(end),
+                text=" ".join(
+                    other["text"]
+                    for other in transcript_lines
+                    if other["start_seconds"] >= start and other["end_seconds"] <= end
+                ),
+                relevance_score=1.0,
+                reasoning='You said "clip that" right after this moment.',
+                virality=ViralityAnalysis(
+                    hook_score=23,
+                    engagement_score=23,
+                    value_score=22,
+                    shareability_score=22,
+                    total_score=90,
+                    virality_reasoning='The streamer asked for this clip by saying "clip that".',
+                ),
+            )
+        )
+    if forced:
+        logger.info('Added %d clip(s) for "clip that" moments the AI did not pick', len(forced))
+    return forced + selected
+
+
 def _merge_key_topics(analyses: List[TranscriptAnalysis], limit: int = 12) -> List[str]:
     topics: List[str] = []
     seen: set[str] = set()
@@ -1644,7 +1702,7 @@ async def get_most_relevant_parts_by_transcript(
         )
 
         # No clip-count cap: every candidate that survives the rerank is rendered.
-        validated_segments = candidates
+        validated_segments = add_requested_clips(candidates, transcript_lines)
 
         broll_opportunities = None
         if include_broll:

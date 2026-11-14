@@ -40,7 +40,7 @@ You don't need a subscription, you don't upload your VODs to someone else's serv
 - **AI clip finding, tuned for streams.** The AI reads the whole transcript and picks 15–60 second stream moments (fails, clutches, reactions, chat going wild) with a strong hook, scoring each one for virality.
 - **Pick your AI model.** Settings > AI model lists Claude Code (the default) plus every Ollama and LM Studio model on your PC and any OpenAI-compatible server that's running (llama.cpp, Jan, KoboldCpp, text-generation-webui, LocalAI, GPT4All, vLLM). With a local model LocalClip runs 100% offline.
 - **Twitch chat signals.** LocalClip pulls the chat replay and finds the spikes where chat exploded (KEKW, LUL, Pog, "clip it"). The AI gets those as hints.
-- **"Clip that" detection.** If you said "clip that" on stream, LocalClip notices and makes sure that moment is considered.
+- **"Clip that" detection.** Say "clip that" (or "clip it" / "clip this") on stream and LocalClip always makes a clip of the 45 seconds or so before it, on top of the moments the AI picks.
 - **StreamLadder-style templates.** It auto-detects your webcam and builds the layout around it:
   - **Facecam top**: cam on top, gameplay below (the default)
   - **Gameplay top**: gameplay on top, cam below
