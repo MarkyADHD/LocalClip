@@ -258,6 +258,9 @@ function ProjectSettings({ project }: { project: Project }) {
           ))}
         </div>
       </Section>
+      <Section title="Sound" description="Takes out rumble and hiss and evens out loud and quiet speech. Music on the audio tracks is left alone. You hear it in the exported video, not in the preview.">
+        <Toggle label="Clean up voice" checked={!!doc.cleanVoice} onChange={(cleanVoice) => set({ cleanVoice })} />
+      </Section>
     </div>
   );
 }

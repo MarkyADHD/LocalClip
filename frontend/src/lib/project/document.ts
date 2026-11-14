@@ -82,6 +82,8 @@ export interface ProjectDocument {
   chapters: Chapter[];
   title: string;
   description: string;
+  /** Export only: less rumble and hiss, steadier voice level, on the clips of the video tracks. */
+  cleanVoice?: boolean;
 }
 export interface Asset {
   id: string;

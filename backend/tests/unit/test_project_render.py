@@ -72,6 +72,7 @@ def test_render_layers_text_captions_and_sound(tmp_path):
     )
     document = new_document()
     document.width, document.height = 320, 180
+    document.cleanVoice = True
     document.clips = [
         Clip(id="c1", track="v1", asset="a" * 12, start=0, duration=1.5, offset=1),
         # A gap from 1.5 to 2 stays black and silent.

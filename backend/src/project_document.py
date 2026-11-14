@@ -127,6 +127,8 @@ class ProjectDocument(Model):
     chapters: list[Chapter] = Field(default_factory=list, max_length=200)
     title: str = Field(default="", max_length=200)
     description: str = Field(default="", max_length=5000)
+    # Export only: cleans up the sound of clips on video tracks (the voice), not the audio tracks.
+    cleanVoice: bool = False
 
     @model_validator(mode="after")
     def consistent(self):
@@ -365,6 +367,11 @@ def chunk_bounds(document: ProjectDocument) -> list[tuple[float, float]]:
     return [bounds for f0 in range(0, frames, step) for bounds in split(f0, min(frames, f0 + step))]
 
 
+# Rumble out, steady hiss down, loud and quiet speech brought closer together. Each filter works
+# on a short window of sound, so a chunk sounds the same whichever chunk it lands in.
+VOICE_CLEANUP = "highpass=f=80,afftdn=nf=-25,acompressor=threshold=-21dB:ratio=3:attack=5:release=120:makeup=2,"
+
+
 def _atempo(speed: float) -> str:
     parts = []
     while speed > 2:
@@ -416,7 +423,7 @@ def chunk_command(
             inputs.extend(["-ss", f"{source:.4f}", "-t", f"{(b - a) * clip.speed + 0.5:.4f}", "-i", asset["path"]])
         return inputs.count("-i") - 1
 
-    def audio_chain(index: int, clip: Clip, a: float, b: float):
+    def audio_chain(index: int, clip: Clip, a: float, b: float, voice: bool = False):
         t0, length = a - clip.start, b - a
         fade_in, fade_out = max(clip.fadeIn, CUT_FADE), max(clip.fadeOut, CUT_FADE)
         label = f"a{len(audio_labels)}"
@@ -426,7 +433,8 @@ def chunk_command(
             # Fades are timed from the clip's start, so a clip split across chunks fades once.
             f"asetpts=PTS-STARTPTS+{t0:.4f}/TB,afade=t=in:st=0:d={fade_in:.4f},"
             f"afade=t=out:st={clip.duration - fade_out:.4f}:d={fade_out:.4f},asetpts=PTS-STARTPTS,"
-            f"volume={clip.volume:.3f},adelay={int(round((a - c0) * 1000))}:all=1[{label}]"
+            + (VOICE_CLEANUP if voice and document.cleanVoice else "")
+            + f"volume={clip.volume:.3f},adelay={int(round((a - c0) * 1000))}:all=1[{label}]"
         )
         audio_labels.append(f"[{label}]")
 
@@ -456,7 +464,7 @@ def chunk_command(
             index = add_input(asset, clip, a, b)
             has_audio = asset["kind"] != "image" and asset.get("hasAudio")
             if has_audio and not (clip.muted or track.muted or clip.volume == 0):
-                audio_chain(index, clip, a, b)
+                audio_chain(index, clip, a, b, voice=True)
             if track.hidden:
                 continue
             f0, f1 = max(cursor, round(a * fps)), round(b * fps)

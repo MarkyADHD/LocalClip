@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -8,6 +8,7 @@ import {
   Loader2,
   Magnet,
   Maximize2,
+  Keyboard,
   Minus,
   Plus,
   Redo2,
@@ -20,6 +21,8 @@ import {
 } from "lucide-react";
 import { PageError, PageLoading } from "@/components/app/page-state";
 import { Button } from "@/components/ui/button";
+import { Kbd } from "@/components/ui/kbd";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ToolButton } from "@/components/editor/studio-ui";
@@ -40,6 +43,20 @@ import { ExportDialog } from "./export-dialog";
 import { CaptionSettings, Properties } from "./inspector";
 import { MediaBin } from "./media-bin";
 import { Assistant } from "./assistant";
+
+const SHORTCUTS = [
+  ["Space", "Play or pause"],
+  ["S", "Split at the playhead"],
+  ["Delete", "Delete and close the gap"],
+  ["Shift Delete", "Delete and leave the gap"],
+  ["T", "Add text"],
+  ["N", "Turn snapping on or off"],
+  ["← →", "Step one frame (Shift: one second)"],
+  ["Home End", "Jump to the start or end"],
+  ["+ - 0", "Zoom in, out, fit"],
+  ["Ctrl Z / Y", "Undo, redo"],
+  ["Ctrl A", "Select every clip"],
+];
 import { Publish } from "./publish";
 import { Timeline } from "./timeline";
 import { TranscriptPanel } from "./transcript";
@@ -234,6 +251,25 @@ export function ProjectWorkspace({ id }: { id: string }) {
             <span className="ml-auto max-lg:hidden text-[11px] text-muted-foreground">
               Deleting on the main track closes the gap. Hold Shift to leave it open.
             </span>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button size="icon-sm" variant="ghost" aria-label="Keyboard shortcuts">
+                  <Keyboard />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-72 text-xs">
+                <dl className="grid grid-cols-[auto_1fr] items-center gap-x-3 gap-y-1.5">
+                  {SHORTCUTS.map(([keys, what]) => (
+                    <Fragment key={keys}>
+                      <dt>
+                        <Kbd>{keys}</Kbd>
+                      </dt>
+                      <dd className="text-muted-foreground">{what}</dd>
+                    </Fragment>
+                  ))}
+                </dl>
+              </PopoverContent>
+            </Popover>
             <ToolButton label="Zoom out" shortcut="-" size="icon-sm" onClick={() => setZoom((z) => (z ? z / 1.5 : 0))}>
               <Minus />
             </ToolButton>
