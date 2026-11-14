@@ -126,6 +126,7 @@ async def process_video_task(
             raise
 
 from ..services.editor_service import prepare_editor, export_editor, combine_editor
+from ..services.project_service import prepare_asset, transcribe_asset, export_project
 
 # Worker configuration for arq
 class WorkerSettings:
@@ -137,7 +138,10 @@ class WorkerSettings:
     config = Config()
 
     # Functions to run
-    functions = [process_video_task, prepare_editor, export_editor, combine_editor]
+    functions = [
+        process_video_task, prepare_editor, export_editor, combine_editor,
+        prepare_asset, transcribe_asset, export_project,
+    ]
     queue_name = "localclip_tasks"
     health_check_interval = 30
 
