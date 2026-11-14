@@ -351,7 +351,6 @@ If Redis is unavailable, task creation may still appear to work while background
 ### Practical mitigations
 
 - Keep `DEFAULT_PROCESSING_MODE=fast`
-- Lower `FAST_MODE_MAX_CLIPS`
 - Use a lighter model where acceptable
 - Avoid enabling B-roll unless needed
 - Watch `GET /tasks/metrics/performance` for aggregate timing

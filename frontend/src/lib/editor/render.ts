@@ -4,14 +4,12 @@ import {
   censor,
   mappedWords,
   regionCrop,
+  type CaptionStyle,
   type CaptionWord,
   type EditDocument,
 } from "./document";
 
-const groupCache = new WeakMap<
-  EditDocument,
-  ReturnType<typeof captionGroups>
->();
+const groupCache = new WeakMap<EditDocument, CaptionWord[][]>();
 const loaded = new Map<string, Promise<void>>();
 export function loadEditorFont(name: string) {
   if (!loaded.has(name))
@@ -103,15 +101,18 @@ function drawLayout(
 }
 
 /** Centred, wrapped lines of words around `centre` (0..1 of the height). */
-function drawWords(
+export function drawWords(
   ctx: CanvasRenderingContext2D,
-  doc: EditDocument,
+  style: Pick<
+    CaptionStyle,
+    "size" | "font" | "uppercase" | "background" | "outline" | "accent" | "color"
+  >,
   words: Pick<CaptionWord, "text">[],
   centre: number,
   accent: (index: number) => boolean,
+  centreX = 0.5,
 ) {
   const { width, height } = ctx.canvas,
-    style = doc.captions,
     size = (style.size * width) / 1080;
   ctx.font = `${size}px "Editor-${style.font}", sans-serif`;
   ctx.textBaseline = "middle";
@@ -138,7 +139,7 @@ function drawWords(
     const total =
       indexes.reduce((sum, i) => sum + ctx.measureText(texts[i]).width, 0) +
       space * (indexes.length - 1);
-    let x = (width - total) / 2;
+    let x = width * centreX - total / 2;
     const y = height * centre + (row - (lines.length - 1) / 2) * size * 1.2;
     if (style.background) {
       ctx.fillStyle = "#101010";
@@ -179,7 +180,7 @@ export function drawEditorFrame(
   if (doc.title.trim())
     drawWords(
       ctx,
-      doc,
+      doc.captions,
       doc.title
         .trim()
         .split(/\s+/)
@@ -209,7 +210,7 @@ export function drawEditorFrame(
     : -1;
   drawWords(
     ctx,
-    doc,
+    doc.captions,
     group,
     doc.captions.y,
     (i) => group[i].highlight || i === spoken,

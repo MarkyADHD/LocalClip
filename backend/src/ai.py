@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional, Literal
 import asyncio
 import logging
-import math
 import random
 import re
 
@@ -59,11 +58,6 @@ MIN_KEPT_CLIPS = 3
 # How far a model timestamp may sit from a transcript line boundary and still be
 # snapped onto it instead of the whole clip being dropped.
 SEGMENT_SNAP_TOLERANCE_SECONDS = 8
-# Final clip count scales with source length: one clip per five minutes,
-# never fewer than the single-pass prompt's old maximum and never more than 20.
-MIN_FINAL_CLIPS = 5
-MAX_FINAL_CLIPS = 20
-SECONDS_PER_FINAL_CLIP = 5 * 60
 TRANSIENT_MODEL_STATUS_CODES = {408, 429, 500, 502, 503, 504, 529}
 HOOK_TITLE_MAX_CHARS = 64
 HOOK_TITLE_MAX_WORDS = 10
@@ -1252,18 +1246,6 @@ def dedupe_overlapping_segments(
     return [segment for segment, _ in kept]
 
 
-def max_final_clips_for_duration(
-    source_seconds: float, max_clips: int = MAX_FINAL_CLIPS
-) -> int:
-    """Scale the clip budget with source length (about one clip per 5 minutes),
-    never above ``max_clips`` (the configured MAX_CLIPS)."""
-    ceiling = max(1, min(MAX_FINAL_CLIPS, max_clips))
-    return max(
-        min(MIN_FINAL_CLIPS, ceiling),
-        min(ceiling, math.ceil(max(0.0, source_seconds) / SECONDS_PER_FINAL_CLIP)),
-    )
-
-
 def _rescale_virality(virality: ViralityAnalysis, new_total: int) -> None:
     """Set a new total while keeping the subscores' proportions and 0-25 bounds."""
     new_total = max(0, min(100, int(new_total)))
@@ -1365,7 +1347,7 @@ async def rerank_candidates(
         logger.warning(
             "Candidate rerank failed (%s); keeping first-pass order", type(error).__name__
         )
-        return candidates
+        return drop_weak_candidates(candidates)
     logger.info("Reranked %d clip candidates", len(reranked))
     return reranked
 
@@ -1596,9 +1578,9 @@ def add_requested_clips(
 ) -> List[TranscriptSegment]:
     """Guarantee a clip for every "clip that" the streamer said.
 
-    The AI already gets these as its strongest signal, but it can still skip one or lose it
-    to the clip cap. Any "clip that" whose lead-up no selected clip covers gets its own clip
-    of the ~45 s before it, put first and on top of the cap.
+    The AI already gets these as its strongest signal, but it can still skip one or drop it
+    in the rerank. Any "clip that" whose lead-up no selected clip covers gets its own clip
+    of the ~45 s before it, put first.
     """
     forced: List[TranscriptSegment] = []
     for line in transcript_lines:
@@ -1719,13 +1701,8 @@ async def get_most_relevant_parts_by_transcript(
             dedupe_overlapping_segments(candidates), clip_signals
         )
 
-        source_seconds = max(
-            (line["end_seconds"] for line in transcript_lines), default=0
-        )
-        validated_segments = candidates[
-            : max_final_clips_for_duration(source_seconds, get_config().max_clips)
-        ]
-        validated_segments = add_requested_clips(validated_segments, transcript_lines)
+        # No clip-count cap: every candidate that survives the rerank is rendered.
+        validated_segments = add_requested_clips(candidates, transcript_lines)
 
         broll_opportunities = None
         if include_broll:
