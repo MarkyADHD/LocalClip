@@ -183,14 +183,6 @@ def test_apply_ranking_takes_improved_titles():
     assert [s.hook_title for s in reranked] == ["He did NOT see that coming", "Keep me"]
 
 
-@pytest.mark.parametrize(
-    ("seconds", "expected"),
-    [(5 * 60, 5), (20 * 60, 5), (45 * 60, 9), (90 * 60, 18), (200 * 60, 20)],
-)
-def test_final_clip_cap_scales_with_source_length(seconds, expected):
-    assert ai.max_final_clips_for_duration(seconds) == expected
-
-
 def test_apply_ranking_reorders_and_calibrates_scores():
     candidates = [_segment("00:00", "00:30", 90), _segment("01:00", "01:30", 80), _segment("02:00", "02:30", 70)]
     ranking = ai.CandidateRanking(ranking=[
@@ -343,9 +335,29 @@ async def test_hook_times_survive_windowing_snapping_and_rerank(monkeypatch):
     assert (by_start["20:30"].hook_start_time, by_start["20:30"].hook_end_time) == ("20:50", "20:54")
 
 
-@pytest.mark.parametrize(
-    ("seconds", "max_clips", "expected"),
-    [(5 * 60, 10, 5), (45 * 60, 10, 9), (90 * 60, 10, 10), (200 * 60, 10, 10), (90 * 60, 3, 3)],
-)
-def test_final_clip_cap_respects_max_clips(seconds, max_clips, expected):
-    assert ai.max_final_clips_for_duration(seconds, max_clips) == expected
+
+async def test_every_strong_candidate_is_kept_without_a_clip_cap(monkeypatch):
+    def window_analysis(prompt: str):
+        first = prompt.split("Transcript:")[1].splitlines()[1]
+        minutes, seconds = first[1:6].split(":")
+        start = int(minutes) * 60 + int(seconds)
+        return SimpleNamespace(output=ai.TranscriptAnalysis(
+            most_relevant_segments=[
+                _segment(_label(start + offset), _label(start + offset + 30), total=80)
+                for offset in (130, 230, 330, 430)
+            ],
+            summary="Window.", key_topics=["topic"],
+        ))
+
+    agent = SimpleNamespace(run=AsyncMock(side_effect=window_analysis))
+    rerank_agent = SimpleNamespace(run=AsyncMock(side_effect=lambda prompt: SimpleNamespace(
+        output=ai.CandidateRanking(ranking=[
+            ai.RankedCandidate(candidate_id=i, score=80) for i in range(prompt.count("candidate_id:"))
+        ])
+    )))
+    monkeypatch.setattr(ai, "get_transcript_agent", lambda: agent)
+    monkeypatch.setattr(ai, "get_rerank_agent", lambda: rerank_agent)
+
+    result = await ai.get_most_relevant_parts_by_transcript(_transcript(60 * 60))
+
+    assert len(result.most_relevant_segments) == 24
