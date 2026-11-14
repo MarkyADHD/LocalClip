@@ -195,6 +195,32 @@ LocalClip creates a `.env` file on first start. Things you might want to change:
 - More stream templates and draggable cam/gameplay regions
 - Auto-posting to TikTok / YouTube Shorts
 
+## Code signing policy
+
+Free code signing provided by [SignPath.io](https://about.signpath.io), certificate by [SignPath Foundation](https://signpath.org).
+
+Only `LocalClip.exe` and `LocalClip-Setup.exe` are signed. Both are built from this repository by the
+["Desktop app" workflow](.github/workflows/desktop.yml) on GitHub's own runners, and every release is approved by hand before it is signed.
+The details are in [docs/code-signing.md](docs/code-signing.md).
+
+- Committers and reviewers: [MarkyADHD](https://github.com/MarkyADHD)
+- Approvers: [MarkyADHD](https://github.com/MarkyADHD)
+
+Changes from anyone else come in as pull requests and are reviewed before they are merged.
+
+### Privacy policy
+
+This program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it.
+
+What LocalClip does contact, because you asked it to:
+
+- **GitHub**, to download LocalClip and check for updates when it starts.
+- **Twitch, Kick or YouTube**, to download the video (and Twitch chat replay) for a link you paste.
+- **Your AI model.** With Claude Code, the transcript text of your video is sent to Anthropic under [their privacy policy](https://www.anthropic.com/legal/privacy). With a local model nothing is sent anywhere.
+- **Download servers for its tools** on first start (Python packages, Node, ffmpeg, PostgreSQL, Redis, the Whisper model).
+
+LocalClip has no accounts, no analytics and no telemetry.
+
 ## License
 
 [AGPL-3.0](LICENSE). See [NOTICE](NOTICE).
