@@ -104,6 +104,13 @@ Trim, split, merge, captions, export presets, plus
 `POST /tasks/{id}/clips/{clip_id}/extend` with `{"before": s, "after": s}` which re-renders the
 clip from the source with extra time (the UI's "+30s" buttons; max 600s each side).
 
+### Video editor
+
+`/projects` (`frontend/src/components/project/`, `backend/src/project_document.py`,
+`services/project_service.py`, `api/routes/projects.py`) is a multi-track editor for whole videos.
+Projects are folders under `TEMP_DIR/projects/`; the canvas preview and the chunked ffmpeg export must
+draw the same picture. See `docs/video-editor.md`.
+
 ### Frontend
 
 Next.js 15 App Router, React 19, Tailwind v4, shadcn/ui, Better Auth (Prisma). Prisma client is

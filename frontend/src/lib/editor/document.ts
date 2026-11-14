@@ -224,9 +224,12 @@ export function mappedWords(doc: EditDocument): CaptionWord[] {
   }
   return result;
 }
-export function captionGroups(words: CaptionWord[], count: number) {
-  const groups: CaptionWord[][] = [];
-  let group: CaptionWord[] = [];
+export function captionGroups<T extends { start: number; end: number }>(
+  words: T[],
+  count: number,
+) {
+  const groups: T[][] = [];
+  let group: T[] = [];
   for (const word of words) {
     if (
       group.length &&
