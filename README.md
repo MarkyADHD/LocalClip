@@ -10,10 +10,15 @@
 </p>
 
 <p align="center">
+  <i>Made by a streamer, for streamers. Because sometimes we just don't have the time to manually clip things, y'know?</i>
+</p>
+
+<p align="center">
   <a href="../../releases/latest"><img alt="Download" src="https://img.shields.io/github/v/release/MarkyADHD/LocalClip?label=download&style=for-the-badge" /></a>
   <img alt="Windows" src="https://img.shields.io/badge/Windows-10%2F11-0078D6?style=for-the-badge&logo=windows" />
   <img alt="AI: Claude Code or any local model" src="https://img.shields.io/badge/AI-Claude%20Code%20or%20local%20models-D97757?style=for-the-badge" />
   <img alt="License" src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" />
+  <a href="https://twitch.tv/markyadhd"><img alt="Follow me on Twitch" src="https://img.shields.io/badge/Follow%20me%20on%20Twitch-markyadhd-9146FF?style=for-the-badge&logo=twitch&logoColor=white" /></a>
 </p>
 
 ![LocalClip home](docs/screenshots/home.png)
@@ -219,6 +224,10 @@ What LocalClip does contact, because you asked it to:
 - **Download servers for its tools** on first start (Python packages, Node, ffmpeg, PostgreSQL, Redis, the Whisper model).
 
 LocalClip has no accounts, no analytics and no telemetry.
+
+## Follow me on Twitch
+
+LocalClip is made by [MarkyADHD](https://twitch.tv/markyadhd). If it saves you some time, come hang out and drop a follow: **[twitch.tv/markyadhd](https://twitch.tv/markyadhd)**
 
 ## License
 
