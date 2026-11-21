@@ -43,6 +43,7 @@ import {
   Clapperboard,
   Clock,
   Edit2,
+  HardDrive,
   Loader2,
   PauseCircle,
   RotateCcw,
@@ -104,7 +105,10 @@ interface TaskDetails {
   remove_filler_words?: boolean;
   filtered_words?: string[];
   share_enabled?: boolean;
+  source_bytes?: number;
 }
+
+const formatGb = (bytes: number) => bytes >= 1e9 ? `${(bytes / 1e9).toFixed(1)} GB` : `${Math.max(1, Math.round(bytes / 1e6))} MB`;
 
 export default function TaskPage() {
   const params = useParams();
@@ -119,6 +123,7 @@ export default function TaskPage() {
   const [isEditing, setIsEditing] = useState(false);
   const [editedTitle, setEditedTitle] = useState("");
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [showDeleteSourceDialog, setShowDeleteSourceDialog] = useState(false);
   const [deletingClipId, setDeletingClipId] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [exportPreset, setExportPreset] = useState("original");
@@ -365,6 +370,15 @@ export default function TaskPage() {
     }
   };
 
+  const handleDeleteSource = () =>
+    runAction("delete-source", async () => {
+      const response = await fetch(`${taskApiUrl}/${params.id}/source`, { method: "DELETE" });
+      if (!response.ok) throw new Error(await buildSupportError(response, "Failed to delete the full video"));
+      const { freed_bytes } = await response.json();
+      setTask((current) => current && { ...current, source_bytes: 0 });
+      toast.success(`Full video deleted, ${formatGb(freed_bytes)} freed`);
+    });
+
   const handleExtendClip = (clipId: string, before: number, after: number) =>
     runAction(clipId, async () => {
       const response = await fetch(`${taskApiUrl}/${params.id}/clips/${clipId}/extend`, {
@@ -606,6 +620,16 @@ export default function TaskPage() {
                 </Button>
               </>
             )}
+            {task.status === "completed" && !!task.source_bytes && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button size="sm" variant="outline" disabled={pendingAction !== null} onClick={() => setShowDeleteSourceDialog(true)}>
+                    <HardDrive className="size-4" /><span className="hidden sm:inline">Delete full video</span><span className="tabular-nums text-muted-foreground">{formatGb(task.source_bytes)}</span>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Free disk space. Your clips are kept.</TooltipContent>
+              </Tooltip>
+            )}
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button size="icon-sm" variant="ghost" aria-label="Delete generation" className="text-muted-foreground hover:bg-red-50 hover:text-red-600" onClick={() => setShowDeleteDialog(true)}>
@@ -841,6 +865,21 @@ export default function TaskPage() {
           </AlertDialogHeader>
           <AlertDialogFooter><AlertDialogCancel>Keep font</AlertDialogCancel>
             <AlertDialogAction onClick={() => { if (fontToDelete) void handleDeleteFont(fontToDelete); setFontToDelete(null); }}>Delete font</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog open={showDeleteSourceDialog} onOpenChange={setShowDeleteSourceDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete the full video?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This frees {formatGb(task?.source_bytes ?? 0)} on your PC. Your clips are kept and can still be downloaded, but
+              +30s, Restyle and the editor need the full video{task?.source_type === "twitch" || task?.source_type === "kick" ? ", so they stop working for this generation unless you clip the link again" : ""}.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep it</AlertDialogCancel>
+            <AlertDialogAction onClick={() => void handleDeleteSource()} className="bg-red-600 hover:bg-red-700">Delete full video</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

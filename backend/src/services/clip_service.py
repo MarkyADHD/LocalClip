@@ -509,7 +509,7 @@ class ClipEditingMixin:
             elif source_url:
                 transcript_video_path = self.video_service.resolve_local_video_path(source_url)
         if not transcript_video_path or not transcript_video_path.exists():
-            raise ValueError("The source video is no longer available. Upload it again to edit this clip.")
+            raise ValueError("The full video was deleted to save space, so this clip can no longer be changed from the source.")
         return transcript_video_path, downloaded_source
 
 

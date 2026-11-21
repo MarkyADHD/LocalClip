@@ -59,8 +59,8 @@ def get_twitch_title(url: str) -> str:
 
 
 def download_stream_video(url: str) -> Path:
-    """Download a Twitch/Kick VOD or clip at up to 1080p. Kept until its generation is deleted,
-    so a retry or "+30s" doesn't re-download hours of video."""
+    """Download a Twitch/Kick VOD or clip at up to 1080p. Kept until its generation or the full video is deleted
+    (or SOURCE_KEEP_DAYS pass), so a retry or "+30s" doesn't re-download hours of video."""
     import yt_dlp
 
     source = get_stream_source(url)

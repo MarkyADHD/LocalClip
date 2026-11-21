@@ -706,6 +706,24 @@ async def delete_task(
         raise HTTPException(status_code=500, detail=f"Error deleting task: {str(e)}")
 
 
+@router.delete("/{task_id}/source")
+async def delete_task_source(
+    task_id: str, request: Request, db: AsyncSession = Depends(get_db)
+):
+    """Delete only the full source video to free disk space; the clips stay."""
+    try:
+        task_service = TaskService(db)
+        await _require_task_owner(request, task_service, db, task_id)
+        return {"freed_bytes": await task_service.delete_source_video(task_id)}
+    except HTTPException:
+        raise
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error deleting source video: {e}")
+        raise HTTPException(status_code=500, detail=f"Error deleting source video: {str(e)}")
+
+
 @router.delete("/{task_id}/clips/{clip_id}")
 async def delete_clip(
     task_id: str, clip_id: str, request: Request, db: AsyncSession = Depends(get_db)

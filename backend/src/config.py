@@ -104,6 +104,8 @@ class Config:
         self.clip_duration = int(os.getenv("CLIP_DURATION", "30"))  # seconds
 
         self.temp_dir = os.getenv("TEMP_DIR", "temp")
+        # Twitch/Kick downloads older than this are deleted automatically; 0 keeps them forever.
+        self.source_keep_days = float(os.getenv("SOURCE_KEEP_DAYS", "3"))
 
         # Redis configuration
         self.redis_host = os.getenv("REDIS_HOST", "localhost")

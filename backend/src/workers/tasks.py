@@ -128,6 +128,16 @@ async def process_video_task(
 from ..services.editor_service import prepare_editor, export_editor, combine_editor
 from ..services.project_service import prepare_asset, transcribe_asset, export_project
 
+async def cleanup_old_sources(ctx: Dict[str, Any]) -> int:
+    """Free disk space: drop Twitch/Kick downloads older than SOURCE_KEEP_DAYS."""
+    from ..config import get_config
+    from ..database import AsyncSessionLocal
+    from ..services.task_service import delete_old_stream_downloads
+
+    async with AsyncSessionLocal() as db:
+        return await delete_old_stream_downloads(db, get_config())
+
+
 # Worker configuration for arq
 class WorkerSettings:
     """Configuration for arq worker."""
@@ -156,4 +166,7 @@ class WorkerSettings:
 
     # Worker pool settings
     max_jobs = 4  # Process up to 4 jobs simultaneously
-    cron_jobs = []
+    from arq import cron
+
+    # Hourly, and when the app starts (it is rarely open at any fixed hour).
+    cron_jobs = [cron(cleanup_old_sources, minute=0, run_at_startup=True)]
