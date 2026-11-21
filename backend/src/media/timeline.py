@@ -502,7 +502,7 @@ def audio_rms_per_second(video_path: Path) -> List[float]:
             "null",
             "-",
         ],
-        timeout=600,
+        timeout=3600,
     )
     if result.returncode != 0:
         return []

@@ -1,6 +1,5 @@
 import { parseApiError, formatSupportMessage } from "@/lib/api-error";
 
-export const MAX_VIDEO_UPLOAD_BYTES = 12_000_000_000;
 
 // Only surface the font search box once the list is long enough to need it.
 export const FONT_SEARCH_THRESHOLD = 8;
@@ -73,10 +72,6 @@ async function requestUploadAuthorization(): Promise<UploadAuthorization> {
 }
 
 export async function uploadVideoFile(file: File): Promise<string> {
-  if (file.size > MAX_VIDEO_UPLOAD_BYTES) {
-    throw new Error("Uploaded file is too large. Please upload a video under 12 GB.");
-  }
-
   const uploadAuthorization = await requestUploadAuthorization();
   if (!uploadAuthorization.directUpload) {
     return uploadVideoFileViaProxy(file);
@@ -94,7 +89,7 @@ export async function uploadVideoFile(file: File): Promise<string> {
   if (!uploadResponse.ok) {
     const fallbackMessage =
       uploadResponse.status === 413
-        ? "Uploaded file is too large. Please upload a video under 12 GB."
+        ? "Uploaded file is too large."
         : `Upload error: ${uploadResponse.status}`;
     const uploadError = await parseApiError(uploadResponse, fallbackMessage);
     throw new Error(formatSupportMessage(uploadError));
@@ -120,7 +115,7 @@ export async function uploadVideoFileViaProxy(file: File): Promise<string> {
   if (!uploadResponse.ok) {
     const fallbackMessage =
       uploadResponse.status === 413
-        ? "Uploaded file is too large. Please upload a video under 12 GB."
+        ? "Uploaded file is too large."
         : `Upload error: ${uploadResponse.status}`;
     const uploadError = await parseApiError(uploadResponse, fallbackMessage);
     throw new Error(formatSupportMessage(uploadError));

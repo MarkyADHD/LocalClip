@@ -118,10 +118,15 @@ class Config:
         # "processing" forever. Default comfortably exceeds arq's job_timeout so
         # a legitimately long job is never falsely swept into "error".
         self.processing_task_timeout_seconds = int(
-            os.getenv("PROCESSING_TASK_TIMEOUT_SECONDS", "14400")
+            os.getenv("PROCESSING_TASK_TIMEOUT_SECONDS", "180000")
         )
 
         self.self_host = self._get_bool_env("SELF_HOST", True)
+        if self.self_host:
+            # Your own PC, your own disk: no length or size limit (24 h streams included).
+            # The MAX_* settings only apply to a hosted (SELF_HOST=false) deployment.
+            self.max_video_duration = self.pro_youtube_max_video_duration = 10**15
+            self.scale_youtube_max_video_duration = self.max_video_upload_bytes = 10**15
         self.monetization_enabled = not self.self_host
         self.backend_auth_secret = self._get_optional_env("BACKEND_AUTH_SECRET")
         self.allow_unsigned_backend_auth = self._get_bool_env(
