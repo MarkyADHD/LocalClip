@@ -760,3 +760,72 @@ async def test_delete_task_removes_its_files_but_keeps_a_shared_vod(tmp_path, vo
     assert not clip.exists() and not clip.with_suffix(".source_map.json").exists()
     assert other_vod.exists()
     assert all(path.exists() == vod_shared for path in [vod, *sidecars])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("busy", [False, True])
+async def test_delete_source_video_keeps_clips_and_transcript(tmp_path, busy):
+    from unittest.mock import MagicMock, patch
+
+    service = build_task_service()
+    service.config.temp_dir = str(tmp_path)
+    clip = tmp_path / "clips" / "clip_1.mp4"
+    vod = tmp_path / "twitch" / "123.mp4"
+    audio = vod.with_name("123.transcription.mp3")
+    kept = [clip, vod.with_name("123.transcript_cache.json"), tmp_path / "twitch" / "1234.mp4"]
+    for path in [vod, audio, *kept]:
+        path.parent.mkdir(exist_ok=True)
+        path.write_bytes(b"xx")
+    service.task_repo.get_task_by_id = AsyncMock(
+        return_value={"status": "completed", "source_url": "https://www.twitch.tv/videos/123"}
+    )
+    service.db.info = {}
+    service.db.execute = AsyncMock(return_value=MagicMock(first=lambda: (1,) if busy else None))
+
+    with patch("src.services.video_service.get_config", return_value=service.config):
+        if busy:
+            with pytest.raises(ValueError):
+                await service.delete_source_video("task-1")
+        else:
+            assert await service.delete_source_video("task-1") == 4
+
+    assert vod.exists() == audio.exists() == busy
+    assert all(path.exists() for path in kept)
+
+
+@pytest.mark.asyncio
+async def test_old_stream_downloads_are_deleted_unless_recent_or_in_use(tmp_path):
+    import os
+    import time
+    from unittest.mock import patch
+
+    config = Config()
+    config.temp_dir = str(tmp_path)
+    config.source_keep_days = 3
+    old = time.time() - 4 * 86400
+    files = {}
+    for name in ["old.mp4", "old.transcription.mp3", "old.transcript_cache.json", "busy.mp4", "new.mp4"]:
+        files[name] = tmp_path / "twitch" / name
+        files[name].parent.mkdir(exist_ok=True)
+        files[name].write_bytes(b"xx")
+        if not name.startswith("new"):
+            os.utime(files[name], (old, old))
+    upload = tmp_path / "uploads" / "mine.mp4"
+    upload.parent.mkdir()
+    upload.write_bytes(b"xx")
+    os.utime(upload, (old, old))
+    db = AsyncMock()
+    db.execute.return_value = [("https://www.twitch.tv/videos/busy",), ("https://youtu.be/x",)]
+
+    with patch("src.services.video_service.get_config", return_value=config), patch(
+        "src.services.video_service.get_stream_source",
+        lambda url: ("twitch", url.rsplit("/", 1)[1]) if "twitch" in url else None,
+    ):
+        assert await task_service_module.delete_old_stream_downloads(db, config) == 4
+        config.source_keep_days = 0
+        os.utime(files["new.mp4"], (old, old))
+        assert await task_service_module.delete_old_stream_downloads(db, config) == 0
+
+    assert sorted(p.name for p in files.values() if p.exists()) == [
+        "busy.mp4", "new.mp4", "old.transcript_cache.json"]
+    assert upload.exists()

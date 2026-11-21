@@ -10,6 +10,7 @@ from datetime import datetime
 from pathlib import Path
 import asyncio
 import glob
+import time
 import json
 import hashlib
 from time import perf_counter
@@ -43,6 +44,47 @@ logger = logging.getLogger(__name__)
 # Clips rendered at the same time; more mostly fights over the CPU.
 CLIP_RENDER_CONCURRENCY = 2
 PROCESSING_CACHE_VERSION = "20260319_grounded_segments_v1"
+
+
+def source_media_files(source: Path) -> list[Path]:
+    """The source video and its transcription audio. The small transcript cache (.json) is not
+    included, so captions and a later re-download don't need Whisper again."""
+    return [
+        p for p in source.parent.glob(f"{glob.escape(source.stem)}.*")
+        if p.is_file() and p.suffix != ".json"
+    ]
+
+
+async def delete_old_stream_downloads(db: AsyncSession, config: Config) -> int:
+    """Delete Twitch/Kick downloads older than SOURCE_KEEP_DAYS; returns the bytes freed.
+    They can be downloaded again, so uploads (possibly the only copy) are left alone."""
+    if config.source_keep_days <= 0:
+        return 0
+    rows = await db.execute(text(
+        "SELECT DISTINCT s.url FROM tasks t JOIN sources s ON t.source_id = s.id "
+        "WHERE t.status IN ('queued', 'processing')"
+    ))
+    busy = set()
+    for (url,) in rows:
+        try:
+            busy.add(VideoService.resolve_local_video_path(url).resolve())
+        except ValueError:
+            pass
+    cutoff = time.time() - config.source_keep_days * 86400
+    freed = 0
+    for site in ("twitch", "kick"):
+        for video in (Path(config.temp_dir) / site).glob("*.mp4"):
+            try:
+                if video.resolve() in busy or video.stat().st_mtime > cutoff:
+                    continue
+                for path in source_media_files(video):
+                    size = path.stat().st_size
+                    path.unlink()
+                    freed += size
+                    logger.info("Removed old stream download %s", path.name)
+            except OSError as e:  # e.g. still open in the editor on Windows; next run retries
+                logger.warning("Could not remove %s: %s", video, e)
+    return freed
 
 
 class TaskService(ClipEditingMixin):
@@ -694,8 +736,47 @@ class TaskService(ClipEditingMixin):
         ]
         task["clips_count"] = len(clips)
         task.update(await self._load_task_source_settings(task_id))
+        task["source_bytes"] = sum(p.stat().st_size for p in self._source_files(task))
 
         return task
+
+    def _source_files(self, task: Dict[str, Any]) -> list[Path]:
+        """The downloaded or uploaded source video files of a task that are still on disk."""
+        try:
+            source = self.video_service.resolve_local_video_path(task.get("source_url") or "")
+        except ValueError:
+            return []  # YouTube downloads are already removed after processing
+        temp_dir = Path(self.config.temp_dir).resolve()
+        return [p for p in source_media_files(source) if p.resolve().is_relative_to(temp_dir)]
+
+    @serialized_task_edit
+    async def delete_source_video(self, task_id: str) -> int:
+        """Delete only the source video of a task, keeping its clips; returns the bytes freed."""
+        task = await self.task_repo.get_task_by_id(self.db, task_id) or {}
+        busy = (
+            await self.db.execute(
+                text(
+                    "SELECT 1 FROM tasks t JOIN sources s ON t.source_id = s.id "
+                    "WHERE s.url = :url AND t.status IN ('queued', 'processing') LIMIT 1"
+                ),
+                {"url": task.get("source_url")},
+            )
+        ).first()
+        if busy:
+            raise ValueError("This video is still being clipped. Try again when it has finished.")
+        freed = 0
+        for path in self._source_files(task):
+            try:
+                size = path.stat().st_size
+                path.unlink()
+                freed += size
+            except OSError as e:
+                logger.warning("Could not remove %s: %s", path, e)
+                raise ValueError(
+                    "The video is in use right now (an edit or export is running). Try again in a minute."
+                )
+        logger.info("Deleted source video of task %s (%d bytes)", task_id, freed)
+        return freed
 
     async def get_user_tasks(
         self, user_id: str, limit: int = 50
