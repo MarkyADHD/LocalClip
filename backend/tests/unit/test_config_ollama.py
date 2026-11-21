@@ -18,12 +18,23 @@ def test_youtube_duration_limit_uses_active_subscription_plan(monkeypatch):
     monkeypatch.setenv("MAX_VIDEO_DURATION", "5400")
     monkeypatch.setenv("PRO_YOUTUBE_MAX_VIDEO_DURATION", "7200")
     monkeypatch.setenv("SCALE_YOUTUBE_MAX_VIDEO_DURATION", "10800")
+    monkeypatch.setenv("SELF_HOST", "false")
     config = Config()
 
     assert config.max_youtube_video_duration_for_plan("free", "active") == 5400
     assert config.max_youtube_video_duration_for_plan("pro", "active") == 7200
     assert config.max_youtube_video_duration_for_plan("scale", "trialing") == 10800
     assert config.max_youtube_video_duration_for_plan("scale", "inactive") == 5400
+
+
+def test_self_hosted_has_no_length_or_size_limit(monkeypatch):
+    monkeypatch.setenv("MAX_VIDEO_DURATION", "43200")  # what existing installs have in .env
+    monkeypatch.delenv("SELF_HOST", raising=False)
+    config = Config()
+
+    day = 24 * 3600
+    assert config.max_video_duration > day and config.max_youtube_video_duration_for_plan("free", None) > day
+    assert config.max_video_upload_bytes > 500 * 10**9
 
 
 def test_whisper_accepts_documented_model_size_setting(monkeypatch):

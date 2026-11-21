@@ -183,7 +183,7 @@ LocalClip creates a `.env` file on first start. Things you might want to change:
 | `VIDEO_ENCODER` | auto | `cpu` forces CPU encoding instead of NVENC |
 | `WHISPER_MODEL_SIZE` | `turbo` | `small` / `medium` for weaker GPUs, `large-v3` for best accuracy |
 | `TRANSCRIPTION_LANGUAGE` | auto | Force a language, e.g. `en` or `es` |
-| `MAX_VIDEO_DURATION` | `43200` | Longest VOD in seconds (12 hours) |
+| `MAX_VIDEO_DURATION` | none | Longest VOD in seconds. Ignored on your own PC (no limit, 24 h streams work); only used with `SELF_HOST=false` |
 
 ## Troubleshooting
 

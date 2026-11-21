@@ -10,7 +10,9 @@ from ..config import get_config
 import httpx
 import json
 import re
+import subprocess
 import time
+from functools import partial
 from .common import (
     ANALYSIS_LONG_UTTERANCE_MAX_DURATION_MS,
     ANALYSIS_LONG_UTTERANCE_MAX_WORDS,
@@ -55,7 +57,7 @@ def _prepare_audio_for_transcription(video_path: Path) -> Path:
         str(audio_path),
     ]
     try:
-        result = run_ffmpeg_command(command, timeout=900)
+        result = run_ffmpeg_command(command, timeout=14400)  # a 24 h VOD takes a while
     except FileNotFoundError:
         logger.warning(
             "ffmpeg is not available; falling back to source video for transcription"
@@ -174,6 +176,26 @@ def _assemblyai_speech_models_value(speech_model: str) -> List[str]:
 WHISPER_GPU_BATCH_SIZE = 16  # lower it if a small GPU runs out of VRAM
 
 
+# faster-whisper decodes a whole file into RAM (5.5 GB for a 24 h VOD), so feed it an hour at a time.
+WHISPER_CHUNK_SECONDS = 3600
+
+
+def _decode_audio_chunk(audio_path: Path, offset: int):
+    """One chunk of the audio as 16 kHz mono float32 samples (empty past the end)."""
+    import numpy as np
+
+    result = subprocess.run(
+        ["ffmpeg", "-v", "error", "-ss", str(offset), "-t", str(WHISPER_CHUNK_SECONDS), "-i", str(audio_path),
+         "-vn", "-f", "f32le", "-ac", "1", "-ar", "16000", "-"],
+        capture_output=True,
+    )
+    if result.returncode != 0 and not result.stdout:
+        if offset:
+            return np.empty(0, np.float32)  # seeking past the end
+        raise RuntimeError(f"Could not decode audio for transcription: {result.stderr.decode(errors='replace')[-500:]}")
+    return np.frombuffer(result.stdout, np.float32)
+
+
 def _whisper_on_gpu() -> bool:
     import ctranslate2
 
@@ -224,29 +246,42 @@ def transcribe_with_whisper(
         condition_on_previous_text=False,
         vad_filter=True,
     )
-    if _whisper_on_gpu():
-        # Decoding many speech chunks per GPU call is ~3x faster than one at a time.
-        segments, info = _whisper.BatchedInferencePipeline(model=model).transcribe(
-            str(audio_path), batch_size=WHISPER_GPU_BATCH_SIZE, **options
+    # Decoding many speech chunks per GPU call is ~3x faster than one at a time.
+    transcribe = (
+        partial(_whisper.BatchedInferencePipeline(model=model).transcribe, batch_size=WHISPER_GPU_BATCH_SIZE)
+        if _whisper_on_gpu()
+        else model.transcribe
+    )
+    result_segments: List[Dict[str, Any]] = []
+    detected_language = whisper_language
+    offset = 0
+    # ponytail: a word spoken across an hour boundary can be garbled; overlap the chunks if it shows.
+    while True:
+        audio = _decode_audio_chunk(audio_path, offset)
+        if not audio.size:
+            break
+        segments, info = transcribe(audio, **{**options, "language": detected_language})
+        detected_language = detected_language or info.language  # detect once, on the first hour
+        result_segments.extend(
+            {
+                "start": segment.start + offset,
+                "end": segment.end + offset,
+                "text": segment.text,
+                "words": [
+                    {"word": w.word, "start": w.start + offset, "end": w.end + offset, "probability": w.probability}
+                    for w in segment.words or []
+                ],
+            }
+            for segment in segments
         )
-    else:
-        segments, info = model.transcribe(str(audio_path), **options)
-    result_segments = [
-        {
-            "start": segment.start,
-            "end": segment.end,
-            "text": segment.text,
-            "words": [
-                {"word": w.word, "start": w.start, "end": w.end, "probability": w.probability}
-                for w in segment.words or []
-            ],
-        }
-        for segment in segments
-    ]
+        if audio.size < WHISPER_CHUNK_SECONDS * 16000:
+            break
+        offset += WHISPER_CHUNK_SECONDS
+        logger.info("Whisper transcribed %d h so far", offset // 3600)
     return {
         "text": "".join(segment["text"] for segment in result_segments),
         "segments": result_segments,
-        "language": info.language,
+        "language": detected_language,
     }
 
 

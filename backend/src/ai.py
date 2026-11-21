@@ -1339,7 +1339,7 @@ async def rerank_candidates(
         result = await _run_transcript_analysis(
             agent,
             build_candidate_rerank_prompt(candidates, clip_signals),
-            timeout_seconds=RERANK_TIMEOUT_SECONDS,
+            timeout_seconds=RERANK_TIMEOUT_SECONDS + 5 * len(candidates),  # long streams: hundreds
         )
         reranked = drop_weak_candidates(apply_candidate_ranking(candidates, result.output))
     except Exception as error:
@@ -1377,9 +1377,14 @@ async def _analyze_transcript_windows(
             result = await _run_transcript_analysis(agent, prompt)
             return result.output
 
+    # A 24 h stream is ~140 windows; give each batch of concurrent windows a fair share of time.
+    total_timeout = max(
+        ANALYSIS_TOTAL_TIMEOUT_SECONDS,
+        len(windows) * TRANSCRIPT_ANALYSIS_TIMEOUT_SECONDS // ANALYSIS_WINDOW_CONCURRENCY,
+    )
     tasks = [asyncio.create_task(run_window(window)) for window in windows]
     try:
-        _, pending = await asyncio.wait(tasks, timeout=ANALYSIS_TOTAL_TIMEOUT_SECONDS)
+        _, pending = await asyncio.wait(tasks, timeout=total_timeout)
     except asyncio.CancelledError:
         for task in tasks:
             task.cancel()
@@ -1390,7 +1395,7 @@ async def _analyze_transcript_windows(
             "%d of %d analysis windows exceeded the %ss budget",
             len(pending),
             len(windows),
-            ANALYSIS_TOTAL_TIMEOUT_SECONDS,
+            total_timeout,
         )
         for task in pending:
             task.cancel()
