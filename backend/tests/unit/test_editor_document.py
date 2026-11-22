@@ -298,7 +298,15 @@ def test_slow_motion_punch_in_and_voice_cleanup_render(tmp_path):
         ],
         punches=[{"id": "p", "start": 0.75, "end": 1.25}],
         cleanVoice=True,
+        gameVolume=0.2,
     )
+    # Voice separation needs a model download; stand two stems in for it.
+    for name in ("voice.wav", "game.wav"):
+        subprocess.run(
+            ["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=300:sample_rate=44100:duration=2",
+             "-ac", "2", str(tmp_path / name)],
+            check=True,
+        )
     # The word plays once at full speed, then again at half speed in the replay.
     assert [(w["start"], w["end"]) for w in mapped_words(doc)] == [(0.25, 0.75), (1.5, 2.5)]
     assert doc.duration == 3

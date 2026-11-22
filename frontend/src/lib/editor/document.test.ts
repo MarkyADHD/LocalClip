@@ -73,6 +73,7 @@ describe("bleep helpers", () => {
     expect(censor("Fucking,")).toBe("F******,");
     const doc = {
       segments: [],
+      gameVolume: 1,
       words: [{ id: "w", start: 0, end: 1, text: "shit", highlight: false }],
     } as never as Parameters<typeof needsServerExport>[0];
     expect(needsServerExport(doc)).toBe(false);

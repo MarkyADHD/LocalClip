@@ -1086,6 +1086,23 @@ export function Inspector({
                 checked={doc.muted}
                 onChange={(muted) => update((d) => ({ ...d, muted }))}
               />
+              <Range
+                label="Game and music"
+                value={doc.gameVolume * 100}
+                min={0}
+                max={200}
+                unit="%"
+                onChange={(volume) =>
+                  update((d) => ({ ...d, gameVolume: volume / 100 }), "gameVolume")
+                }
+              />
+              {doc.gameVolume !== 1 && (
+                <p className="text-xs leading-relaxed text-muted-foreground">
+                  Your voice is split from the game and its music, so you can
+                  turn them down or off (0% leaves only the voice). You hear it
+                  in the exported video, not in the preview.
+                </p>
+              )}
               <SwitchRow
                 id="clean-voice"
                 label="Clean up mic noise"

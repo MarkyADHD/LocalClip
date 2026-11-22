@@ -36,4 +36,5 @@ export const draft: EditDocument = {
   titleSeconds: 0,
   cleanVoice: false,
   punches: [],
+  gameVolume: 1,
 };

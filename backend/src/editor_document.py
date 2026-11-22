@@ -155,6 +155,7 @@ class EditDocument(Model):
     titleSeconds: float = Field(default=0, ge=0, le=600)  # how long the title stays; 0 for the whole clip
     cleanVoice: bool = False  # take rumble and steady hiss out of the sound
     punches: list[Punch] = Field(default_factory=list, max_length=50)
+    gameVolume: float = Field(default=1, ge=0, le=2)  # game and music under the voice; 1 leaves the mix alone
 
     @property
     def duration(self) -> float:
@@ -584,6 +585,19 @@ def render_document(
     )
     audio = bool(probe.stdout.strip())
     filters, joins = [], []
+    inputs = ["-i", str(source)]
+    sound = ["[0:a]"] * len(document.segments)
+    if audio and document.gameVolume != 1 and not document.muted:
+        # Voice and game sound apart, so the game and its music can be turned down under the voice.
+        from .media.stems import split_voice
+
+        for stem in split_voice(source, directory):
+            inputs += ["-i", str(stem)]
+        sound = [f"[mix{index}]" for index in range(len(document.segments))]
+        filters.append(
+            f"[2:a]volume={document.gameVolume}[game];[1:a][game]amix=inputs=2:normalize=0,"
+            f"aresample=48000,asplit={len(sound)}" + "".join(sound)
+        )
     for index, segment in enumerate(document.segments):
         slow = segment.speed < 1
         # Slow motion: stretch the frames in time, then draw the missing ones in between.
@@ -595,7 +609,7 @@ def render_document(
         joins.append(f"[v{index}]")
         if audio:
             filters.append(
-                f"[0:a]atrim=start={segment.start}:end={segment.end},asetpts=PTS-STARTPTS"
+                f"{sound[index]}atrim=start={segment.start}:end={segment.end},asetpts=PTS-STARTPTS"
                 + (f",{_atempo(segment.speed)}" if slow else "")
                 + f"[a{index}]"
             )
@@ -643,8 +657,7 @@ def render_document(
     command = [
         "ffmpeg",
         "-y",
-        "-i",
-        str(source),
+        *inputs,
         "-filter_complex",
         ";".join(filters),
         "-map",

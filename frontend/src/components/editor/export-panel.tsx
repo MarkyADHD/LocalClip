@@ -179,7 +179,7 @@ export function ExportPanel({
     controller.current = control;
     try {
       await save();
-      // Bleeps are mixed by the server render only.
+      // Sound edits and slow motion are rendered by the server only.
       if (mode === "browser" && !batch && !needsServerExport(doc)) {
         setProgress(0);
         await exportDraft(

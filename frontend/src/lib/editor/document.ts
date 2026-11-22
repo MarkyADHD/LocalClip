@@ -114,6 +114,8 @@ export interface EditDocument {
   /** Take rumble and steady hiss out of the sound (server export). */
   cleanVoice: boolean;
   punches: Punch[];
+  /** Game and music under the voice (0 to 2); 1 leaves the mix alone (server export). */
+  gameVolume: number;
 }
 const DEFAULT_CAM: Region = { x: 0, y: 0.6, w: 0.3, h: 0.4 };
 const normalized = new WeakMap<EditDocument, EditDocument>();
@@ -127,6 +129,7 @@ export function normalize(doc: EditDocument): EditDocument {
       titleSeconds: doc.titleSeconds ?? 0,
       cleanVoice: doc.cleanVoice ?? false,
       punches: doc.punches ?? [],
+      gameVolume: doc.gameVolume ?? 1,
       captions: {
         ...doc.captions,
         uppercase: doc.captions.uppercase ?? false,
@@ -176,6 +179,7 @@ export const censor = (text: string) =>
 /** Edits only the server can render (the in-browser export keeps the clip's own audio and speed). */
 export const needsServerExport = (doc: EditDocument) =>
   doc.cleanVoice ||
+  doc.gameVolume !== 1 ||
   doc.words.some((w) => w.bleep) ||
   doc.segments.some((s) => (s.speed ?? 1) !== 1);
 export const DEFAULT_EFFECTS: Effects = {
