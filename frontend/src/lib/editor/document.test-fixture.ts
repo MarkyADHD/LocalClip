@@ -33,4 +33,5 @@ export const draft: EditDocument = {
   volume: 1,
   muted: false,
   title: "",
+  titleSeconds: 0,
 };

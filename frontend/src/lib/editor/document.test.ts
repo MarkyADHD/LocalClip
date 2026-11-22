@@ -105,9 +105,11 @@ describe("layouts and older drafts", () => {
     const { normalize } = await import("./document");
     const old = structuredClone(draft) as unknown as Record<string, never>;
     delete old.title;
+    delete old.titleSeconds;
     delete (old.framing as Record<string, never>).layout;
     const next = normalize(old as unknown as typeof draft);
     expect(next.title).toBe("");
+    expect(next.titleSeconds).toBe(0);
     expect(next.framing.layout).toBe("crop");
     expect(normalize(next)).toBe(next);
   });

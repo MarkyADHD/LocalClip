@@ -131,6 +131,7 @@ class EditDocument(Model):
     volume: float = Field(default=1, ge=0, le=2)
     muted: bool = False
     title: str = Field(default="", max_length=80)  # hook title at the top; empty for none
+    titleSeconds: float = Field(default=0, ge=0, le=600)  # how long the title stays; 0 for the whole clip
 
     def validate_duration(self, duration: float):
         if any(s.end > duration + 0.05 for s in self.segments):
@@ -407,7 +408,8 @@ def write_ass(path: Path, document: EditDocument, width: int, height: int):
     if document.title.strip():
         total = sum(s.end - s.start for s in document.segments)
         words = [{"text": text} for text in document.title.split()]
-        lines.append(ass_event(style, width, height, 0, total, TITLE_Y, words, lambda i: False))
+        until = min(total, document.titleSeconds or total)
+        lines.append(ass_event(style, width, height, 0, until, TITLE_Y, words, lambda i: False))
     if style.enabled:
         for start, end, group, accent in caption_events(style, mapped_words(document)):
             lines.append(ass_event(style, width, height, start, end, style.y, group, accent))
