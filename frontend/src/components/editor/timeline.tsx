@@ -4,7 +4,9 @@ import {
   ArrowLeft,
   ArrowRight,
   Copy,
+  Rewind,
   Scissors,
+  Snail,
   Trash2,
   ZoomIn,
   ZoomOut,
@@ -13,9 +15,11 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
   clamp,
+  addReplay,
   editDuration,
   mappedWords,
   outputTime,
+  segmentLength,
   sourceTime,
   splitSegment,
   timecode,
@@ -170,6 +174,39 @@ export function Timeline({
           <Copy />
         </ToolButton>
         <ToolButton
+          label={
+            (active.speed ?? 1) < 1
+              ? "Play this segment at normal speed"
+              : "Play this segment in slow motion"
+          }
+          size="icon-sm"
+          aria-pressed={(active.speed ?? 1) < 1}
+          className={cn((active.speed ?? 1) < 1 && "text-brand")}
+          onClick={() =>
+            update((d) => ({
+              ...d,
+              segments: d.segments.map((s) =>
+                s.id === active.id
+                  ? { ...s, speed: (s.speed ?? 1) < 1 ? 1 : 0.5 }
+                  : s,
+              ),
+            }))
+          }
+        >
+          <Snail />
+        </ToolButton>
+        <ToolButton
+          label="Slow-mo replay of the last moments before the playhead"
+          size="icon-sm"
+          disabled={currentTime < active.start + 0.3 || currentTime > active.end}
+          onClick={() => {
+            update((d) => addReplay(d, index, currentTime));
+            select(index + 1);
+          }}
+        >
+          <Rewind />
+        </ToolButton>
+        <ToolButton
           label="Move segment earlier"
           size="icon-sm"
           disabled={index === 0}
@@ -260,7 +297,8 @@ export function Timeline({
           </div>
           <div className="relative flex h-16" role="group" aria-label="Segments">
             {doc.segments.map((s, i) => {
-              const length = s.end - s.start,
+              const length = segmentLength(s),
+                span = s.end - s.start,
                 selected = i === index,
                 samples = asset.waveform.slice(
                   Math.floor((s.start / asset.duration) * asset.waveform.length),
@@ -309,7 +347,7 @@ export function Timeline({
                   onPointerMove={(e) => {
                     const d = drag.current;
                     if (!d) return;
-                    const delta = (e.clientX - d.x) / d.perSecond;
+                    const delta = ((e.clientX - d.x) / d.perSecond) * (s.speed ?? 1);
                     if (d.edge === "start") {
                       const start = clamp(d.start + delta, 0, d.end - 0.04);
                       setRange(start, d.end);
@@ -354,8 +392,8 @@ export function Timeline({
                     )}
                     style={{
                       backgroundImage: `url(${endpoint}/media/thumbnails.jpg)`,
-                      backgroundSize: `${(asset.duration / length) * 100}% 100%`,
-                      backgroundPosition: `${asset.duration > length ? (s.start / (asset.duration - length)) * 100 : 0}% 0`,
+                      backgroundSize: `${(asset.duration / span) * 100}% 100%`,
+                      backgroundPosition: `${asset.duration > span ? (s.start / (asset.duration - span)) * 100 : 0}% 0`,
                     }}
                   />
                   <svg

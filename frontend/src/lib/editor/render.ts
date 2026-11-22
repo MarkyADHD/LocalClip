@@ -2,7 +2,10 @@ import {
   captionGroups,
   frameRect,
   censor,
+  mapped,
   mappedWords,
+  PUNCH_Y,
+  PUNCH_ZOOM,
   regionCrop,
   wordColor,
   type CaptionStyle,
@@ -183,6 +186,15 @@ export function drawEditorFrame(
   ctx.fillStyle = "black";
   ctx.fillRect(0, 0, width, height);
   ctx.save();
+  if (doc.punches.length && mapped(doc, doc.punches).some((p) => time >= p.start && time < p.end)) {
+    // Snap zoom around the face (same crop as punch_filter in editor_document.py).
+    const layout = doc.framing.aspect === "original" ? "crop" : doc.framing.layout,
+      x = width / 2,
+      y = height * PUNCH_Y[layout];
+    ctx.translate(x, y);
+    ctx.scale(PUNCH_ZOOM, PUNCH_ZOOM);
+    ctx.translate(-x, -y);
+  }
   drawLayout(ctx, doc, sourceWidth, sourceHeight, draw);
   ctx.restore();
   if (doc.title.trim() && (!doc.titleSeconds || time < doc.titleSeconds))

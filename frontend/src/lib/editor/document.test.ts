@@ -72,6 +72,7 @@ describe("bleep helpers", () => {
     expect(["class", "assume", "shiitake", "duck"].some(isSwear)).toBe(false);
     expect(censor("Fucking,")).toBe("F******,");
     const doc = {
+      segments: [],
       words: [{ id: "w", start: 0, end: 1, text: "shit", highlight: false }],
     } as never as Parameters<typeof needsServerExport>[0];
     expect(needsServerExport(doc)).toBe(false);
@@ -135,5 +136,33 @@ describe("speakers", () => {
     expect(wordColor(style, { speaker: 1 })).toBe("#111111");
     expect(wordColor(style, { speaker: 2 })).toBe("#FFFFFF");
     expect(wordColor({ color: "#FFFFFF" }, { speaker: 2 })).toBe(SPEAKER_COLORS[1]);
+  });
+});
+
+describe("slow motion and punch-ins", () => {
+  it("maps times through slowed and repeated segments", async () => {
+    const { addReplay, editDuration, mapped, outputTime, sourceTime, needsServerExport } =
+      await import("./document");
+    const { draft: fixture } = await import("./document.test-fixture");
+    const doc = addReplay(
+      { ...fixture, segments: [{ id: "a", start: 0, end: 10 }] },
+      0,
+      4,
+      2,
+    );
+    expect(doc.segments.map((s) => [s.start, s.end, s.speed ?? 1])).toEqual([
+      [0, 4, 1],
+      [2, 4, 0.5],
+      [4, 10, 1],
+    ]);
+    expect(editDuration(doc)).toBe(14);
+    // 5 s into the edit is a quarter of the way through the half-speed replay.
+    expect(sourceTime(doc, 5)).toEqual({ index: 1, time: 2.5 });
+    expect(outputTime(doc, 1, 2.5)).toBe(5);
+    expect(mapped(doc, [{ start: 3, end: 4 }])).toEqual([
+      { start: 3, end: 4 },
+      { start: 6, end: 8 },
+    ]);
+    expect(needsServerExport(doc)).toBe(true);
   });
 });

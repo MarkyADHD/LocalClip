@@ -14,6 +14,7 @@ import {
   Trash2,
   Volume2,
   VolumeX,
+  ZoomIn,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -45,10 +46,12 @@ import {
   DEFAULT_EFFECTS,
   clamp,
   isSwear,
+  loudestMoment,
   paintSpeaker,
   replaceWords,
   speakerCount,
   SPEAKER_COLORS,
+  timecode,
   wordColor,
   uid,
   type EditDocument,
@@ -314,6 +317,11 @@ export function Inspector({
       }),
       group,
     );
+  const punch = (start: number) =>
+    update((d) => ({
+      ...d,
+      punches: [...d.punches, { id: uid(), start, end: start + 1.2 }].slice(-50),
+    }));
   const picked = doc.words.find((w) => w.id === wordId),
     pickedIndex = picked ? doc.words.indexOf(picked) : -1;
   const layout = doc.framing.aspect === "original" ? "crop" : doc.framing.layout;
@@ -1078,6 +1086,18 @@ export function Inspector({
                 checked={doc.muted}
                 onChange={(muted) => update((d) => ({ ...d, muted }))}
               />
+              <SwitchRow
+                id="clean-voice"
+                label="Clean up mic noise"
+                checked={doc.cleanVoice}
+                onChange={(cleanVoice) => update((d) => ({ ...d, cleanVoice }))}
+              />
+              {doc.cleanVoice && (
+                <p className="text-xs leading-relaxed text-muted-foreground">
+                  Takes out rumble, fan noise and hiss. You hear it in the
+                  exported video, not in the preview.
+                </p>
+              )}
               {doc.volume > 1 && (
                 <p className="text-xs leading-relaxed text-muted-foreground">
                   Boosting quiet audio can clip loud peaks. Listen through
@@ -1109,6 +1129,81 @@ export function Inspector({
             </Section>
           </TabsContent>
           <TabsContent value="effects" className="space-y-6 p-4">
+            <Section
+              title="Punch-in zoom"
+              description="A quick zoom on the face for the big moment. Slow motion and instant replay are on the timeline toolbar."
+            >
+              <div className="flex flex-wrap gap-2">
+                <Button size="sm" variant="secondary" onClick={() => punch(time)}>
+                  <ZoomIn />
+                  Punch in here
+                </Button>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={!asset.waveform.length}
+                  onClick={() => {
+                    const at = loudestMoment(doc, asset.waveform, asset.duration);
+                    if (at === null) toast.info("Every loud moment already has a punch-in");
+                    else {
+                      punch(Math.max(0, at - 0.3));
+                      seek(at);
+                    }
+                  }}
+                >
+                  <Volume2 />
+                  Loudest moment
+                </Button>
+              </div>
+              {[...doc.punches]
+                .sort((a, b) => a.start - b.start)
+                .map((p) => (
+                  <div key={p.id} className="flex items-center gap-2 text-xs">
+                    <button
+                      type="button"
+                      className="tabular-nums underline-offset-2 hover:underline"
+                      onClick={() => seek(p.start)}
+                    >
+                      {timecode(p.start)}
+                    </button>
+                    <div className="min-w-0 flex-1">
+                    <Range
+                      label="Lasts"
+                      value={p.end - p.start}
+                      min={0.3}
+                      max={5}
+                      step={0.1}
+                      unit="s"
+                      onChange={(length) =>
+                        update(
+                          (d) => ({
+                            ...d,
+                            punches: d.punches.map((x) =>
+                              x.id === p.id ? { ...x, end: x.start + length } : x,
+                            ),
+                          }),
+                          `punch-${p.id}`,
+                        )
+                      }
+                    />
+                    </div>
+                    <Button
+                      size="icon-sm"
+                      variant="ghost"
+                      aria-label="Remove punch-in"
+                      className="hover:text-destructive"
+                      onClick={() =>
+                        update((d) => ({
+                          ...d,
+                          punches: d.punches.filter((x) => x.id !== p.id),
+                        }))
+                      }
+                    >
+                      <Trash2 />
+                    </Button>
+                  </div>
+                ))}
+            </Section>
             <Section
               title="Effects"
               description="Effects apply to the video. Captions stay crisp."

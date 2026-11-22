@@ -19,6 +19,7 @@ import uuid
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from .media.common import DENOISE_FILTER
 from .media.diarization import MAX_SPEAKERS, SPEAKER_COLORS
 
 HexColor = Field(pattern=r"^#[0-9a-fA-F]{6}$")
@@ -32,11 +33,31 @@ class Segment(Model):
     id: str = Field(min_length=1, max_length=100)
     start: float = Field(ge=0)
     end: float = Field(gt=0)
+    speed: float = Field(default=1, ge=0.25, le=1)  # below 1 plays the segment in slow motion
 
     @model_validator(mode="after")
     def ordered(self):
         if self.end - self.start < 0.04:
             raise ValueError("Each segment must be at least one frame long")
+        return self
+
+    @property
+    def length(self) -> float:
+        """Seconds the segment lasts in the edited clip."""
+        return (self.end - self.start) / self.speed
+
+
+class Punch(Model):
+    """A snap zoom on the picture between two source times."""
+
+    id: str = Field(min_length=1, max_length=100)
+    start: float = Field(ge=0)
+    end: float = Field(gt=0)
+
+    @model_validator(mode="after")
+    def ordered(self):
+        if self.end <= self.start:
+            raise ValueError("A punch-in must end after it starts")
         return self
 
 
@@ -132,6 +153,12 @@ class EditDocument(Model):
     muted: bool = False
     title: str = Field(default="", max_length=80)  # hook title at the top; empty for none
     titleSeconds: float = Field(default=0, ge=0, le=600)  # how long the title stays; 0 for the whole clip
+    cleanVoice: bool = False  # take rumble and steady hiss out of the sound
+    punches: list[Punch] = Field(default_factory=list, max_length=50)
+
+    @property
+    def duration(self) -> float:
+        return sum(s.length for s in self.segments)
 
     def validate_duration(self, duration: float):
         if any(s.end > duration + 0.05 for s in self.segments):
@@ -227,23 +254,49 @@ def output_size(document: EditDocument, width: int, height: int):
     return max(2, int(width * scale) // 2 * 2), max(2, int(height * scale) // 2 * 2)
 
 
-def mapped_words(document: EditDocument):
+def mapped(document: EditDocument, items) -> list[dict]:
+    """Items with source `start`/`end` times, moved onto the edited timeline (cut, repeated, slowed)."""
     result = []
     cursor = 0.0
-    ordered_words = sorted(document.words, key=lambda w: w.start)
+    ordered = sorted(items, key=lambda item: item.start)
     for segment in document.segments:
-        for word in ordered_words:
-            start, end = max(segment.start, word.start), min(segment.end, word.end)
-            if end > start and word.text.strip():
+        for item in ordered:
+            start, end = max(segment.start, item.start), min(segment.end, item.end)
+            if end > start:
                 result.append(
                     {
-                        **word.model_dump(),
-                        "start": cursor + start - segment.start,
-                        "end": cursor + end - segment.start,
+                        **item.model_dump(),
+                        "start": cursor + (start - segment.start) / segment.speed,
+                        "end": cursor + (end - segment.start) / segment.speed,
                     }
                 )
-        cursor += segment.end - segment.start
+        cursor += segment.length
     return result
+
+
+def mapped_words(document: EditDocument):
+    return mapped(document, [w for w in document.words if w.text.strip()])
+
+
+PUNCH_ZOOM = 1.25  # how far a punch-in zooms; same in render.ts
+# Height of the point a punch-in zooms towards: the face, or the facecam pane. Same in render.ts.
+PUNCH_Y = {"crop": 0.4, "cam_top": 0.2, "cam_bottom": 0.8, "floating": 0.3}
+
+
+def punch_filter(document: EditDocument, width: int, height: int) -> str:
+    """filter_complex from [framed] to [punched]: the picture zoomed while a punch-in is on."""
+    spans = mapped(document, document.punches)
+    if not spans:
+        return "[framed]null[punched]"
+    framing = document.framing
+    y = PUNCH_Y["crop" if framing.aspect == "original" else framing.layout]
+    zw, zh = _even(width * PUNCH_ZOOM), _even(height * PUNCH_ZOOM)
+    on = "+".join(f"between(t,{p['start']:.3f},{p['end']:.3f})" for p in spans)
+    return (
+        f"[framed]split[punch0][punch1];"
+        f"[punch1]scale={zw}:{zh},crop={width}:{height}:{(zw - width) / 2}:{(zh - height) * y}[punchz];"
+        f"[punch0][punchz]overlay=enable='{on}'[punched]"
+    )
 
 
 def caption_groups(words: list[dict], count: int):
@@ -406,7 +459,7 @@ def write_ass(path: Path, document: EditDocument, width: int, height: int):
     header, line = ass_header(style, width, height)
     lines = []
     if document.title.strip():
-        total = sum(s.end - s.start for s in document.segments)
+        total = document.duration
         words = [{"text": text} for text in document.title.split()]
         until = min(total, document.titleSeconds or total)
         lines.append(ass_event(style, width, height, 0, until, TITLE_Y, words, lambda i: False))
@@ -478,6 +531,19 @@ def run_render(
         log_path.unlink(missing_ok=True)
 
 
+# ponytail: ffmpeg's motion interpolation is slow and can smear fast action; RIFE if it shows.
+SLOWMO_MODE = os.getenv("SLOWMO_MODE", "mci")  # "blend" is quicker and softer
+
+
+def _atempo(speed: float) -> str:
+    """atempo only goes down to half speed per filter."""
+    parts = []
+    while speed < 0.5:
+        parts.append("atempo=0.5")
+        speed /= 0.5
+    return ",".join(parts + [f"atempo={speed}"])
+
+
 def render_document(
     directory: Path,
     job_id: str,
@@ -490,6 +556,7 @@ def render_document(
 
     source = directory / "clean.mp4"
     sw, sh = _ffprobe_size(source)
+    fps = json.loads((directory / "asset.json").read_text())["fps"] if (directory / "asset.json").exists() else 30
     width, height = output_size(document, sw, sh)
     fx = document.effects
     # CSS brightness/contrast use RGB multiplication followed by a midpoint shift.
@@ -518,13 +585,19 @@ def render_document(
     audio = bool(probe.stdout.strip())
     filters, joins = [], []
     for index, segment in enumerate(document.segments):
+        slow = segment.speed < 1
+        # Slow motion: stretch the frames in time, then draw the missing ones in between.
         filters.append(
-            f"[0:v]trim=start={segment.start}:end={segment.end},setpts=PTS-STARTPTS[v{index}]"
+            f"[0:v]trim=start={segment.start}:end={segment.end},setpts=(PTS-STARTPTS)/{segment.speed}"
+            + (f",minterpolate=fps={fps}:mi_mode={SLOWMO_MODE}" if slow else "")
+            + f"[v{index}]"
         )
         joins.append(f"[v{index}]")
         if audio:
             filters.append(
-                f"[0:a]atrim=start={segment.start}:end={segment.end},asetpts=PTS-STARTPTS[a{index}]"
+                f"[0:a]atrim=start={segment.start}:end={segment.end},asetpts=PTS-STARTPTS"
+                + (f",{_atempo(segment.speed)}" if slow else "")
+                + f"[a{index}]"
             )
             joins.append(f"[a{index}]")
     filters.append(
@@ -536,13 +609,15 @@ def render_document(
     write_ass(ass, document, width, height)
     fonts = ass_fonts_dir(document.captions.font)
     filters.append(layout_filter(document.framing, sw, sh, width, height))
+    filters.append(punch_filter(document, width, height))
     filters.append(
-        f"[framed]{effects},ass={_escape_filter_path(ass)}:fontsdir={_escape_filter_path(fonts or Path('fonts'))}[outv]"
+        f"[punched]{effects},ass={_escape_filter_path(ass)}:fontsdir={_escape_filter_path(fonts or Path('fonts'))}[outv]"
     )
-    total = sum(s.end - s.start for s in document.segments)
+    total = document.duration
     tracks = []
     if audio:
-        voice = f"[audio]volume={0 if document.muted else document.volume}"
+        voice = "[audio]" + (f"{DENOISE_FILTER}," if document.cleanVoice else "")
+        voice += f"volume={0 if document.muted else document.volume}"
         bleeps = "+".join(
             f"between(t,{max(0, w['start'] - 0.05):.3f},{w['end'] + 0.05:.3f})"
             for w in mapped_words(document)

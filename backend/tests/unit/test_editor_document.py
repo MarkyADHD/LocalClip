@@ -281,3 +281,33 @@ def test_render_log_is_closed_before_delete_and_honours_shared_cancel(
     shared_cancel.touch()
     with pytest.raises(InterruptedError):
         run_render(["sleep", "10"], work, job_id, 1, shared_cancel)
+
+
+@pytest.mark.skipif(not shutil.which("ffmpeg"), reason="ffmpeg required")
+def test_slow_motion_punch_in_and_voice_cleanup_render(tmp_path):
+    subprocess.run(
+        ["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=24:duration=2",
+         "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=2",
+         "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", str(tmp_path / "clean.mp4")],
+        check=True, capture_output=True,
+    )
+    doc = document(
+        segments=[
+            {"id": "a", "start": 0.25, "end": 1.25},
+            {"id": "replay", "start": 0.25, "end": 1.25, "speed": 0.5},
+        ],
+        punches=[{"id": "p", "start": 0.75, "end": 1.25}],
+        cleanVoice=True,
+    )
+    # The word plays once at full speed, then again at half speed in the replay.
+    assert [(w["start"], w["end"]) for w in mapped_words(doc)] == [(0.25, 0.75), (1.5, 2.5)]
+    assert doc.duration == 3
+    render_document(tmp_path, "c" * 32, doc, "tiktok")
+    streams = json.loads(
+        subprocess.run(
+            ["ffprobe", "-v", "error", "-show_streams", "-of", "json", str(tmp_path / f"export-{'c' * 32}.mp4")],
+            capture_output=True, text=True, check=True,
+        ).stdout
+    )["streams"]
+    assert {s["codec_type"] for s in streams} == {"video", "audio"}
+    assert all(abs(float(s["duration"]) - 3) < 0.15 for s in streams)

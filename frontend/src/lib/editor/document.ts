@@ -2,7 +2,21 @@ export interface Segment {
   id: string;
   start: number;
   end: number;
+  /** Below 1 plays the segment in slow motion (0.25 to 1). */
+  speed?: number;
 }
+/** A snap zoom on the picture between two source times. */
+export interface Punch {
+  id: string;
+  start: number;
+  end: number;
+}
+/** How far a punch-in zooms; same in editor_document.py. */
+export const PUNCH_ZOOM = 1.25;
+/** Height of the point a punch-in zooms towards: the face, or the facecam pane. Same in editor_document.py. */
+export const PUNCH_Y = { crop: 0.4, cam_top: 0.2, cam_bottom: 0.8, floating: 0.3 };
+/** Seconds a segment lasts in the edited clip. */
+export const segmentLength = (s: Segment) => (s.end - s.start) / (s.speed ?? 1);
 export interface CaptionWord {
   id: string;
   start: number;
@@ -97,6 +111,9 @@ export interface EditDocument {
   title: string;
   /** Seconds the title stays up from the start; 0 for the whole clip. */
   titleSeconds: number;
+  /** Take rumble and steady hiss out of the sound (server export). */
+  cleanVoice: boolean;
+  punches: Punch[];
 }
 const DEFAULT_CAM: Region = { x: 0, y: 0.6, w: 0.3, h: 0.4 };
 const normalized = new WeakMap<EditDocument, EditDocument>();
@@ -108,6 +125,8 @@ export function normalize(doc: EditDocument): EditDocument {
       ...doc,
       title: doc.title ?? "",
       titleSeconds: doc.titleSeconds ?? 0,
+      cleanVoice: doc.cleanVoice ?? false,
+      punches: doc.punches ?? [],
       captions: {
         ...doc.captions,
         uppercase: doc.captions.uppercase ?? false,
@@ -154,9 +173,11 @@ export const isSwear = (text: string) =>
 /** f*** : keep the first letter of each word, star the rest (same as the export). */
 export const censor = (text: string) =>
   text.replace(/(?<=[\p{L}\p{N}_])[\p{L}\p{N}_]/gu, "*");
-/** Edits only the server can render (the in-browser export keeps the clip's own audio). */
+/** Edits only the server can render (the in-browser export keeps the clip's own audio and speed). */
 export const needsServerExport = (doc: EditDocument) =>
-  doc.words.some((w) => w.bleep);
+  doc.cleanVoice ||
+  doc.words.some((w) => w.bleep) ||
+  doc.segments.some((s) => (s.speed ?? 1) !== 1);
 export const DEFAULT_EFFECTS: Effects = {
   brightness: 100,
   contrast: 100,
@@ -167,7 +188,7 @@ export const DEFAULT_EFFECTS: Effects = {
 export const clamp = (value: number, min: number, max: number) =>
   Math.min(max, Math.max(min, value));
 export const editDuration = (doc: EditDocument) =>
-  doc.segments.reduce((total, s) => total + s.end - s.start, 0);
+  doc.segments.reduce((total, s) => total + segmentLength(s), 0);
 export const timecode = (time: number) =>
   `${Math.floor(Math.max(0, time) / 60)}:${(Math.max(0, time) % 60).toFixed(2).padStart(5, "0")}`;
 export const uid = () => crypto.randomUUID();
@@ -224,32 +245,45 @@ export function sourceTime(doc: EditDocument, time: number) {
   let cursor = 0;
   for (let index = 0; index < doc.segments.length; index++) {
     const s = doc.segments[index],
-      length = s.end - s.start;
+      length = segmentLength(s);
     if (time < cursor + length || index === doc.segments.length - 1)
-      return { index, time: clamp(s.start + time - cursor, s.start, s.end) };
+      return {
+        index,
+        time: clamp(s.start + (time - cursor) * (s.speed ?? 1), s.start, s.end),
+      };
     cursor += length;
   }
   return { index: 0, time: 0 };
 }
-export function mappedWords(doc: EditDocument): CaptionWord[] {
-  const result: CaptionWord[] = [];
+/** Items with source times, moved onto the edited timeline (cut, repeated, slowed). */
+export function mapped<T extends { start: number; end: number }>(
+  doc: EditDocument,
+  items: T[],
+): T[] {
+  const result: T[] = [];
   let cursor = 0;
-  const orderedWords = [...doc.words].sort((a, b) => a.start - b.start);
+  const ordered = [...items].sort((a, b) => a.start - b.start);
   for (const segment of doc.segments) {
-    for (const word of orderedWords) {
-      const start = Math.max(segment.start, word.start),
-        end = Math.min(segment.end, word.end);
-      if (end > start && word.text.trim())
+    const speed = segment.speed ?? 1;
+    for (const item of ordered) {
+      const start = Math.max(segment.start, item.start),
+        end = Math.min(segment.end, item.end);
+      if (end > start)
         result.push({
-          ...word,
-          start: cursor + start - segment.start,
-          end: cursor + end - segment.start,
+          ...item,
+          start: cursor + (start - segment.start) / speed,
+          end: cursor + (end - segment.start) / speed,
         });
     }
-    cursor += segment.end - segment.start;
+    cursor += segmentLength(segment);
   }
   return result;
 }
+export const mappedWords = (doc: EditDocument): CaptionWord[] =>
+  mapped(
+    doc,
+    doc.words.filter((w) => w.text.trim()),
+  );
 export function captionGroups<T extends { start: number; end: number }>(
   words: T[],
   count: number,
@@ -274,12 +308,12 @@ export function outputTime(
   segmentIndex: number,
   sourceTime: number,
 ) {
+  const segment = doc.segments[segmentIndex];
   return (
     doc.segments
       .slice(0, segmentIndex)
-      .reduce((sum, s) => sum + s.end - s.start, 0) +
-    sourceTime -
-    doc.segments[segmentIndex].start
+      .reduce((sum, s) => sum + segmentLength(s), 0) +
+    (sourceTime - segment.start) / (segment.speed ?? 1)
   );
 }
 export function splitSegment(
@@ -295,9 +329,45 @@ export function splitSegment(
     index,
     1,
     { ...segment, end: at },
-    { id: uid(), start: at, end: segment.end },
+    { ...segment, id: uid(), start: at },
   );
   return { ...doc, segments };
+}
+/** Plays the `seconds` before `at` again at half speed, right after they happen. */
+export function addReplay(
+  doc: EditDocument,
+  index: number,
+  at: number,
+  seconds = 2.5,
+): EditDocument {
+  const segment = doc.segments[index];
+  if (!segment) return doc;
+  at = clamp(at, segment.start + 0.04, segment.end);
+  const replay = {
+    id: uid(),
+    start: Math.max(segment.start, at - seconds),
+    end: at,
+    speed: 0.5,
+  };
+  const split = splitSegment(doc, index, at);
+  const segments = [...split.segments];
+  segments.splice(index + 1, 0, replay);
+  return { ...doc, segments };
+}
+/** The loudest moment that is kept in the edit and has no punch-in near it, as a source time. */
+export function loudestMoment(doc: EditDocument, waveform: number[], duration: number) {
+  let best: number | null = null,
+    peak = -1;
+  waveform.forEach((level, i) => {
+    const at = ((i + 0.5) / waveform.length) * duration;
+    if (
+      level > peak &&
+      doc.segments.some((s) => at >= s.start && at < s.end) &&
+      !doc.punches.some((p) => at >= p.start - 1 && at <= p.end + 1)
+    )
+      [best, peak] = [at, level];
+  });
+  return best as number | null;
 }
 /** Correcting a phrase retains existing time anchors; inserted words share only the replaced span. */
 export function replaceWords(

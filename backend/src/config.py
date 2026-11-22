@@ -168,6 +168,8 @@ class Config:
         self.speaker_framing = self._get_bool_env("SPEAKER_FRAMING", True)
         # Detect who is speaking in each clip and colour their captions.
         self.speaker_captions = self._get_bool_env("SPEAKER_CAPTIONS", True)
+        # Take mic rumble and hiss out of every generated clip.
+        self.clean_voice = self._get_bool_env("CLEAN_VOICE", True)
 
     def max_youtube_video_duration_for_plan(
         self, plan: str | None, subscription_status: str | None

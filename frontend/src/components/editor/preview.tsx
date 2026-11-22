@@ -129,11 +129,11 @@ export function Preview({
     const video = videoRef.current;
     if (video) {
       video.muted = doc.muted;
-      video.playbackRate = rate;
+      video.playbackRate = rate * (doc.segments[segmentIndex]?.speed ?? 1);
     }
     if (audioRef.current)
       audioRef.current.gain.gain.value = doc.muted ? 0 : doc.volume;
-  }, [doc.volume, doc.muted, rate, videoRef]);
+  }, [doc.volume, doc.muted, doc.segments, segmentIndex, rate, videoRef]);
   useEffect(() => {
     const video = videoRef.current;
     if (video) {
