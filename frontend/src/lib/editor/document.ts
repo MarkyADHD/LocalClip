@@ -11,6 +11,8 @@ export interface CaptionWord {
   highlight: boolean;
   /** Beep over the word and star it out in the caption. */
   bleep?: boolean;
+  /** Who says it: 0 talks most. Picks the caption colour. */
+  speaker?: number;
 }
 export interface CaptionStyle {
   enabled: boolean;
@@ -26,6 +28,26 @@ export interface CaptionStyle {
   outline: number;
   /** Colour the word being spoken with the highlight colour. */
   active: boolean;
+  /** Colours of speakers 1, 2, ... (speaker 0 uses `color`). */
+  speakerColors?: string[];
+}
+/** Caption colours for the 2nd, 3rd, ... speaker; same in backend/src/media/diarization.py. */
+export const SPEAKER_COLORS = ["#38BDF8", "#F472B6", "#4ADE80", "#FB923C", "#A78BFA"];
+export const wordColor = (
+  style: Pick<CaptionStyle, "color" | "speakerColors">,
+  word: Pick<CaptionWord, "speaker">,
+) => (word.speaker && (style.speakerColors ?? SPEAKER_COLORS)[word.speaker - 1]) || style.color;
+/** How many speakers the clip's words name (at least one). */
+export const speakerCount = (words: CaptionWord[]) =>
+  Math.max(0, ...words.map((w) => w.speaker ?? 0)) + 1;
+/** Gives `speaker` to a word and the words after it, up to the next change of speaker. */
+export function paintSpeaker(words: CaptionWord[], id: string, speaker: number) {
+  const from = words.findIndex((w) => w.id === id);
+  if (from < 0) return words;
+  const was = words[from].speaker ?? 0;
+  let to = from;
+  while (to < words.length && (words[to].speaker ?? 0) === was) to++;
+  return words.map((w, i) => (i >= from && i < to ? { ...w, speaker } : w));
 }
 /** Bundled caption fonts (file stems in backend/fonts); keep in sync with editor_document.py. */
 export const CAPTION_FONTS = {
@@ -88,6 +110,7 @@ export function normalize(doc: EditDocument): EditDocument {
         uppercase: doc.captions.uppercase ?? false,
         outline: doc.captions.outline ?? 4,
         active: doc.captions.active ?? false,
+        speakerColors: doc.captions.speakerColors ?? SPEAKER_COLORS,
       },
       framing: {
         ...doc.framing,
@@ -325,6 +348,7 @@ export function replaceWords(
           duration,
         ),
         highlight: false,
+        speaker: (words[prevI + 1] ?? words[prevI] ?? words[nextI])?.speaker,
       });
     }
     if (nextI < words.length) result.push({ ...words[nextI] });

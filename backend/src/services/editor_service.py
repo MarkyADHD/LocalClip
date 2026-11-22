@@ -123,6 +123,7 @@ async def prepare_editor(ctx, task_id: str, clip_id: str, filename: str):
     from ..clip_editor import _caption_words_with_timings
     from ..clip_source_map import load_clip_caption_settings
     from ..media.stream_layouts import FULLSCREEN_CAM_WIDTH, detect_facecam, pad_face
+    from ..media.diarization import assign_speakers, label_speakers
     from typing import get_args
 
     CAPTION_FONTS = get_args(CaptionStyle.model_fields["font"].annotation)
@@ -192,6 +193,12 @@ async def prepare_editor(ctx, task_id: str, clip_id: str, filename: str):
             words = _caption_words_with_timings(
                 (clip.get("text") or "").split(), timed, metadata["duration"]
             )
+            if not any(w.get("speaker") for w in words):
+                speakers = await run_in_thread(label_speakers, clean, words)
+            else:  # the transcript already says who spoke (AssemblyAI letters)
+                speakers = assign_speakers(
+                    words, [(w["start"], w["end"], w.get("speaker")) for w in words]
+                )
             duration = metadata["duration"]
             initial = (
                 EditDocument.model_validate(
@@ -228,6 +235,7 @@ async def prepare_editor(ctx, task_id: str, clip_id: str, filename: str):
                                 "start": max(0, min(w["start"], duration - 0.01)),
                                 "end": max(0.01, min(w["end"], duration)),
                                 "text": w["text"][:120],
+                                "speaker": speakers[i],
                             }
                             for i, w in enumerate(words)
                             if w["start"] < duration and w["end"] > 0

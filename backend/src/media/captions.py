@@ -33,6 +33,7 @@ from .ffmpeg import (
 from .transcription import (
     load_cached_transcript_data,
 )
+from .diarization import SPEAKER_COLORS, assign_speakers, label_speakers
 from .timeline import (
     get_words_for_keep_ranges,
     get_words_in_range,
@@ -331,6 +332,18 @@ def build_assemblyai_ass_subtitles(
         logger.warning("No words or hook title available for ASS subtitles")
         return False
 
+    # Each speaker after the main one gets their own caption colour.
+    if caption_words:
+        speakers = [0] * len(relevant_words)
+    elif any(word.get("speaker") for word in relevant_words):
+        speakers = assign_speakers(
+            relevant_words, [(w["start"], w["end"], w.get("speaker")) for w in relevant_words]
+        )
+    else:
+        speakers = label_speakers(
+            video_path, relevant_words, keep_ranges or [(clip_start, clip_end)]
+        )
+
     # --- styling knobs (new template fields, all optional) ---
     uppercase = bool(template.get("uppercase"))
     # Only inject emojis when the runtime can actually render them in colour.
@@ -441,6 +454,10 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     # can never leak into the following word.
     font_tag = f"\\fn{font_name}"
 
+    def speaker_color(global_idx: int) -> str:
+        speaker = speakers[global_idx]
+        return hex_to_ass_color(SPEAKER_COLORS[speaker - 1]) if speaker else primary
+
     def render_text(global_idx: int, word: Dict[str, Any]) -> str:
         text = str(word.get("text", ""))
         if uppercase:
@@ -465,7 +482,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         return f"{{{tags}}}{disp}"
 
     def idle_span(global_idx: int, disp: str) -> str:
-        color = emphasis_color if (enable_emphasis and global_idx in emphasis_idx) else primary
+        color = emphasis_color if (enable_emphasis and global_idx in emphasis_idx) else speaker_color(global_idx)
         tags = f"{font_tag}\\c{color}"
         if word_box:
             tags += f"\\3c{outline}\\bord{outline_px}\\shad{shadow_px}"
@@ -514,7 +531,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             for local_j, word in enumerate(chunk):
                 gj = indices[local_j]
                 disp = render_text(gj, word)
-                color = emphasis_color if (enable_emphasis and gj in emphasis_idx) else primary
+                color = emphasis_color if (enable_emphasis and gj in emphasis_idx) else speaker_color(gj)
                 spans.append(f"{{{font_tag}\\c{color}}}{disp}")
             chunk_text = " ".join(spans)
 
