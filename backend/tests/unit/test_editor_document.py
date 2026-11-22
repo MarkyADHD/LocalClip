@@ -319,3 +319,50 @@ def test_slow_motion_punch_in_and_voice_cleanup_render(tmp_path):
     )["streams"]
     assert {s["codec_type"] for s in streams} == {"video", "audio"}
     assert all(abs(float(s["duration"]) - 3) < 0.15 for s in streams)
+
+
+@pytest.mark.skipif(not shutil.which("ffmpeg"), reason="ffmpeg required")
+@pytest.mark.parametrize("layout", ["cam_top", "floating"])
+def test_sharpened_facecam_is_cut_with_the_video(tmp_path, monkeypatch, layout):
+    """Real-ESRGAN is stood in for by a plain 2x scale; the export must lay the upscaled cam out."""
+    from src.media import upscale
+
+    subprocess.run(
+        ["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=640x360:rate=24:duration=2",
+         "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000:duration=2",
+         "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", str(tmp_path / "clean.mp4")],
+        check=True, capture_output=True,
+    )
+    calls = []
+
+    def fake(source, output, crop, fps, tick):
+        calls.append(crop)
+        tick(1, 2)
+        subprocess.run(
+            ["ffmpeg", "-v", "error", "-y", "-i", str(source), "-vf", f"crop={crop},scale=iw*2:ih*2", "-an", str(output)],
+            check=True,
+        )
+
+    monkeypatch.setattr(upscale, "upscale_video", fake)
+    doc = document(
+        segments=[{"id": "a", "start": 0.25, "end": 1.25}, {"id": "b", "start": 0.5, "end": 1, "speed": 0.5}],
+        framing={"layout": layout, "sharpCam": True},
+        gameVolume=0.5,
+    )
+    for name in ("voice.wav", "game.wav"):  # stand-ins for the separated stems
+        subprocess.run(
+            ["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=300:sample_rate=44100:duration=2",
+             "-ac", "2", str(tmp_path / name)],
+            check=True,
+        )
+    render_document(tmp_path, "e" * 32, doc, "tiktok")
+    render_document(tmp_path, "f" * 32, doc, "tiktok")  # the second export reuses the upscaled cam
+    assert len(calls) == 1
+    video = json.loads(
+        subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "v", "-show_streams", "-of", "json",
+             str(tmp_path / f"export-{'f' * 32}.mp4")],
+            capture_output=True, text=True, check=True,
+        ).stdout
+    )["streams"][0]
+    assert (video["width"], video["height"]) == (1080, 1920) and abs(float(video["duration"]) - 2) < 0.15

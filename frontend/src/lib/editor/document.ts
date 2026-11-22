@@ -90,6 +90,8 @@ export interface Framing {
   /** crop: one crop of the frame. The others stack or float the facecam (`cam`) with the gameplay. */
   layout: "crop" | "cam_top" | "cam_bottom" | "floating";
   cam: Region;
+  /** AI-upscale the facecam for the export (slow; server export). */
+  sharpCam?: boolean;
 }
 export interface Effects {
   brightness: number;
@@ -180,6 +182,7 @@ export const censor = (text: string) =>
 export const needsServerExport = (doc: EditDocument) =>
   doc.cleanVoice ||
   doc.gameVolume !== 1 ||
+  (!!doc.framing.sharpCam && doc.framing.layout !== "crop" && doc.framing.aspect !== "original") ||
   doc.words.some((w) => w.bleep) ||
   doc.segments.some((s) => (s.speed ?? 1) !== 1);
 export const DEFAULT_EFFECTS: Effects = {

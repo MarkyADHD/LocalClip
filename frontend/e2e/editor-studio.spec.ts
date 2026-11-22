@@ -418,3 +418,42 @@ test("a second speaker gets their own caption colour", async ({ page }) => {
     })
     .toEqual([[0, 1, 1], "#ff00aa"]);
 });
+
+test("punch-in, slow motion, sound clean-up and facecam sharpening reach the export", async ({
+  page,
+}) => {
+  await setup(page);
+  let request: { document: Record<string, unknown> } | undefined;
+  await page.route("**/editor/exports", (r) => {
+    request = r.request().postDataJSON();
+    return r.fulfill({ json: { id: "job", status: "queued", progress: 0 } });
+  });
+  const canvas = page.getByLabel("Edited video preview");
+  const before = await canvas.screenshot();
+  await page.getByRole("tab", { name: "Effects" }).click();
+  await page.getByRole("button", { name: "Punch in here", exact: true }).click();
+  // The preview zooms while the punch-in is on.
+  await expect.poll(async () => (await canvas.screenshot()).equals(before)).toBe(false);
+  await page.screenshot({ path: "test-results/studio-punch.png" });
+  await page.getByRole("button", { name: "Loudest moment", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Remove punch-in" })).toHaveCount(2);
+  await page.getByRole("tab", { name: "Audio" }).click();
+  await page.getByRole("switch", { name: "Clean up mic noise" }).click();
+  await page.getByRole("slider", { name: "Game and music" }).press("Home");
+  await page.getByRole("button", { name: "Play this segment in slow motion" }).click();
+  // 3 s at half speed.
+  await expect(page.getByLabel("Clip timeline")).toContainText("/ 0:06.00");
+  await page.getByRole("tab", { name: "Layout" }).click();
+  await page.getByRole("button", { name: "Cam top", exact: true }).click();
+  await page.getByRole("switch", { name: "Sharpen facecam with AI" }).click();
+  await page.getByRole("button", { name: "Export", exact: true }).click();
+  await page.getByRole("button", { name: "Export clip", exact: true }).click();
+  await expect.poll(() => request).toBeTruthy();
+  expect(request!.document).toMatchObject({
+    cleanVoice: true,
+    gameVolume: 0,
+    segments: [{ speed: 0.5 }],
+    framing: { layout: "cam_top", sharpCam: true },
+  });
+  expect((request!.document.punches as unknown[]).length).toBe(2);
+});

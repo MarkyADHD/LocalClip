@@ -989,6 +989,19 @@ export function Inspector({
                   <Maximize2 />
                   Make it bigger
                 </Button>
+                <SwitchRow
+                  id="sharp-cam"
+                  label="Sharpen facecam with AI"
+                  checked={!!doc.framing.sharpCam}
+                  onChange={(sharpCam) => frame({ sharpCam })}
+                />
+                {doc.framing.sharpCam && (
+                  <p className="text-xs leading-relaxed text-muted-foreground">
+                    Upscales a small, blurry camera when you export. It is slow
+                    (minutes per clip), uses your graphics card, and downloads
+                    the upscaler (45 MB) the first time. The preview stays as it is.
+                  </p>
+                )}
                 <Dialog open={camBig} onOpenChange={setCamBig}>
                   {/* As wide as fits while the whole 16:9 frame stays on screen. */}
                   <DialogContent className="w-[min(calc(100vw-2rem),calc((100vh-11rem)*16/9))] max-w-none">

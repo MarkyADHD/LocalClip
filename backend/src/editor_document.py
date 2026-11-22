@@ -127,6 +127,7 @@ class Framing(Model):
     # crop: one crop of the frame. The others stack or float the facecam (`cam`) with the gameplay.
     layout: Literal["crop", "cam_top", "cam_bottom", "floating"] = "crop"
     cam: Region = Field(default_factory=Region)
+    sharpCam: bool = False  # AI-upscale the facecam for the export (slow; needs Real-ESRGAN)
 
 
 class Effects(Model):
@@ -338,9 +339,33 @@ def _even(value: float) -> int:
     return max(2, round(value / 2) * 2)
 
 
-def layout_filter(framing: Framing, sw: int, sh: int, width: int, height: int) -> str:
-    """filter_complex from [video] (source size) to [framed] (output size); mirrors drawLayout in render.ts."""
+def cam_crop(framing: Framing, sw: int, sh: int, width: int, height: int) -> str | None:
+    """The facecam's part of the source frame as ffmpeg's w:h:x:y, or None for a layout without a facecam pane."""
     layout = "crop" if framing.aspect == "original" else framing.layout
+    if layout == "crop":
+        return None
+    pw = _even(width * 0.6) if layout == "floating" else width
+    ph = _even(pw * 460 / 648) if layout == "floating" else _even(height * CAM_SHARE)
+    r, aspect = framing.cam, pw / ph
+    w, h = r.w * sw, r.h * sh
+    w, h = (h * aspect, h) if w / h < aspect else (w, w / aspect)
+    if w > sw:
+        w, h = sw, sw / aspect
+    if h > sh:
+        w, h = sh * aspect, sh
+    w, h = int(w) // 2 * 2, int(h) // 2 * 2
+    x = min(max((r.x + r.w / 2) * sw - w / 2, 0), sw - w)
+    y = min(max((r.y + r.h / 2) * sh - h / 2, 0), sh - h)
+    return f"{w}:{h}:{int(x)}:{int(y)}"
+
+
+def layout_filter(framing: Framing, sw: int, sh: int, width: int, height: int, cam_video: bool = False) -> str:
+    """filter_complex from [video] (source size) to [framed] (output size); mirrors drawLayout in render.ts.
+
+    With `cam_video`, the facecam comes ready-cropped (and upscaled) from [camvideo] instead.
+    """
+    layout = "crop" if framing.aspect == "original" else framing.layout
+    cam_in = "[camvideo]" if cam_video else "[c0]"
 
     def scaled(pw: int, ph: int, fit=max):
         scale = fit(pw / sw, ph / sh) * framing.zoom
@@ -351,17 +376,9 @@ def layout_filter(framing: Framing, sw: int, sh: int, width: int, height: int) -
         return f"scale={rw}:{rh},crop={pw}:{ph}:{(rw - pw) * framing.x}:{(rh - ph) * framing.y}"
 
     def cam(pw: int, ph: int) -> str:
-        r, aspect = framing.cam, pw / ph
-        w, h = r.w * sw, r.h * sh
-        w, h = (h * aspect, h) if w / h < aspect else (w, w / aspect)
-        if w > sw:
-            w, h = sw, sw / aspect
-        if h > sh:
-            w, h = sh * aspect, sh
-        w, h = int(w) // 2 * 2, int(h) // 2 * 2
-        x = min(max((r.x + r.w / 2) * sw - w / 2, 0), sw - w)
-        y = min(max((r.y + r.h / 2) * sh - h / 2, 0), sh - h)
-        return f"crop={w}:{h}:{int(x)}:{int(y)},scale={pw}:{ph}"
+        if cam_video:
+            return f"scale={pw}:{ph}:flags=lanczos"
+        return f"crop={cam_crop(framing, sw, sh, width, height)},scale={pw}:{ph}"
 
     bw, bh = _even(width / 4), _even(height / 4)
     blur = f"scale={bw}:{bh}:force_original_aspect_ratio=increase,crop={bw}:{bh},gblur=sigma=8,scale={width}:{height}"
@@ -381,15 +398,16 @@ def layout_filter(framing: Framing, sw: int, sh: int, width: int, height: int) -
         cw = _even(width * 0.6)
         ch = _even(cw * 460 / 648)
         return (
-            f"[video]split=3[bg0][g0][c0];[bg0]{blur}[bg];[g0]scale={width}:{band}[g];"
-            f"[c0]{cam(cw, ch)}[c];[bg][g]overlay=0:{top}[t];"
+            f"[video]split{'' if cam_video else '=3'}[bg0][g0]{'' if cam_video else '[c0]'};"
+            f"[bg0]{blur}[bg];[g0]scale={width}:{band}[g];"
+            f"{cam_in}{cam(cw, ch)}[c];[bg][g]overlay=0:{top}[t];"
             f"[t][c]overlay={(width - cw) / 2}:{max(0, top - ch - height / 80)},setsar=1[framed]"
         )
     cam_h = _even(height * CAM_SHARE)
     order = "[c][g]" if layout == "cam_top" else "[g][c]"
     return (
-        f"[video]split[g0][c0];[g0]{cover(width, height - cam_h)}[g];"
-        f"[c0]{cam(width, cam_h)}[c];{order}vstack,setsar=1[framed]"
+        f"{'[video]' if cam_video else '[video]split[g0][c0];[g0]'}{cover(width, height - cam_h)}[g];"
+        f"{cam_in}{cam(width, cam_h)}[c];{order}vstack,setsar=1[framed]"
     )
 
 
@@ -586,16 +604,37 @@ def render_document(
     audio = bool(probe.stdout.strip())
     filters, joins = [], []
     inputs = ["-i", str(source)]
+    crop = cam_crop(document.framing, sw, sh, width, height) if document.framing.sharpCam else None
+    if crop:
+        # The facecam, upscaled once and kept beside the clip; cut and slowed exactly like the main video.
+        from .media.upscale import UPSCALE_MODEL, upscale_video
+
+        cam_path = directory / f"cam-{hashlib.sha256(f'{crop}:{UPSCALE_MODEL}'.encode()).hexdigest()[:12]}.mp4"
+        if not cam_path.exists():
+            cancel = cancel_path or directory / f"cancel-{job_id}"
+
+            def tick(done: int, total: int):
+                if cancel.exists():
+                    raise InterruptedError("Export cancelled")
+                atomic_json(
+                    directory / f"job-{job_id}.json",
+                    {"status": "rendering", "progress": min(99, done * 100 // max(1, total))},
+                )
+
+            upscale_video(source, cam_path, crop, fps, tick)
+        inputs += ["-i", str(cam_path)]
+    cam_joins = []
     sound = ["[0:a]"] * len(document.segments)
     if audio and document.gameVolume != 1 and not document.muted:
         # Voice and game sound apart, so the game and its music can be turned down under the voice.
         from .media.stems import split_voice
 
+        first = len(inputs) // 2
         for stem in split_voice(source, directory):
             inputs += ["-i", str(stem)]
         sound = [f"[mix{index}]" for index in range(len(document.segments))]
         filters.append(
-            f"[2:a]volume={document.gameVolume}[game];[1:a][game]amix=inputs=2:normalize=0,"
+            f"[{first + 1}:a]volume={document.gameVolume}[game];[{first}:a][game]amix=inputs=2:normalize=0,"
             f"aresample=48000,asplit={len(sound)}" + "".join(sound)
         )
     for index, segment in enumerate(document.segments):
@@ -607,6 +646,9 @@ def render_document(
             + f"[v{index}]"
         )
         joins.append(f"[v{index}]")
+        if crop:
+            filters.append(filters[-1].replace("[0:v]", "[1:v]").replace(f"[v{index}]", f"[c{index}]"))
+            cam_joins.append(f"[c{index}]")
         if audio:
             filters.append(
                 f"{sound[index]}atrim=start={segment.start}:end={segment.end},asetpts=PTS-STARTPTS"
@@ -622,7 +664,9 @@ def render_document(
     ass = directory / f"captions-{job_id}.ass"
     write_ass(ass, document, width, height)
     fonts = ass_fonts_dir(document.captions.font)
-    filters.append(layout_filter(document.framing, sw, sh, width, height))
+    if crop:
+        filters.append("".join(cam_joins) + f"concat=n={len(cam_joins)}:v=1:a=0[camvideo]")
+    filters.append(layout_filter(document.framing, sw, sh, width, height, cam_video=bool(crop)))
     filters.append(punch_filter(document, width, height))
     filters.append(
         f"[punched]{effects},ass={_escape_filter_path(ass)}:fontsdir={_escape_filter_path(fonts or Path('fonts'))}[outv]"

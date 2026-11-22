@@ -33,6 +33,15 @@ locally for recovery after an interrupted save.
   Highlight, Bleep, Delete and its timing. "Edit as text" rewrites whole phrases and
   keeps unchanged words anchored.
 - **Hook title**: one line at the top in the caption style, for a set number of seconds (`titleSeconds`, 0 = the whole clip).
+- **Punch-in zoom** (`punches`, source times): a snap zoom of `PUNCH_ZOOM` towards the face or the
+  facecam pane (`PUNCH_Y`), at the playhead or at the loudest moment. Preview and export use the same crop.
+- **Slow motion** (`segments[].speed`, 0.25 to 1): the timeline's snail button slows a segment, the
+  rewind button adds a half-speed replay of the last 2.5 s. Captions and punch-ins go through the same
+  time mapping (`mapped`). The export fills in frames with ffmpeg's `minterpolate` (`SLOWMO_MODE`).
+- **Server-only edits** (`needsServerExport`): bleeps, slow motion, `cleanVoice` (ffmpeg denoise),
+  `gameVolume` (voice split from game sound with Spleeter via sherpa-onnx, `media/stems.py`, stems
+  cached beside the clip) and `framing.sharpCam` (Real-ESRGAN upscale of the facecam, `media/upscale.py`,
+  downloaded on first use on Windows, `UPSCALE_MODEL`). None of these change the preview.
 - **Safe zones**: the menu under the preview shades what TikTok, Reels or Shorts cover
   with their own buttons (approximate; the apps move them).
 - **Audio** controls exported gain, muting and swear bleeps. Playback speed changes
