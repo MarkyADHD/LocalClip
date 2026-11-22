@@ -139,7 +139,7 @@ async def test_find_more_requeues_a_finished_task_as_a_search(resume_context):
     assert error.value.status_code == 400
     task["status"] = "completed"
     await tasks.find_more_clips("task-1", SimpleNamespace(), db=None)
-    assert queue.await_args.args[-1] is True
+    assert queue.await_args.kwargs["find_more"] is True
     assert tasks._save_task_source_metadata.await_args.args[1]["find_more"] is True
 
 
@@ -148,4 +148,4 @@ async def test_resume_of_a_stalled_search_stays_a_search(resume_context, monkeyp
     _task, _repo, _billing_guard, queue, _redis = resume_context
     monkeypatch.setattr(tasks, "_load_task_source_metadata", AsyncMock(return_value={"find_more": True}))
     await tasks.resume_task("task-1", SimpleNamespace(), db=None)
-    assert queue.await_args.args[-1] is True
+    assert queue.await_args.kwargs["find_more"] is True

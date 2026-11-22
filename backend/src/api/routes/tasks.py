@@ -1296,7 +1296,7 @@ async def _requeue_task(
                         output_format,
                         add_subtitles,
                         cleanup_settings,
-                        find_more,
+                        find_more=find_more,
                         _job_id=processing_job_id,
                     )
                 except Exception:
