@@ -7,6 +7,7 @@ import {
   Crop,
   Highlighter,
   Info,
+  Maximize2,
   Palette,
   Plus,
   RotateCcw,
@@ -17,6 +18,13 @@ import {
 import { toast } from "sonner";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import {
   Select,
@@ -149,20 +157,31 @@ const LAYOUTS: [string, Partial<Framing>, ReactNode][] = [
   ],
 ];
 
-/** The source frame with the facecam box: drag the box to move it, drag elsewhere to draw a new one. */
+/**
+ * The source frame with the facecam box: drag the box to move it, drag elsewhere to draw a new one.
+ * The small one in the panel opens a big one (`onTap`) when it is tapped without dragging.
+ */
 function FacecamPicker({
   video,
   time,
   cam,
   onChange,
+  onTap,
 }: {
   video: RefObject<HTMLVideoElement | null>;
   time: number;
   cam: Region;
   onChange: (cam: Region) => void;
+  onTap?: () => void;
 }) {
   const canvas = useRef<HTMLCanvasElement>(null);
-  const drag = useRef<{ x: number; y: number; cam: Region; move: boolean } | null>(null);
+  const drag = useRef<{
+    x: number;
+    y: number;
+    cam: Region;
+    move: boolean;
+    dragged?: boolean;
+  } | null>(null);
   useEffect(() => {
     const source = video.current,
       ctx = canvas.current?.getContext("2d");
@@ -203,6 +222,7 @@ function FacecamPicker({
         const d = drag.current;
         if (!d) return;
         const p = point(e);
+        if (Math.abs(p.x - d.x) + Math.abs(p.y - d.y) > 0.02) d.dragged = true;
         if (d.move)
           onChange({
             ...d.cam,
@@ -218,13 +238,19 @@ function FacecamPicker({
           });
       }}
       onPointerUp={() => {
+        if (drag.current && !drag.current.dragged) onTap?.();
         drag.current = null;
       }}
       onPointerCancel={() => {
         drag.current = null;
       }}
     >
-      <canvas ref={canvas} width={320} height={180} className="h-full w-full opacity-60" />
+      <canvas
+        ref={canvas}
+        width={onTap ? 320 : 1280}
+        height={onTap ? 180 : 720}
+        className="h-full w-full opacity-60"
+      />
       <div
         className="absolute cursor-move rounded-sm border-2 border-sky-400 bg-sky-400/20"
         style={{
@@ -264,6 +290,7 @@ export function Inspector({
   suggestedTitle,
 }: Props) {
   const [wordId, setWordId] = useState<string | null>(null);
+  const [camBig, setCamBig] = useState(false);
   const [, setFontsReady] = useState(0);
   useEffect(() => {
     // Preset tiles are drawn in their own fonts.
@@ -854,14 +881,45 @@ export function Inspector({
             {layout !== "crop" && (
               <Section
                 title="Facecam"
-                description="Drag the blue box over your camera, or drag anywhere else to draw a new one."
+                description="Drag the blue box over your camera, or drag anywhere else to draw a new one. Tap it to make it bigger."
               >
                 <FacecamPicker
                   video={videoRef}
                   time={time}
                   cam={doc.framing.cam}
                   onChange={(cam) => frame({ cam }, "cam")}
+                  onTap={() => setCamBig(true)}
                 />
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="w-full"
+                  onClick={() => setCamBig(true)}
+                >
+                  <Maximize2 />
+                  Make it bigger
+                </Button>
+                <Dialog open={camBig} onOpenChange={setCamBig}>
+                  {/* As wide as fits while the whole 16:9 frame stays on screen. */}
+                  <DialogContent className="w-[min(calc(100vw-2rem),calc((100vh-11rem)*16/9))] max-w-none">
+                    <DialogHeader>
+                      <DialogTitle>Facecam</DialogTitle>
+                      <DialogDescription>
+                        Drag the blue box over your camera, or drag anywhere else to draw a
+                        new one.
+                      </DialogDescription>
+                    </DialogHeader>
+                    <FacecamPicker
+                      video={videoRef}
+                      time={time}
+                      cam={doc.framing.cam}
+                      onChange={(cam) => frame({ cam }, "cam")}
+                    />
+                    <Button className="justify-self-end" onClick={() => setCamBig(false)}>
+                      Done
+                    </Button>
+                  </DialogContent>
+                </Dialog>
               </Section>
             )}
             {layout !== "floating" && (
