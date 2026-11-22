@@ -351,6 +351,17 @@ test("layout, caption look, hook title and safe zone", async ({ page }) => {
   await page.getByRole("tab", { name: "Layout" }).click();
   await page.getByRole("button", { name: "Cam top", exact: true }).click();
   await expect(page.getByLabel("Facecam area")).toBeVisible();
+  // Tapping the small facecam picker opens a big one; drawing there sets the facecam.
+  await page.getByLabel("Facecam area").click();
+  const big = page.getByRole("dialog").getByLabel("Facecam area"),
+    area = (await big.boundingBox())!;
+  expect(area.width).toBeGreaterThan(600);
+  await page.mouse.move(area.x + area.width * 0.5, area.y + area.height * 0.5);
+  await page.mouse.down();
+  await page.mouse.move(area.x + area.width * 0.75, area.y + area.height * 0.9, { steps: 4 });
+  await page.mouse.up();
+  await page.getByRole("button", { name: "Done" }).click();
+  await expect(page.getByRole("dialog")).toBeHidden();
   await page.getByRole("combobox", { name: "Safe zones" }).click();
   await page.getByRole("option", { name: "TikTok safe zone" }).click();
   await expect(page.getByLabel("TikTok safe zone")).toBeVisible();
@@ -369,6 +380,12 @@ test("layout, caption look, hook title and safe zone", async ({ page }) => {
     title: "Wait for it",
     titleSeconds: 0.5,
     framing: { layout: "cam_top" },
+  });
+  expect((request!.document.framing as { cam: Record<string, number> }).cam).toMatchObject({
+    x: expect.closeTo(0.5, 2),
+    w: expect.closeTo(0.25, 2),
+  });
+  expect(request!.document).toMatchObject({
     captions: { font: "THEBOLDFONT", uppercase: true, active: true },
   });
 });
