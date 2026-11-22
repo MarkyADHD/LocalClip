@@ -38,6 +38,7 @@ from ..youtube_utils import cleanup_downloaded_files, extract_video_id
 from ..clip_cleanup import normalize_clip_cleanup_settings
 from ..ai import TRANSCRIPT_ANALYSIS_CACHE_VERSION
 from ..clip_source_map import load_clip_caption_settings
+from ..media.timeline import parse_timestamp_to_seconds
 
 logger = logging.getLogger(__name__)
 
@@ -281,10 +282,14 @@ class TaskService(ClipEditingMixin):
         should_cancel: Optional[Callable] = None,
         clip_ready_callback: Optional[Callable] = None,
         cleanup_settings: Optional[Dict[str, Any]] = None,
+        find_more: bool = False,
     ) -> Dict[str, Any]:
         """
         Process a task: download video, analyze, create clips.
         Returns processing results.
+
+        find_more: search a finished task again. Its clips are kept, the new search
+        skips the moments already clipped, and a failure leaves the task completed.
         """
         # Tracked so the downloaded source video can be cleaned up on both the
         # success and error paths; multi-GB YouTube downloads otherwise pile up
@@ -344,6 +349,27 @@ class TaskService(ClipEditingMixin):
                 if progress_callback:
                     await progress_callback(progress, message, status)
 
+            # Searching again: skip every moment this task has clipped before, including
+            # clips deleted since (remembered in the task metadata).
+            existing_clips: list[Dict[str, Any]] = []
+            exclude_ranges: Optional[list[tuple[int, int]]] = None
+            if find_more:
+                existing_clips = await self.clip_repo.get_clips_by_task(self.db, task_id)
+                metadata = await self.task_repo.load_source_metadata(self.db, task_id)
+                exclude_ranges = sorted(
+                    {(int(r[0]), int(r[1])) for r in metadata.get("excluded_ranges") or []}
+                    | {
+                        (
+                            int(parse_timestamp_to_seconds(clip["start_time"])),
+                            int(parse_timestamp_to_seconds(clip["end_time"])),
+                        )
+                        for clip in existing_clips
+                    }
+                )
+                await self.task_repo.save_source_metadata(
+                    self.db, task_id, {"excluded_ranges": exclude_ranges}
+                )
+
             # Process video with progress updates
             max_video_duration = self.config.max_video_duration
             if source_type == "youtube" and user_id:
@@ -371,6 +397,7 @@ class TaskService(ClipEditingMixin):
                 cached_analysis_json=cached_analysis_json,
                 progress_callback=update_progress,
                 should_cancel=should_cancel,
+                exclude_ranges=exclude_ranges,
             )
             stage_timings["pipeline_seconds"] = round(
                 perf_counter() - pipeline_start, 3
@@ -396,15 +423,16 @@ class TaskService(ClipEditingMixin):
                     "No usable clip segments were selected for this video."
                 )
 
-            await self.cache_repo.upsert_cache(
-                self.db,
-                cache_key=cache_key,
-                source_url=url,
-                source_type=source_type,
-                video_path=result.get("video_path"),
-                transcript_text=result.get("transcript"),
-                analysis_json=result.get("analysis_json"),
-            )
+            if not find_more:  # the cache keeps the first search's picks
+                await self.cache_repo.upsert_cache(
+                    self.db,
+                    cache_key=cache_key,
+                    source_url=url,
+                    source_type=source_type,
+                    video_path=result.get("video_path"),
+                    transcript_text=result.get("transcript"),
+                    analysis_json=result.get("analysis_json"),
+                )
 
             video_path = Path(result["video_path"])
             total_clips = len(segments_to_render)
@@ -413,12 +441,14 @@ class TaskService(ClipEditingMixin):
 
             # Retries and regenerations should replace earlier clip rows instead of
             # accumulating duplicates for the same task.
-            async with self._processing_transaction(task_id):
-                await check_cancelled()
-                await self.clip_repo.delete_clips_by_task(self.db, task_id)
-                await self.task_repo.update_task_clips(self.db, task_id, [])
+            if not find_more:
+                async with self._processing_transaction(task_id):
+                    await check_cancelled()
+                    await self.clip_repo.delete_clips_by_task(self.db, task_id)
+                    await self.task_repo.update_task_clips(self.db, task_id, [])
 
-            clip_ids = []
+            clip_ids = [clip["id"] for clip in existing_clips]
+            order_base = max((clip.get("clip_order") or 0 for clip in existing_clips), default=0)
             render_start = perf_counter()
 
             # Render a few clips at once (ffmpeg, face tracking and the GPU encoder
@@ -484,7 +514,7 @@ class TaskService(ClipEditingMixin):
                             text=clip_info.get("text", ""),
                             relevance_score=clip_info.get("relevance_score", 0.0),
                             reasoning=clip_info.get("reasoning", ""),
-                            clip_order=i + 1,
+                            clip_order=order_base + i + 1,
                             virality_score=clip_info.get("virality_score", 0),
                             hook_score=clip_info.get("hook_score", 0),
                             engagement_score=clip_info.get("engagement_score", 0),
@@ -524,7 +554,7 @@ class TaskService(ClipEditingMixin):
                 perf_counter() - render_start, 3
             )
 
-            if not clip_ids:
+            if len(clip_ids) == len(existing_clips):
                 raise ValueError("No clips could be rendered. Please try again.")
 
             # A cancellation committed after the final render must win over completion.
@@ -539,6 +569,8 @@ class TaskService(ClipEditingMixin):
             )
             if completed is False:
                 raise TaskCancelled()
+            if find_more:
+                await self.task_repo.save_source_metadata(self.db, task_id, {"find_more": False})
 
             if progress_callback:
                 await progress_callback(100, "Complete!", "completed")
@@ -552,7 +584,7 @@ class TaskService(ClipEditingMixin):
             )
             await self._send_completion_notification_if_needed(
                 task_id=task_id,
-                clips_count=len(clip_ids),
+                clips_count=len(clip_ids) - len(existing_clips),
             )
 
             logger.info(
@@ -581,6 +613,20 @@ class TaskService(ClipEditingMixin):
                 except OSError:
                     logger.warning("Could not remove unfinished clip %s", pending_clip_path)
             self._cleanup_source_video(video_path, source_type, url)
+            if find_more:
+                # The task already has clips: keep it completed and say why nothing was added.
+                message = "Search cancelled" if str(e) == "Task cancelled" else str(e)
+                await self.task_repo.update_task_status(
+                    self.db, task_id, "completed", progress=100, progress_message=message,
+                    expected_statuses=["queued", "processing"],
+                )
+                await self.task_repo.save_source_metadata(self.db, task_id, {"find_more": False})
+                if progress_callback:
+                    try:
+                        await progress_callback(100, message, "completed")
+                    except Exception:
+                        logger.exception("Could not publish search result for %s", task_id)
+                return {"task_id": task_id, "clips_count": 0, "message": message}
             if str(e) == "Task cancelled":
                 await self.task_repo.update_task_status(
                     self.db,

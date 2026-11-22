@@ -1175,6 +1175,20 @@ async def resume_task(
     task_id: str, request: Request, db: AsyncSession = Depends(get_db)
 ):
     """Resume a cancelled or errored task by enqueueing a new worker job."""
+    return await _requeue_task(task_id, request, db)
+
+
+@router.post("/{task_id}/find-more")
+async def find_more_clips(
+    task_id: str, request: Request, db: AsyncSession = Depends(get_db)
+):
+    """Search a finished task's video again for clips it has not made yet."""
+    return await _requeue_task(task_id, request, db, find_more=True)
+
+
+async def _requeue_task(
+    task_id: str, request: Request, db: AsyncSession, find_more: bool = False
+):
     try:
         task_service = TaskService(db)
         task = await _require_task_owner(request, task_service, db, task_id)
@@ -1183,7 +1197,13 @@ async def resume_task(
             task = await task_service.task_repo.get_task_by_id(db, task_id)
             if task.get("status") == "queued":
                 return {"message": "Task already queued"}
-            if task.get("status") not in ["cancelled", "error"]:
+            if find_more:
+                if task.get("status") != "completed":
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Only a finished generation can be searched again",
+                    )
+            elif task.get("status") not in ["cancelled", "error"]:
                 raise HTTPException(
                     status_code=400,
                     detail="Only cancelled/error/queued tasks can be resumed",
@@ -1214,6 +1234,18 @@ async def resume_task(
 
             if not source_url or not source_type:
                 raise HTTPException(status_code=400, detail="Task source URL is missing")
+            # A search that stalled or crashed resumes as a search, so the clips are kept.
+            find_more = find_more or bool(metadata.get("find_more"))
+            if (
+                find_more
+                and source_type not in ("youtube", "twitch", "kick")
+                and not task_service._source_files(task)
+            ):
+                # Links are downloaded again by the pipeline; an upload has no other copy.
+                raise HTTPException(
+                    status_code=400,
+                    detail="The full video was deleted, so it can't be searched again. Upload it again to find more clips.",
+                )
 
             async with generation_allowance_guard(
                 db, task["user_id"], enabled=get_config().monetization_enabled
@@ -1247,6 +1279,7 @@ async def resume_task(
                 try:
                     processing_job_id = f"{task_id}:{secrets.token_hex(16)}"
                     metadata["processing_job_id"] = processing_job_id
+                    metadata["find_more"] = find_more
                     await _save_task_source_metadata(task_id, metadata, db=db)
                     job_id = await JobQueue.enqueue_processing_job(
                         "process_video_task",
@@ -1263,6 +1296,7 @@ async def resume_task(
                         output_format,
                         add_subtitles,
                         cleanup_settings,
+                        find_more,
                         _job_id=processing_job_id,
                     )
                 except Exception:

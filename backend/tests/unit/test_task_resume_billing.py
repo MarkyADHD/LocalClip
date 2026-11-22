@@ -129,3 +129,23 @@ async def test_billing_denial_returns_json_402_with_real_datetime_fields(resume_
     repo.update_task_status.assert_not_awaited()
     redis.delete.assert_not_awaited()
     queue.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_find_more_requeues_a_finished_task_as_a_search(resume_context):
+    task, _repo, _billing_guard, queue, _redis = resume_context
+    with pytest.raises(HTTPException) as error:  # not finished yet
+        await tasks.find_more_clips("task-1", SimpleNamespace(), db=None)
+    assert error.value.status_code == 400
+    task["status"] = "completed"
+    await tasks.find_more_clips("task-1", SimpleNamespace(), db=None)
+    assert queue.await_args.args[-1] is True
+    assert tasks._save_task_source_metadata.await_args.args[1]["find_more"] is True
+
+
+@pytest.mark.asyncio
+async def test_resume_of_a_stalled_search_stays_a_search(resume_context, monkeypatch):
+    _task, _repo, _billing_guard, queue, _redis = resume_context
+    monkeypatch.setattr(tasks, "_load_task_source_metadata", AsyncMock(return_value={"find_more": True}))
+    await tasks.resume_task("task-1", SimpleNamespace(), db=None)
+    assert queue.await_args.args[-1] is True

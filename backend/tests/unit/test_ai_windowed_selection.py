@@ -379,3 +379,18 @@ def test_clip_that_always_gets_a_clip():
     # one the AI already covered at 20:00 do not add more.
     assert [(s.start_time, s.end_time) for s in result] == [("09:10", "10:03"), ("19:20", "20:00")]
     assert "no way he just did that" in result[0].text
+
+
+def test_search_again_skips_ranges_already_clipped():
+    kept = ai.drop_excluded_segments(
+        [_segment("01:00", "01:40"), _segment("05:00", "05:40"), _segment("01:35", "02:10")],
+        [(55, 100)],
+    )
+    # The repeat is dropped; a new moment that only brushes the old one stays.
+    assert [(s.start_time, s.end_time) for s in kept] == [("05:00", "05:40"), ("01:35", "02:10")]
+
+    prompt = ai.build_transcript_analysis_prompt(
+        "[00:00 - 00:10] hi", window=(0, 600), exclude_ranges=[(55, 100), (5000, 5040)]
+    )
+    assert "00:55 - 01:40" in prompt and "23:20" not in prompt  # only this window's ranges
+    assert "already clipped" not in ai.build_transcript_analysis_prompt("[00:00 - 00:10] hi")

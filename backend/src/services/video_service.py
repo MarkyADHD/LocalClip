@@ -192,7 +192,11 @@ class VideoService:
         return transcript
 
     @staticmethod
-    async def analyze_transcript(transcript: str, clip_signals: Optional[str] = None) -> Any:
+    async def analyze_transcript(
+        transcript: str,
+        clip_signals: Optional[str] = None,
+        exclude_ranges: Optional[List[tuple[int, int]]] = None,
+    ) -> Any:
         """
         Analyze transcript with AI to find relevant segments.
         This is already async, no need to wrap.
@@ -201,6 +205,7 @@ class VideoService:
         relevant_parts = await get_most_relevant_parts_by_transcript(
             transcript,
             clip_signals=clip_signals,
+            exclude_ranges=exclude_ranges,
         )
         logger.info(
             f"AI analysis complete: {len(relevant_parts.most_relevant_segments)} segments found"
@@ -410,10 +415,14 @@ class VideoService:
         cached_analysis_json: Optional[str] = None,
         progress_callback: Optional[Callable[[int, str, str], Awaitable[None]]] = None,
         should_cancel: Optional[Callable[[], Awaitable[bool]]] = None,
+        exclude_ranges: Optional[List[tuple[int, int]]] = None,
     ) -> Dict[str, Any]:
         """
         Complete video processing pipeline.
         Returns dict with segments and clips info.
+
+        exclude_ranges: (start, end) seconds already clipped; set (even empty) to search
+                        again for different clips instead of reusing the cached analysis.
 
         progress_callback: Optional function to call with progress updates
                           Signature: async def callback(progress: int, message: str, status: str)
@@ -511,7 +520,7 @@ class VideoService:
                 )
 
             relevant_parts = None
-            if cached_analysis_json:
+            if cached_analysis_json and exclude_ranges is None:
                 try:
                     cached_analysis = json.loads(cached_analysis_json)
                     segments = cached_analysis.get("most_relevant_segments", [])
@@ -558,6 +567,7 @@ class VideoService:
                 relevant_parts = await VideoService.analyze_transcript(
                     transcript,
                     clip_signals=clip_signals,
+                    exclude_ranges=exclude_ranges,
                 )
 
             # Step 4: Create clips
@@ -618,6 +628,10 @@ class VideoService:
                 )
                 segments_json.append(segment_payload)
 
+            if not segments_json and exclude_ranges is not None:
+                raise ValueError(
+                    "No new clips found: the AI did not find any other moments worth clipping."
+                )
             if not segments_json:
                 logger.warning(
                     "AI analysis selected no segments; using fallback clip window"

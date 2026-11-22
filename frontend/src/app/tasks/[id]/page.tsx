@@ -2,7 +2,7 @@
 
 import { CaptionSizeControl } from "@/components/caption-size-control";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { toast } from "sonner";
 import { useTaskProgress } from "@/hooks/use-task-progress";
 import { StatusBadge, ACTIVE_TASK_STATUSES } from "@/components/app/status-badge";
@@ -294,6 +294,16 @@ export default function TaskPage() {
     onClip: (clip) => setClips((current) =>
       [...current.filter((item) => item.id !== clip.id), clip].sort((a, b) => a.clip_order - b.clip_order)),
   });
+
+  // A "Find more clips" search that added nothing ends completed with the reason as its message.
+  const previousStatus = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    const was = previousStatus.current;
+    previousStatus.current = task?.status;
+    if (!was || !ACTIVE_TASK_STATUSES.includes(was) || task?.status !== "completed") return;
+    const message = task.progress_message;
+    if (message && message !== "Complete!") toast.info(message);
+  }, [task?.status, task?.progress_message]);
 
   const runAction = async (name: string, action: () => Promise<void>) => {
     if (pendingAction) return;
@@ -609,6 +619,23 @@ export default function TaskPage() {
                 })}>
                 <RotateCcw className="size-4" />Resume
               </Button>
+            )}
+            {task.status === "completed" && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button size="sm" variant="outline" disabled={pendingAction !== null}
+                    onClick={() => void runAction("find-more", async () => {
+                      await requestAction(`${taskApiUrl}/${task.id}/find-more`, "POST");
+                      await fetchTaskStatus();
+                      toast.success(!task.source_bytes && ["youtube", "twitch", "kick"].includes(task.source_type)
+                        ? "Looking for new clips. The full video is downloaded again first."
+                        : "Looking for new clips. The ones you have are kept.");
+                    })}>
+                    <RotateCcw className="size-4" /><span className="hidden sm:inline">Find more clips</span>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Not happy with these? Search the video again for different moments. Your clips are kept.</TooltipContent>
+              </Tooltip>
             )}
             {task.status === "completed" && clips.length > 0 && (
               <>

@@ -109,6 +109,11 @@ the same picture with ffmpeg + libass (`layout_filter`, `write_ass`). Change bot
 Server-export-only extras: punch-in zooms, slow motion and replays, mic cleanup, voice/game volume
 split (`media/stems.py`) and AI facecam upscaling (`media/upscale.py`, optional download).
 
+"Find more clips" on a finished generation (`POST /tasks/{id}/find-more`, `process_task(find_more=True)`) runs the
+AI search again with the ranges already clipped excluded (`exclude_ranges`; kept in the task's
+`source_metadata.excluded_ranges` so deleted clips stay excluded) and appends the new clips. A deleted Twitch/Kick/YouTube
+source is downloaded again; a failed search leaves the task completed with the reason as its progress message.
+
 Trim, split, merge, captions, export presets, plus
 `POST /tasks/{id}/clips/{clip_id}/extend` with `{"before": s, "after": s}` which re-renders the
 clip from the source with extra time (the UI's "+30s" buttons; max 600s each side).
