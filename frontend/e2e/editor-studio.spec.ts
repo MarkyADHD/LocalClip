@@ -347,6 +347,7 @@ test("layout, caption look, hook title and safe zone", async ({ page }) => {
   });
   await page.getByRole("button", { name: "Hype", exact: true }).click();
   await page.getByLabel("Hook title").fill("Wait for it");
+  await page.getByRole("slider", { name: "Title stays for" }).press("ArrowRight");
   await page.getByRole("tab", { name: "Layout" }).click();
   await page.getByRole("button", { name: "Cam top", exact: true }).click();
   await expect(page.getByLabel("Facecam area")).toBeVisible();
@@ -366,6 +367,7 @@ test("layout, caption look, hook title and safe zone", async ({ page }) => {
   await expect.poll(() => request).toBeTruthy();
   expect(request!.document).toMatchObject({
     title: "Wait for it",
+    titleSeconds: 0.5,
     framing: { layout: "cam_top" },
     captions: { font: "THEBOLDFONT", uppercase: true, active: true },
   });

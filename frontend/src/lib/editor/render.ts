@@ -177,7 +177,7 @@ export function drawEditorFrame(
   ctx.save();
   drawLayout(ctx, doc, sourceWidth, sourceHeight, draw);
   ctx.restore();
-  if (doc.title.trim())
+  if (doc.title.trim() && (!doc.titleSeconds || time < doc.titleSeconds))
     drawWords(
       ctx,
       doc.captions,

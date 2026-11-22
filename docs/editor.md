@@ -27,7 +27,7 @@ locally for recovery after an interrupted save.
 - **Transcript**: type over any word. Clicking a word jumps to it and offers
   Highlight, Bleep, Delete and its timing. "Edit as text" rewrites whole phrases and
   keeps unchanged words anchored.
-- **Hook title**: one line at the top for the whole clip, in the caption style.
+- **Hook title**: one line at the top in the caption style, for a set number of seconds (`titleSeconds`, 0 = the whole clip).
 - **Safe zones**: the menu under the preview shades what TikTok, Reels or Shorts cover
   with their own buttons (approximate; the apps move them).
 - **Audio** controls exported gain, muting and swear bleeps. Playback speed changes

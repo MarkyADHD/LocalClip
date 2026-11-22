@@ -216,12 +216,14 @@ def test_spoken_word_and_title_reach_the_captions(tmp_path):
         ],
         captions={"active": True, "uppercase": True, "accent": "#00FF00"},
         title="Wait for it",
+        titleSeconds=1.5,
     )
     write_ass(tmp_path / "c.ass", doc, 1080, 1920)
     events = [
         line for line in (tmp_path / "c.ass").read_text().splitlines() if line.startswith("Dialogue")
     ]
     assert len(events) == 3 and "WAIT" in events[0]
+    assert "0:00:00.00,0:00:01.50" in events[0]  # the title leaves after titleSeconds
     green = "{\\c&H0000FF00&}"
     # Each word is lit while it is spoken, and until the next one starts.
     assert green + "OH" in events[1] and green + "NO" not in events[1]

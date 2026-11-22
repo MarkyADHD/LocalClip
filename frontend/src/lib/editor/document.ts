@@ -71,8 +71,10 @@ export interface EditDocument {
   effects: Effects;
   volume: number;
   muted: boolean;
-  /** Hook title shown at the top for the whole clip; empty for none. */
+  /** Hook title shown at the top; empty for none. */
   title: string;
+  /** Seconds the title stays up from the start; 0 for the whole clip. */
+  titleSeconds: number;
 }
 const DEFAULT_CAM: Region = { x: 0, y: 0.6, w: 0.3, h: 0.4 };
 const normalized = new WeakMap<EditDocument, EditDocument>();
@@ -83,6 +85,7 @@ export function normalize(doc: EditDocument): EditDocument {
     result = {
       ...doc,
       title: doc.title ?? "",
+      titleSeconds: doc.titleSeconds ?? 0,
       captions: {
         ...doc.captions,
         uppercase: doc.captions.uppercase ?? false,

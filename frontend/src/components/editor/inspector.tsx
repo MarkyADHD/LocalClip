@@ -595,7 +595,7 @@ export function Inspector({
             <Separator />
             <Section
               title="Hook title"
-              description="Shown at the top for the whole clip, in the caption style."
+              description="Shown at the top in the caption style. Set the time to 0 to keep it up for the whole clip."
             >
               <Input
                 aria-label="Hook title"
@@ -618,6 +618,17 @@ export function Inspector({
                   Use “{suggestedTitle}”
                 </Button>
               )}
+              <Range
+                label="Title stays for"
+                value={doc.titleSeconds}
+                min={0}
+                max={30}
+                step={0.5}
+                unit="s"
+                onChange={(titleSeconds) =>
+                  update((d) => ({ ...d, titleSeconds }), "titleSeconds")
+                }
+              />
             </Section>
             <Separator />
             <details className="group space-y-4" open={false}>
