@@ -829,3 +829,63 @@ async def test_old_stream_downloads_are_deleted_unless_recent_or_in_use(tmp_path
     assert sorted(p.name for p in files.values() if p.exists()) == [
         "busy.mp4", "new.mp4", "old.transcript_cache.json"]
     assert upload.exists()
+
+
+def _search_again_service():
+    service = build_task_service()
+    service.clip_repo.get_clips_by_task = AsyncMock(return_value=[
+        {"id": "old-1", "clip_order": 1, "start_time": "01:00", "end_time": "01:40"},
+        {"id": "old-3", "clip_order": 3, "start_time": "1:02:00", "end_time": "1:02:30"},
+    ])
+    service.clip_repo.get_clip_by_id = AsyncMock(return_value=None)
+    service.task_repo.load_source_metadata = AsyncMock(
+        return_value={"excluded_ranges": [[500, 530]]}  # a clip deleted after an earlier search
+    )
+    service.task_repo.save_source_metadata = AsyncMock()
+    return service
+
+
+@pytest.mark.asyncio
+async def test_search_again_keeps_clips_and_skips_moments_already_found(tmp_path):
+    service = _search_again_service()
+    service.config.temp_dir = str(tmp_path)
+    service.clip_repo.create_clip = AsyncMock(return_value="new-1")
+
+    await service.process_task(
+        task_id="task-1", url="upload://source.mp4", source_type="video_url", find_more=True
+    )
+
+    exclude = [(60, 100), (500, 530), (3720, 3750)]
+    assert service.video_service.process_video_complete.await_args.kwargs["exclude_ranges"] == exclude
+    service.task_repo.save_source_metadata.assert_any_await(
+        service.db, "task-1", {"excluded_ranges": exclude}
+    )
+    service.clip_repo.delete_clips_by_task.assert_not_awaited()
+    service.cache_repo.upsert_cache.assert_not_awaited()
+    assert service.clip_repo.create_clip.await_args.kwargs["clip_order"] == 4
+    service.task_repo.update_task_clips.assert_awaited_with(
+        service.db, "task-1", ["old-1", "old-3", "new-1"]
+    )
+
+
+@pytest.mark.asyncio
+async def test_search_again_that_finds_nothing_leaves_the_task_completed(tmp_path):
+    service = _search_again_service()
+    service.config.temp_dir = str(tmp_path)
+    service.video_service.process_video_complete = AsyncMock(
+        side_effect=ValueError("No new clips found")
+    )
+    callback = AsyncMock()
+
+    result = await service.process_task(
+        task_id="task-1", url="upload://source.mp4", source_type="video_url",
+        find_more=True, progress_callback=callback,
+    )
+
+    assert result["clips_count"] == 0
+    service.task_repo.update_task_status.assert_awaited_with(
+        service.db, "task-1", "completed", progress=100,
+        progress_message="No new clips found", expected_statuses=["queued", "processing"],
+    )
+    assert not any(c.args[2] == "error" for c in service.task_repo.update_task_status.await_args_list)
+    callback.assert_awaited_with(100, "No new clips found", "completed")

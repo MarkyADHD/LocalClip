@@ -753,11 +753,27 @@ def build_transcript_analysis_prompt(
     include_broll: bool = False,
     clip_signals: str | None = None,
     window: tuple[int, int] | None = None,
+    exclude_ranges: List[tuple[int, int]] | None = None,
 ) -> str:
     """Build the grounded task prompt for transcript analysis.
 
     ``window`` marks the prompt as one (start, end) slice of a longer source.
+    ``exclude_ranges`` are (start, end) seconds already clipped by an earlier search.
     """
+    if window and exclude_ranges:
+        exclude_ranges = [r for r in exclude_ranges if r[1] > window[0] and r[0] < window[1]]
+    exclude_note = ""
+    if exclude_ranges:
+        listed = ", ".join(
+            f"{_format_transcript_timestamp(int(start))} - {_format_transcript_timestamp(int(end))}"
+            for start, end in sorted(exclude_ranges)
+        )
+        exclude_note = (
+            "\nThese ranges were already clipped and the viewer wants different moments. Do not "
+            f"pick anything that overlaps them: {listed}\n"
+            "Look for good moments an earlier pass could have missed; return none rather than "
+            "weak picks.\n"
+        )
     segment_target = ANALYSIS_WINDOW_SEGMENT_TARGET if window else "1-5"
     window_note = ""
     if window:
@@ -785,7 +801,7 @@ def build_transcript_analysis_prompt(
         )
 
     return f"""Find the moments in this stream transcript that would make great standalone short clips.
-{window_note}
+{window_note}{exclude_note}
 The transcript is formatted as one line per timestamped span, for example:
 [00:12 - 00:21] Spoken text here
 [00:21 - 00:35] More spoken text here
@@ -1246,6 +1262,23 @@ def dedupe_overlapping_segments(
     return [segment for segment, _ in kept]
 
 
+def drop_excluded_segments(
+    segments: List[TranscriptSegment], exclude_ranges: List[tuple[int, int]] | None
+) -> List[TranscriptSegment]:
+    """Drop candidates that mostly repeat a range an earlier search already clipped."""
+    if not exclude_ranges:
+        return segments
+    return [
+        segment
+        for segment in segments
+        if not any(
+            _overlap_ratio(_segment_bounds_seconds(segment), (int(start), int(end)))
+            > CANDIDATE_DEDUPE_OVERLAP_RATIO
+            for start, end in exclude_ranges
+        )
+    ]
+
+
 def _rescale_virality(virality: ViralityAnalysis, new_total: int) -> None:
     """Set a new total while keeping the subscores' proportions and 0-25 bounds."""
     new_total = max(0, min(100, int(new_total)))
@@ -1357,6 +1390,7 @@ async def _analyze_transcript_windows(
     windows: List[Dict[str, Any]],
     include_broll: bool,
     clip_signals: Optional[str],
+    exclude_ranges: List[tuple[int, int]] | None = None,
 ) -> List[TranscriptAnalysis]:
     """Analyse windows with bounded concurrency, tolerating some failures.
 
@@ -1373,6 +1407,7 @@ async def _analyze_transcript_windows(
                     clip_signals, window["start"], window["end"]
                 ),
                 window=(window["start"], window["end"]),
+                exclude_ranges=exclude_ranges,
             )
             result = await _run_transcript_analysis(agent, prompt)
             return result.output
@@ -1645,7 +1680,8 @@ def _merge_key_topics(analyses: List[TranscriptAnalysis], limit: int = 12) -> Li
 
 
 async def get_most_relevant_parts_by_transcript(
-    transcript: str, include_broll: bool = False, clip_signals: str | None = None
+    transcript: str, include_broll: bool = False, clip_signals: str | None = None,
+    exclude_ranges: List[tuple[int, int]] | None = None,
 ) -> TranscriptAnalysis:
     """Get the most relevant parts of a transcript with virality scoring and optional B-roll detection.
 
@@ -1679,13 +1715,14 @@ async def get_most_relevant_parts_by_transcript(
                     transcript=transcript,
                     include_broll=include_broll,
                     clip_signals=clip_signals,
+                    exclude_ranges=exclude_ranges,
                 )
             )
             analyses = [result.output]
         else:
             logger.info("Analysing transcript in %d overlapping windows", len(windows))
             analyses = await _analyze_transcript_windows(
-                agent, windows, include_broll, clip_signals
+                agent, windows, include_broll, clip_signals, exclude_ranges
             )
 
         candidates: List[TranscriptSegment] = []
@@ -1703,11 +1740,15 @@ async def get_most_relevant_parts_by_transcript(
         # near-duplicates; then compare them all in one rerank call (calibrates
         # scores across windows, rewrites titles, drops weak picks).
         candidates = await rerank_candidates(
-            dedupe_overlapping_segments(candidates), clip_signals
+            drop_excluded_segments(dedupe_overlapping_segments(candidates), exclude_ranges),
+            clip_signals,
         )
 
         # No clip-count cap: every candidate that survives the rerank is rendered.
-        validated_segments = add_requested_clips(candidates, transcript_lines)
+        # Filtered again because "clip that" requests are added back here.
+        validated_segments = drop_excluded_segments(
+            add_requested_clips(candidates, transcript_lines), exclude_ranges
+        )
 
         broll_opportunities = None
         if include_broll:
