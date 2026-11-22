@@ -318,7 +318,7 @@ def test_slow_motion_punch_in_and_voice_cleanup_render(tmp_path):
         ).stdout
     )["streams"]
     assert {s["codec_type"] for s in streams} == {"video", "audio"}
-    assert all(abs(float(s["duration"]) - 3) < 0.15 for s in streams)
+    assert all(abs(float(s["duration"]) - 3) < 0.1 for s in streams)
 
 
 @pytest.mark.skipif(not shutil.which("ffmpeg"), reason="ffmpeg required")
@@ -365,4 +365,4 @@ def test_sharpened_facecam_is_cut_with_the_video(tmp_path, monkeypatch, layout):
             capture_output=True, text=True, check=True,
         ).stdout
     )["streams"][0]
-    assert (video["width"], video["height"]) == (1080, 1920) and abs(float(video["duration"]) - 2) < 0.15
+    assert (video["width"], video["height"]) == (1080, 1920) and abs(float(video["duration"]) - 2) < 0.1

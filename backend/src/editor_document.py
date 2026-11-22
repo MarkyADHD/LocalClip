@@ -642,7 +642,13 @@ def render_document(
         # Slow motion: stretch the frames in time, then draw the missing ones in between.
         filters.append(
             f"[0:v]trim=start={segment.start}:end={segment.end},setpts=(PTS-STARTPTS)/{segment.speed}"
-            + (f",minterpolate=fps={fps}:mi_mode={SLOWMO_MODE}" if slow else "")
+            # minterpolate drops its last few frames: hold the final frame first, then cut to length.
+            + (
+                f",tpad=stop_mode=clone:stop_duration=1,minterpolate=fps={fps}:mi_mode={SLOWMO_MODE},"
+                f"trim=duration={segment.length:.4f}"
+                if slow
+                else ""
+            )
             + f"[v{index}]"
         )
         joins.append(f"[v{index}]")
