@@ -334,6 +334,8 @@ async def combine_editor(ctx, task_id: str, clip_id: str, filename: str, job_id:
             )
             commands += ["-i", str(source_dir / "clean.mp4")]
             document = EditDocument.model_validate(entry["document"])
+            # The combined clip is a new plain source: slow motion and punch-ins are not carried over.
+            document.segments = [s.model_copy(update={"speed": 1}) for s in document.segments]
             all_words += [
                 {
                     **w,
@@ -366,6 +368,7 @@ async def combine_editor(ctx, task_id: str, clip_id: str, filename: str, job_id:
             **entries[0]["document"],
             "segments": [{"id": "combined", "start": 0, "end": cursor}],
             "words": all_words,
+            "punches": [],
         }
         document = EditDocument.model_validate(initial).validate_duration(cursor)
         with tempfile.TemporaryDirectory(prefix="combine_", dir=directory) as temp:

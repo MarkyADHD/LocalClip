@@ -28,6 +28,7 @@ from .common import (
     logger,
 )
 from .face_detection import open_haar_cascade, open_yunet_detector
+from ..config import get_config
 from .stream_layouts import STREAM_LAYOUTS, build_stream_layout_filter
 from .ffmpeg import (
     build_audio_output_args,
@@ -1198,6 +1199,49 @@ def build_vertical_filter_plan(
     )
 
 
+PUNCH_ZOOM = 1.25  # same zoom as the clip editor's punch-ins
+PUNCH_SECONDS = 1.2
+# Height of the point the punch-in zooms towards: the face, or the facecam pane.
+PUNCH_Y = {"facecam_top": 0.2, "gameplay_top": 0.8, "floating_cam": 0.3, "gameplay_only": 0.5}
+
+
+def loudest_moment(input_path: Path) -> Optional[float]:
+    """Start of the clip's loudest quarter second (a yell, a reaction), or None if nothing stands out."""
+    raw = subprocess.run(
+        ["ffmpeg", "-v", "error", "-i", str(input_path), "-vn", "-f", "f32le", "-ac", "1", "-ar", "8000", "-"],
+        capture_output=True,
+    ).stdout
+    window = 2000  # a quarter second
+    samples = np.frombuffer(raw, np.float32)
+    levels = np.sqrt((samples[: len(samples) // window * window].reshape(-1, window) ** 2).mean(axis=1))
+    # Not over the hook title at the start, and not cut off by the end.
+    inner = levels[8:-8]
+    if len(inner) < 16:
+        return None
+    peak = int(inner.argmax())
+    # ponytail: "stands out" is twice the typical level; tune here if punch-ins land on nothing.
+    if inner[peak] < 2 * np.median(inner) or inner[peak] < 0.02:
+        return None
+    return (peak + 8) * window / 8000
+
+
+def punch_in_chain(input_path: Path, output_format: str) -> Optional[str]:
+    """Filter chain (one 1080x1920 input, one output) that snap-zooms on the loudest moment."""
+    if not get_config().auto_punch:
+        return None
+    at = loudest_moment(input_path)
+    if at is None:
+        return None
+    start = max(0.0, at - 0.3)
+    zw, zh = round_to_even(1080 * PUNCH_ZOOM), round_to_even(1920 * PUNCH_ZOOM)
+    y = PUNCH_Y.get(output_format, 0.4)
+    return (
+        "split[punch0][punch1];"
+        f"[punch1]scale={zw}:{zh},crop=1080:1920:{(zw - 1080) / 2}:{(zh - 1920) * y}[punchz];"
+        f"[punch0][punchz]overlay=enable='between(t,{start:.3f},{start + PUNCH_SECONDS:.3f})'"
+    )
+
+
 def render_reframed_clip_ffmpeg(
     input_path: Path,
     output_path: Path,
@@ -1293,9 +1337,12 @@ def render_reframed_clip_ffmpeg(
     video_filter, mode = (stream_filter, "complex") if stream_filter else build_vertical_filter_plan(
         input_path, width, height, speaker_turns, speaker_words
     )
+    # Punch in on the loudest moment, under the captions.
+    punch = punch_in_chain(input_path, output_format) if has_audio else None
     if mode == "complex":
-        if subs:
-            graph = f"{video_filter};[vout]{subs}[v]"
+        tail = ",".join(part for part in (punch, subs) if part)
+        if tail:
+            graph = f"{video_filter};[vout]{tail}[v]"
             map_label = "[v]"
         else:
             graph = video_filter
@@ -1311,8 +1358,7 @@ def render_reframed_clip_ffmpeg(
         ]
         return run_ffmpeg_command(command).returncode == 0, 1080, 1920
 
-    if subs:
-        video_filter = f"{video_filter},{subs}"
+    video_filter = ",".join(part for part in (video_filter, punch, subs) if part)
     command = [
         "ffmpeg", "-y", "-i", str(input_path),
         "-vf", video_filter,

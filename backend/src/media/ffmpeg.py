@@ -17,6 +17,7 @@ from .common import (
     FINAL_VIDEO_CRF,
     FINAL_VIDEO_PRESET,
     INTERMEDIATE_CRF,
+    DENOISE_FILTER,
     LOUDNORM_FILTER,
     OUTPUT_FPS,
     logger,
@@ -291,8 +292,11 @@ def build_audio_output_args(has_audio: bool, loudnorm: bool = True) -> List[str]
     if not has_audio:
         return ["-an"]
     args: List[str] = []
+    chain = [DENOISE_FILTER] if get_config().clean_voice else []
     if loudnorm:
-        args += ["-af", LOUDNORM_FILTER]
+        chain.append(LOUDNORM_FILTER)
+    if chain:
+        args += ["-af", ",".join(chain)]
     args += ["-c:a", "aac", "-b:a", AUDIO_BITRATE, "-ar", "48000"]
     return args
 

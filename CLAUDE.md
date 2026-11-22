@@ -90,6 +90,8 @@ Blocking work (ffmpeg, downloads, transcription) is wrapped in `run_in_thread()`
 6. **Rendering**: 9:16 clips with face-tracked crops or a stream template, word-synced
    captions, hook title, optional transitions/B-roll. Two clips render at once; encodes use
    NVENC when ffmpeg has it (`VIDEO_ENCODER=cpu` forces libx264) and fall back to the CPU on failure.
+   Every clip gets mic rumble and hiss removed (`CLEAN_VOICE=false`) and a snap zoom on its loudest
+   moment (`AUTO_PUNCH=false`).
 
 ### Stream templates
 
@@ -103,6 +105,9 @@ The studio (`frontend/src/components/editor/`, `/tasks/[id]/edit`) edits a draft
 (`editor_document.py` / `lib/editor/document.ts`: cuts, words, caption style, layout, title). The
 preview and in-browser export draw it on a canvas (`lib/editor/render.ts`); the server export builds
 the same picture with ffmpeg + libass (`layout_filter`, `write_ass`). Change both together. See `docs/editor.md`.
+
+Server-export-only extras: punch-in zooms, slow motion and replays, mic cleanup, voice/game volume
+split (`media/stems.py`) and AI facecam upscaling (`media/upscale.py`, optional download).
 
 Trim, split, merge, captions, export presets, plus
 `POST /tasks/{id}/clips/{clip_id}/extend` with `{"before": s, "after": s}` which re-renders the

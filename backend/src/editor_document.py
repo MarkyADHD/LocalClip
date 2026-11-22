@@ -19,6 +19,7 @@ import uuid
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from .media.common import DENOISE_FILTER
 from .media.diarization import MAX_SPEAKERS, SPEAKER_COLORS
 
 HexColor = Field(pattern=r"^#[0-9a-fA-F]{6}$")
@@ -32,11 +33,31 @@ class Segment(Model):
     id: str = Field(min_length=1, max_length=100)
     start: float = Field(ge=0)
     end: float = Field(gt=0)
+    speed: float = Field(default=1, ge=0.25, le=1)  # below 1 plays the segment in slow motion
 
     @model_validator(mode="after")
     def ordered(self):
         if self.end - self.start < 0.04:
             raise ValueError("Each segment must be at least one frame long")
+        return self
+
+    @property
+    def length(self) -> float:
+        """Seconds the segment lasts in the edited clip."""
+        return (self.end - self.start) / self.speed
+
+
+class Punch(Model):
+    """A snap zoom on the picture between two source times."""
+
+    id: str = Field(min_length=1, max_length=100)
+    start: float = Field(ge=0)
+    end: float = Field(gt=0)
+
+    @model_validator(mode="after")
+    def ordered(self):
+        if self.end <= self.start:
+            raise ValueError("A punch-in must end after it starts")
         return self
 
 
@@ -106,6 +127,7 @@ class Framing(Model):
     # crop: one crop of the frame. The others stack or float the facecam (`cam`) with the gameplay.
     layout: Literal["crop", "cam_top", "cam_bottom", "floating"] = "crop"
     cam: Region = Field(default_factory=Region)
+    sharpCam: bool = False  # AI-upscale the facecam for the export (slow; needs Real-ESRGAN)
 
 
 class Effects(Model):
@@ -132,6 +154,13 @@ class EditDocument(Model):
     muted: bool = False
     title: str = Field(default="", max_length=80)  # hook title at the top; empty for none
     titleSeconds: float = Field(default=0, ge=0, le=600)  # how long the title stays; 0 for the whole clip
+    cleanVoice: bool = False  # take rumble and steady hiss out of the sound
+    punches: list[Punch] = Field(default_factory=list, max_length=50)
+    gameVolume: float = Field(default=1, ge=0, le=2)  # game and music under the voice; 1 leaves the mix alone
+
+    @property
+    def duration(self) -> float:
+        return sum(s.length for s in self.segments)
 
     def validate_duration(self, duration: float):
         if any(s.end > duration + 0.05 for s in self.segments):
@@ -227,23 +256,49 @@ def output_size(document: EditDocument, width: int, height: int):
     return max(2, int(width * scale) // 2 * 2), max(2, int(height * scale) // 2 * 2)
 
 
-def mapped_words(document: EditDocument):
+def mapped(document: EditDocument, items) -> list[dict]:
+    """Items with source `start`/`end` times, moved onto the edited timeline (cut, repeated, slowed)."""
     result = []
     cursor = 0.0
-    ordered_words = sorted(document.words, key=lambda w: w.start)
+    ordered = sorted(items, key=lambda item: item.start)
     for segment in document.segments:
-        for word in ordered_words:
-            start, end = max(segment.start, word.start), min(segment.end, word.end)
-            if end > start and word.text.strip():
+        for item in ordered:
+            start, end = max(segment.start, item.start), min(segment.end, item.end)
+            if end > start:
                 result.append(
                     {
-                        **word.model_dump(),
-                        "start": cursor + start - segment.start,
-                        "end": cursor + end - segment.start,
+                        **item.model_dump(),
+                        "start": cursor + (start - segment.start) / segment.speed,
+                        "end": cursor + (end - segment.start) / segment.speed,
                     }
                 )
-        cursor += segment.end - segment.start
+        cursor += segment.length
     return result
+
+
+def mapped_words(document: EditDocument):
+    return mapped(document, [w for w in document.words if w.text.strip()])
+
+
+PUNCH_ZOOM = 1.25  # how far a punch-in zooms; same in render.ts
+# Height of the point a punch-in zooms towards: the face, or the facecam pane. Same in render.ts.
+PUNCH_Y = {"crop": 0.4, "cam_top": 0.2, "cam_bottom": 0.8, "floating": 0.3}
+
+
+def punch_filter(document: EditDocument, width: int, height: int) -> str:
+    """filter_complex from [framed] to [punched]: the picture zoomed while a punch-in is on."""
+    spans = mapped(document, document.punches)
+    if not spans:
+        return "[framed]null[punched]"
+    framing = document.framing
+    y = PUNCH_Y["crop" if framing.aspect == "original" else framing.layout]
+    zw, zh = _even(width * PUNCH_ZOOM), _even(height * PUNCH_ZOOM)
+    on = "+".join(f"between(t,{p['start']:.3f},{p['end']:.3f})" for p in spans)
+    return (
+        f"[framed]split[punch0][punch1];"
+        f"[punch1]scale={zw}:{zh},crop={width}:{height}:{(zw - width) / 2}:{(zh - height) * y}[punchz];"
+        f"[punch0][punchz]overlay=enable='{on}'[punched]"
+    )
 
 
 def caption_groups(words: list[dict], count: int):
@@ -284,9 +339,33 @@ def _even(value: float) -> int:
     return max(2, round(value / 2) * 2)
 
 
-def layout_filter(framing: Framing, sw: int, sh: int, width: int, height: int) -> str:
-    """filter_complex from [video] (source size) to [framed] (output size); mirrors drawLayout in render.ts."""
+def cam_crop(framing: Framing, sw: int, sh: int, width: int, height: int) -> str | None:
+    """The facecam's part of the source frame as ffmpeg's w:h:x:y, or None for a layout without a facecam pane."""
     layout = "crop" if framing.aspect == "original" else framing.layout
+    if layout == "crop":
+        return None
+    pw = _even(width * 0.6) if layout == "floating" else width
+    ph = _even(pw * 460 / 648) if layout == "floating" else _even(height * CAM_SHARE)
+    r, aspect = framing.cam, pw / ph
+    w, h = r.w * sw, r.h * sh
+    w, h = (h * aspect, h) if w / h < aspect else (w, w / aspect)
+    if w > sw:
+        w, h = sw, sw / aspect
+    if h > sh:
+        w, h = sh * aspect, sh
+    w, h = int(w) // 2 * 2, int(h) // 2 * 2
+    x = min(max((r.x + r.w / 2) * sw - w / 2, 0), sw - w)
+    y = min(max((r.y + r.h / 2) * sh - h / 2, 0), sh - h)
+    return f"{w}:{h}:{int(x)}:{int(y)}"
+
+
+def layout_filter(framing: Framing, sw: int, sh: int, width: int, height: int, cam_video: bool = False) -> str:
+    """filter_complex from [video] (source size) to [framed] (output size); mirrors drawLayout in render.ts.
+
+    With `cam_video`, the facecam comes ready-cropped (and upscaled) from [camvideo] instead.
+    """
+    layout = "crop" if framing.aspect == "original" else framing.layout
+    cam_in = "[camvideo]" if cam_video else "[c0]"
 
     def scaled(pw: int, ph: int, fit=max):
         scale = fit(pw / sw, ph / sh) * framing.zoom
@@ -297,17 +376,9 @@ def layout_filter(framing: Framing, sw: int, sh: int, width: int, height: int) -
         return f"scale={rw}:{rh},crop={pw}:{ph}:{(rw - pw) * framing.x}:{(rh - ph) * framing.y}"
 
     def cam(pw: int, ph: int) -> str:
-        r, aspect = framing.cam, pw / ph
-        w, h = r.w * sw, r.h * sh
-        w, h = (h * aspect, h) if w / h < aspect else (w, w / aspect)
-        if w > sw:
-            w, h = sw, sw / aspect
-        if h > sh:
-            w, h = sh * aspect, sh
-        w, h = int(w) // 2 * 2, int(h) // 2 * 2
-        x = min(max((r.x + r.w / 2) * sw - w / 2, 0), sw - w)
-        y = min(max((r.y + r.h / 2) * sh - h / 2, 0), sh - h)
-        return f"crop={w}:{h}:{int(x)}:{int(y)},scale={pw}:{ph}"
+        if cam_video:
+            return f"scale={pw}:{ph}:flags=lanczos"
+        return f"crop={cam_crop(framing, sw, sh, width, height)},scale={pw}:{ph}"
 
     bw, bh = _even(width / 4), _even(height / 4)
     blur = f"scale={bw}:{bh}:force_original_aspect_ratio=increase,crop={bw}:{bh},gblur=sigma=8,scale={width}:{height}"
@@ -327,15 +398,16 @@ def layout_filter(framing: Framing, sw: int, sh: int, width: int, height: int) -
         cw = _even(width * 0.6)
         ch = _even(cw * 460 / 648)
         return (
-            f"[video]split=3[bg0][g0][c0];[bg0]{blur}[bg];[g0]scale={width}:{band}[g];"
-            f"[c0]{cam(cw, ch)}[c];[bg][g]overlay=0:{top}[t];"
+            f"[video]split{'' if cam_video else '=3'}[bg0][g0]{'' if cam_video else '[c0]'};"
+            f"[bg0]{blur}[bg];[g0]scale={width}:{band}[g];"
+            f"{cam_in}{cam(cw, ch)}[c];[bg][g]overlay=0:{top}[t];"
             f"[t][c]overlay={(width - cw) / 2}:{max(0, top - ch - height / 80)},setsar=1[framed]"
         )
     cam_h = _even(height * CAM_SHARE)
     order = "[c][g]" if layout == "cam_top" else "[g][c]"
     return (
-        f"[video]split[g0][c0];[g0]{cover(width, height - cam_h)}[g];"
-        f"[c0]{cam(width, cam_h)}[c];{order}vstack,setsar=1[framed]"
+        f"{'[video]' if cam_video else '[video]split[g0][c0];[g0]'}{cover(width, height - cam_h)}[g];"
+        f"{cam_in}{cam(width, cam_h)}[c];{order}vstack,setsar=1[framed]"
     )
 
 
@@ -406,7 +478,7 @@ def write_ass(path: Path, document: EditDocument, width: int, height: int):
     header, line = ass_header(style, width, height)
     lines = []
     if document.title.strip():
-        total = sum(s.end - s.start for s in document.segments)
+        total = document.duration
         words = [{"text": text} for text in document.title.split()]
         until = min(total, document.titleSeconds or total)
         lines.append(ass_event(style, width, height, 0, until, TITLE_Y, words, lambda i: False))
@@ -478,6 +550,19 @@ def run_render(
         log_path.unlink(missing_ok=True)
 
 
+# ponytail: ffmpeg's motion interpolation is slow and can smear fast action; RIFE if it shows.
+SLOWMO_MODE = os.getenv("SLOWMO_MODE", "mci")  # "blend" is quicker and softer
+
+
+def _atempo(speed: float) -> str:
+    """atempo only goes down to half speed per filter."""
+    parts = []
+    while speed < 0.5:
+        parts.append("atempo=0.5")
+        speed /= 0.5
+    return ",".join(parts + [f"atempo={speed}"])
+
+
 def render_document(
     directory: Path,
     job_id: str,
@@ -490,6 +575,7 @@ def render_document(
 
     source = directory / "clean.mp4"
     sw, sh = _ffprobe_size(source)
+    fps = json.loads((directory / "asset.json").read_text())["fps"] if (directory / "asset.json").exists() else 30
     width, height = output_size(document, sw, sh)
     fx = document.effects
     # CSS brightness/contrast use RGB multiplication followed by a midpoint shift.
@@ -517,14 +603,63 @@ def render_document(
     )
     audio = bool(probe.stdout.strip())
     filters, joins = [], []
-    for index, segment in enumerate(document.segments):
+    inputs = ["-i", str(source)]
+    crop = cam_crop(document.framing, sw, sh, width, height) if document.framing.sharpCam else None
+    if crop:
+        # The facecam, upscaled once and kept beside the clip; cut and slowed exactly like the main video.
+        from .media.upscale import UPSCALE_MODEL, upscale_video
+
+        cam_path = directory / f"cam-{hashlib.sha256(f'{crop}:{UPSCALE_MODEL}'.encode()).hexdigest()[:12]}.mp4"
+        if not cam_path.exists():
+            cancel = cancel_path or directory / f"cancel-{job_id}"
+
+            def tick(done: int, total: int):
+                if cancel.exists():
+                    raise InterruptedError("Export cancelled")
+                atomic_json(
+                    directory / f"job-{job_id}.json",
+                    {"status": "rendering", "progress": min(99, done * 100 // max(1, total))},
+                )
+
+            upscale_video(source, cam_path, crop, fps, tick)
+        inputs += ["-i", str(cam_path)]
+    cam_joins = []
+    sound = ["[0:a]"] * len(document.segments)
+    if audio and document.gameVolume != 1 and not document.muted:
+        # Voice and game sound apart, so the game and its music can be turned down under the voice.
+        from .media.stems import split_voice
+
+        first = len(inputs) // 2
+        for stem in split_voice(source, directory):
+            inputs += ["-i", str(stem)]
+        sound = [f"[mix{index}]" for index in range(len(document.segments))]
         filters.append(
-            f"[0:v]trim=start={segment.start}:end={segment.end},setpts=PTS-STARTPTS[v{index}]"
+            f"[{first + 1}:a]volume={document.gameVolume}[game];[{first}:a][game]amix=inputs=2:normalize=0,"
+            f"aresample=48000,asplit={len(sound)}" + "".join(sound)
+        )
+    for index, segment in enumerate(document.segments):
+        slow = segment.speed < 1
+        # Slow motion: stretch the frames in time, then draw the missing ones in between.
+        filters.append(
+            f"[0:v]trim=start={segment.start}:end={segment.end},setpts=(PTS-STARTPTS)/{segment.speed}"
+            # minterpolate drops its last few frames: hold the final frame first, then cut to length.
+            + (
+                f",tpad=stop_mode=clone:stop_duration=1,minterpolate=fps={fps}:mi_mode={SLOWMO_MODE},"
+                f"trim=duration={segment.length:.4f}"
+                if slow
+                else ""
+            )
+            + f"[v{index}]"
         )
         joins.append(f"[v{index}]")
+        if crop:
+            filters.append(filters[-1].replace("[0:v]", "[1:v]").replace(f"[v{index}]", f"[c{index}]"))
+            cam_joins.append(f"[c{index}]")
         if audio:
             filters.append(
-                f"[0:a]atrim=start={segment.start}:end={segment.end},asetpts=PTS-STARTPTS[a{index}]"
+                f"{sound[index]}atrim=start={segment.start}:end={segment.end},asetpts=PTS-STARTPTS"
+                + (f",{_atempo(segment.speed)}" if slow else "")
+                + f"[a{index}]"
             )
             joins.append(f"[a{index}]")
     filters.append(
@@ -535,14 +670,18 @@ def render_document(
     ass = directory / f"captions-{job_id}.ass"
     write_ass(ass, document, width, height)
     fonts = ass_fonts_dir(document.captions.font)
-    filters.append(layout_filter(document.framing, sw, sh, width, height))
+    if crop:
+        filters.append("".join(cam_joins) + f"concat=n={len(cam_joins)}:v=1:a=0[camvideo]")
+    filters.append(layout_filter(document.framing, sw, sh, width, height, cam_video=bool(crop)))
+    filters.append(punch_filter(document, width, height))
     filters.append(
-        f"[framed]{effects},ass={_escape_filter_path(ass)}:fontsdir={_escape_filter_path(fonts or Path('fonts'))}[outv]"
+        f"[punched]{effects},ass={_escape_filter_path(ass)}:fontsdir={_escape_filter_path(fonts or Path('fonts'))}[outv]"
     )
-    total = sum(s.end - s.start for s in document.segments)
+    total = document.duration
     tracks = []
     if audio:
-        voice = f"[audio]volume={0 if document.muted else document.volume}"
+        voice = "[audio]" + (f"{DENOISE_FILTER}," if document.cleanVoice else "")
+        voice += f"volume={0 if document.muted else document.volume}"
         bleeps = "+".join(
             f"between(t,{max(0, w['start'] - 0.05):.3f},{w['end'] + 0.05:.3f})"
             for w in mapped_words(document)
@@ -568,8 +707,7 @@ def render_document(
     command = [
         "ffmpeg",
         "-y",
-        "-i",
-        str(source),
+        *inputs,
         "-filter_complex",
         ";".join(filters),
         "-map",
