@@ -370,3 +370,32 @@ test("layout, caption look, hook title and safe zone", async ({ page }) => {
     captions: { font: "THEBOLDFONT", uppercase: true, active: true },
   });
 });
+
+test("a second speaker gets their own caption colour", async ({ page }) => {
+  await setup(page);
+  await expect(page.getByLabel("Speaker 2 color")).toHaveCount(0);
+  // "world today" belongs to someone else: paint from word 2 on.
+  await page.getByLabel("Word 2", { exact: true }).click();
+  await page.getByRole("button", { name: "Speaker 2 from word 2" }).click();
+  await page.getByLabel("Speaker 2 color").fill("#ff00aa");
+  await expect(page.getByLabel("Word 3", { exact: true })).toHaveCSS(
+    "color",
+    "rgb(255, 0, 170)",
+  );
+  await expect(page.getByLabel("Word 1", { exact: true })).not.toHaveCSS(
+    "color",
+    "rgb(255, 0, 170)",
+  );
+  await page.screenshot({ path: "test-results/studio-speakers.png" });
+  await expect
+    .poll(async () => {
+      const saved = await page.evaluate(() =>
+        fetch("/api/tasks/one/clips/clip1/editor").then((r) => r.json()),
+      );
+      return [
+        saved.draft.document.words.map((w: { speaker?: number }) => w.speaker ?? 0),
+        saved.draft.document.captions.speakerColors?.[0],
+      ];
+    })
+    .toEqual([[0, 1, 1], "#ff00aa"]);
+});

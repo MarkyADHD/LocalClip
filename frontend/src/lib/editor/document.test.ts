@@ -6,7 +6,11 @@ import {
   mappedWords,
   outputSize,
   replaceWords,
+  paintSpeaker,
+  SPEAKER_COLORS,
+  speakerCount,
   splitSegment,
+  wordColor,
 } from "./document";
 import { draft } from "./document.test-fixture";
 
@@ -106,5 +110,28 @@ describe("layouts and older drafts", () => {
     expect(next.title).toBe("");
     expect(next.framing.layout).toBe("crop");
     expect(normalize(next)).toBe(next);
+  });
+});
+
+describe("speakers", () => {
+  const words = [0, 0, 1, 1, 0].map((speaker, i) => ({
+    id: `w${i}`,
+    start: i,
+    end: i + 1,
+    text: "x",
+    highlight: false,
+    speaker,
+  }));
+  it("paints from a word to the next change of speaker", () => {
+    expect(paintSpeaker(words, "w1", 2).map((w) => w.speaker)).toEqual([0, 2, 1, 1, 0]);
+    expect(paintSpeaker(words, "w2", 0).map((w) => w.speaker)).toEqual([0, 0, 0, 0, 0]);
+  });
+  it("colours each speaker, the first with the caption colour", () => {
+    const style = { color: "#FFFFFF", speakerColors: ["#111111"] };
+    expect(speakerCount(words)).toBe(2);
+    expect(wordColor(style, {})).toBe("#FFFFFF");
+    expect(wordColor(style, { speaker: 1 })).toBe("#111111");
+    expect(wordColor(style, { speaker: 2 })).toBe("#FFFFFF");
+    expect(wordColor({ color: "#FFFFFF" }, { speaker: 2 })).toBe(SPEAKER_COLORS[1]);
   });
 });

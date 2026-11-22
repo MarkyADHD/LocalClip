@@ -342,6 +342,7 @@ def _caption_words_with_timings(
                     "start": float(timed["start"]),
                     "end": float(timed["end"]),
                     "confidence": timed.get("confidence", 1.0),
+                    "speaker": timed.get("speaker"),
                 }
                 for word, timed in zip(words, timed_words)
             ]

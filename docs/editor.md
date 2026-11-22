@@ -24,6 +24,11 @@ locally for recovery after an interrupted save.
 - **Captions**: pick a look (Clean, Karaoke, Hype, Impact, Comic, Boxed) and fine-tune
   it under Customise: font, size, colours, outline, ALL CAPS, and lighting up the word
   being spoken. Drag the captions in the preview to move them.
+- **Speakers**: each clip's voices are told apart on your PC when the clip is made, and
+  everyone after the main speaker gets their own caption colour. Pick each speaker's
+  colour here. If a line went to the wrong person, click its first word in the transcript
+  and press the numbered dot of the right speaker: it applies from that word until the
+  speaker changes. `SPEAKER_CAPTIONS=false` turns detection off.
 - **Transcript**: type over any word. Clicking a word jumps to it and offers
   Highlight, Bleep, Delete and its timing. "Edit as text" rewrites whole phrases and
   keeps unchanged words anchored.

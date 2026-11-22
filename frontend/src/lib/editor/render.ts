@@ -4,6 +4,7 @@ import {
   censor,
   mappedWords,
   regionCrop,
+  wordColor,
   type CaptionStyle,
   type CaptionWord,
   type EditDocument,
@@ -105,9 +106,16 @@ export function drawWords(
   ctx: CanvasRenderingContext2D,
   style: Pick<
     CaptionStyle,
-    "size" | "font" | "uppercase" | "background" | "outline" | "accent" | "color"
+    | "size"
+    | "font"
+    | "uppercase"
+    | "background"
+    | "outline"
+    | "accent"
+    | "color"
+    | "speakerColors"
   >,
-  words: Pick<CaptionWord, "text">[],
+  words: Pick<CaptionWord, "text" | "speaker">[],
   centre: number,
   accent: (index: number) => boolean,
   centreX = 0.5,
@@ -155,7 +163,7 @@ export function drawWords(
       ctx.lineJoin = "round";
       ctx.strokeStyle = "#101010";
       if (!style.background && style.outline) ctx.strokeText(texts[i], x, y);
-      ctx.fillStyle = accent(i) ? style.accent : style.color;
+      ctx.fillStyle = accent(i) ? style.accent : wordColor(style, words[i]);
       ctx.fillText(texts[i], x, y);
       x += ctx.measureText(texts[i]).width + space;
     }

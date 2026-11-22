@@ -37,7 +37,11 @@ import {
   DEFAULT_EFFECTS,
   clamp,
   isSwear,
+  paintSpeaker,
   replaceWords,
+  speakerCount,
+  SPEAKER_COLORS,
+  wordColor,
   uid,
   type EditDocument,
   type CaptionStyle,
@@ -295,6 +299,9 @@ export function Inspector({
       doc.words.every((w) => !isSwear(w.text) || w.bleep);
   const caption = (change: Partial<CaptionStyle>, group = "caption-style") =>
     update((d) => ({ ...d, captions: { ...d.captions, ...change } }), group);
+  const speakers = speakerCount(doc.words),
+    speakerColors = doc.captions.speakerColors ?? SPEAKER_COLORS,
+    speakerColor = (speaker: number) => wordColor(doc.captions, { speaker });
   return (
     <aside
       aria-label="Editor tools"
@@ -373,6 +380,37 @@ export function Inspector({
                     </button>
                   );
                 })}
+              </div>
+            </Section>
+            <Separator />
+            <Section
+              title="Speakers"
+              description={
+                speakers > 1
+                  ? `${speakers} voices in this clip. Pick a caption colour for each.`
+                  : "One voice in this clip. To colour someone else, click their first word in the transcript and pick a speaker."
+              }
+            >
+              <div className="grid grid-cols-2 gap-3">
+                {Array.from({ length: speakers }, (_, speaker) => (
+                  <ColorField
+                    key={speaker}
+                    label={`Speaker ${speaker + 1}`}
+                    inputLabel={`Speaker ${speaker + 1} color`}
+                    value={speakerColor(speaker)}
+                    onChange={(color) =>
+                      caption(
+                        speaker
+                          ? {
+                              speakerColors: speakerColors.map((c, i) =>
+                                i === speaker - 1 ? color : c,
+                              ),
+                            }
+                          : { color },
+                      )
+                    }
+                  />
+                ))}
               </div>
             </Section>
             <Separator />
@@ -477,6 +515,7 @@ export function Inspector({
                     onChange={(e) =>
                       word(w.id, { text: e.target.value }, `word-${w.id}`)
                     }
+                    style={w.speaker ? { color: speakerColor(w.speaker) } : undefined}
                     className={cn(
                       "h-7 rounded-md bg-transparent px-1 text-sm outline-none [field-sizing:content] hover:bg-accent focus:bg-accent",
                       time >= w.start && time < w.end && "bg-accent",
@@ -526,6 +565,38 @@ export function Inspector({
                   >
                     <Trash2 />
                   </Button>
+                  <span
+                    role="group"
+                    aria-label="Speaker from this word on"
+                    title="Who says this? Applies from this word until the speaker changes."
+                    className="flex items-center gap-1 px-1"
+                  >
+                    {Array.from(
+                      { length: Math.min(speakers + 1, SPEAKER_COLORS.length + 1) },
+                      (_, speaker) => (
+                        <button
+                          key={speaker}
+                          type="button"
+                          aria-label={`Speaker ${speaker + 1} from word ${pickedIndex + 1}`}
+                          aria-pressed={(picked.speaker ?? 0) === speaker}
+                          onClick={() =>
+                            update((d) => ({
+                              ...d,
+                              words: paintSpeaker(d.words, picked.id, speaker),
+                            }))
+                          }
+                          style={{ background: speakerColor(speaker) }}
+                          className={cn(
+                            "grid size-5 place-items-center rounded-full text-[10px] font-bold text-black ring-1 ring-border outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                            (picked.speaker ?? 0) === speaker &&
+                              "ring-2 ring-brand",
+                          )}
+                        >
+                          {speaker + 1}
+                        </button>
+                      ),
+                    )}
+                  </span>
                   <span className="ml-auto flex items-center gap-1 text-[11px] tabular-nums text-muted-foreground">
                     {(["start", "end"] as const).map((edge) => (
                       <input

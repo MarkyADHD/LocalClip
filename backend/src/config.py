@@ -166,6 +166,8 @@ class Config:
         self.hook_first_teaser = self._get_bool_env("HOOK_FIRST_TEASER", True)
         # Cut between speakers on multi-person wide shots using diarization.
         self.speaker_framing = self._get_bool_env("SPEAKER_FRAMING", True)
+        # Detect who is speaking in each clip and colour their captions.
+        self.speaker_captions = self._get_bool_env("SPEAKER_CAPTIONS", True)
 
     def max_youtube_video_duration_for_plan(
         self, plan: str | None, subscription_status: str | None

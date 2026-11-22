@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 import hashlib
 import json
 import os
@@ -18,6 +18,10 @@ import time
 import uuid
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from .media.diarization import MAX_SPEAKERS, SPEAKER_COLORS
+
+HexColor = Field(pattern=r"^#[0-9a-fA-F]{6}$")
 
 
 class Model(BaseModel):
@@ -43,6 +47,7 @@ class Word(Model):
     text: str = Field(max_length=120)
     highlight: bool = False
     bleep: bool = False  # beep over the word and star it out in the caption
+    speaker: int = Field(default=0, ge=0, lt=MAX_SPEAKERS)  # 0 talks most; picks the caption colour
 
     @model_validator(mode="after")
     def ordered(self):
@@ -73,6 +78,14 @@ class CaptionStyle(Model):
     uppercase: bool = False
     outline: float = Field(default=4, ge=0, le=12)  # % of the font size
     active: bool = False  # colour the word being spoken
+    # Colours of speakers 1, 2, ... (speaker 0 uses `color`).
+    speakerColors: list[Annotated[str, HexColor]] = Field(
+        default_factory=lambda: list(SPEAKER_COLORS), max_length=MAX_SPEAKERS - 1
+    )
+
+    def word_color(self, word: dict) -> str:
+        speaker = word.get("speaker") or 0
+        return self.speakerColors[speaker - 1] if 0 < speaker <= len(self.speakerColors) else self.color
 
 
 class Region(Model):
@@ -360,7 +373,7 @@ def ass_event(style: CaptionStyle, width, height, start, end, y, words, accent, 
         return _escape_ass_text(text).replace("\n", " ").replace("\r", " ")
 
     text = " ".join(
-        "{\\c" + _ass_color(style.accent if accent(i) else style.color) + "}" + text_of(word)
+        "{\\c" + _ass_color(style.accent if accent(i) else style.word_color(word)) + "}" + text_of(word)
         for i, word in enumerate(words)
     )
     return (
