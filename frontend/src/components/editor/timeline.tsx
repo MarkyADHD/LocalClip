@@ -113,6 +113,18 @@ export function Timeline({
   };
   const canSplit =
     currentTime > active.start + 0.04 && currentTime < active.end - 0.04;
+  // Ctrl + scroll zooms, like every video editor. Not passive: the browser must not zoom the page instead.
+  useEffect(() => {
+    const view = scroller.current;
+    if (!view) return;
+    const wheel = (e: WheelEvent) => {
+      if (!e.ctrlKey && !e.metaKey) return;
+      e.preventDefault();
+      setZoom((z) => clamp(Math.round((z - Math.sign(e.deltaY) * 0.5) * 4) / 4, 1, 8));
+    };
+    view.addEventListener("wheel", wheel, { passive: false });
+    return () => view.removeEventListener("wheel", wheel);
+  }, []);
   // Keep the playhead in view when the timeline is zoomed in.
   useEffect(() => {
     const view = scroller.current;

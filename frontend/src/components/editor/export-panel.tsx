@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   AlertCircle,
-  Cloud,
+  Cpu,
   Copy,
   Download,
   Loader2,
@@ -243,9 +243,9 @@ export function ExportPanel({
   const modes = [
     {
       id: "server",
-      Icon: Cloud,
+      Icon: Cpu,
       title: "Background export",
-      detail: "Works across browsers",
+      detail: "Best quality. Rendered on your PC, keeps going if you leave.",
       disabled: busy,
     },
     {
@@ -270,8 +270,7 @@ export function ExportPanel({
             Ready for the feed
           </DialogTitle>
           <DialogDescription>
-            Export your current edit. Background exports keep running when you
-            leave.
+            Pick where it is going and export. Nothing leaves your PC.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-2">
@@ -314,7 +313,7 @@ export function ExportPanel({
                 aria-pressed={mode === id}
                 className={cn(
                   "rounded-lg border p-3 text-left transition-colors outline-none hover:bg-accent focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50",
-                  mode === id && "border-primary ring-1 ring-primary",
+                  mode === id && "border-brand ring-1 ring-brand",
                 )}
                 onClick={() => setMode(id)}
               >
@@ -391,7 +390,7 @@ export function ExportPanel({
             <Button
               disabled={mode === "browser" && !browserSupport?.supported}
               onClick={() => void start(false)}
-              className="sm:flex-1"
+              className="bg-brand text-brand-foreground hover:bg-brand/90 sm:flex-1"
             >
               <Download />
               Export clip

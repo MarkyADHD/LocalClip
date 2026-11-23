@@ -46,6 +46,10 @@ const SHORTCUTS: [string[], string][] = [
   [["Space"], "Play / pause"],
   [["←", "→"], "Previous / next frame"],
   [["Shift", "←", "→"], "Jump one second"],
+  [["J", "L"], "Jump back / forward two seconds"],
+  [["K"], "Play / pause"],
+  [["Home", "End"], "Go to the start / end"],
+  [["Ctrl", "Scroll"], "Zoom the timeline"],
   [["I"], "Set in point"],
   [["O"], "Set out point"],
   [["S"], "Split at playhead"],
@@ -213,7 +217,7 @@ export function EditorWorkspace({
         return;
       }
       const segment = doc.segments[index];
-      if (event.code === "Space") {
+      if (event.code === "Space" || key === "k") {
         event.preventDefault();
         document
           .querySelector<HTMLButtonElement>(
@@ -235,6 +239,15 @@ export function EditorWorkspace({
             asset.duration,
           ),
         );
+      }
+      if (key === "j" || key === "l") {
+        event.preventDefault();
+        seek(clamp(time + (key === "j" ? -2 : 2), 0, asset.duration));
+      }
+      if (key === "home" || key === "end") {
+        event.preventDefault();
+        videoRef.current?.pause();
+        seek(key === "home" ? doc.segments[0].start : doc.segments[doc.segments.length - 1].end);
       }
       if (key === "i") {
         event.preventDefault();
@@ -501,8 +514,8 @@ export function EditorWorkspace({
                         }
                         className={cn(
                           "absolute right-1.5 bottom-1.5 z-10 bg-background transition-opacity",
-                          order < 0 &&
-                            "opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100",
+                          order < 0 && clips.length < 2 && "hidden",
+                          order < 0 && "opacity-50 group-hover:opacity-100 focus-visible:opacity-100",
                         )}
                       />
                     </li>
