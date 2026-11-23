@@ -54,7 +54,8 @@ locally for recovery after an interrupted save.
   Input clips stay intact.
 - The export dialog shows the title and hashtags for the post; click to copy.
 
-Shortcuts: Space plays/pauses; arrows step frames; Shift+arrows jump one second;
+Shortcuts: Space or K plays/pauses; arrows step frames; Shift+arrows jump one second;
+J/L jump two seconds; Home/End go to the start/end; Ctrl+scroll zooms the timeline;
 I/O set boundaries; S splits; Del removes the selected segment; Ctrl/Cmd+Z undoes;
 Ctrl/Cmd+Shift+Z redoes; Ctrl/Cmd+S saves. Shortcuts are inactive in text fields and
 dialogs.

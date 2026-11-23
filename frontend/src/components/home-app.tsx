@@ -3,8 +3,8 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import Link from "next/link";
 import {
-  AlertCircle, ArrowRight, ArrowUp, Captions, CaptionsOff, Check, ChevronDown, Crop, FileVideo,
-  Loader2, Paintbrush, Paperclip, Upload, Wand2, X, Youtube,
+  AlertCircle, ArrowRight, Captions, CaptionsOff, Check, ChevronDown, Crop, FileVideo,
+  Link2, Loader2, Paintbrush, Paperclip, Sparkles, Upload, Wand2, X,
 } from "lucide-react";
 import { CaptionSizeControl } from "@/components/caption-size-control";
 import { FONT_SEARCH_THRESHOLD, getYouTubeThumbnailUrl, uploadVideoFile } from "@/lib/video-upload";
@@ -313,7 +313,7 @@ export default function HomeApp() {
             {greeting()}
           </h1>
           <p className="mt-2 text-center text-muted-foreground">
-            Drop in a long video. Get back captioned, ready-to-post clips.
+            Drop in a stream. Get back captioned clips, ready to post.
           </p>
 
           {upgradeState && <PlanStatusNudge state={upgradeState} onUpgrade={openUpgrade} />}
@@ -328,7 +328,7 @@ export default function HomeApp() {
               if (!controlsDisabled) attachFile(event.dataTransfer.files?.[0] ?? null);
             }}
             className={cn(
-              "relative mt-8 rounded-2xl border bg-background shadow-[0_1px_2px_rgb(0_0_0/0.04),0_12px_40px_-12px_rgb(0_0_0/0.12)] transition-all focus-within:border-foreground/25 focus-within:shadow-[0_1px_2px_rgb(0_0_0/0.04),0_16px_48px_-12px_rgb(0_0_0/0.18)]",
+              "relative mt-8 rounded-2xl border bg-card shadow-[0_1px_2px_rgb(0_0_0/0.04),0_12px_40px_-12px_rgb(0_0_0/0.12)] transition-all focus-within:border-brand/60 focus-within:shadow-[0_1px_2px_rgb(0_0_0/0.04),0_16px_48px_-12px_rgb(0_0_0/0.18)]",
               isDragging && "border-brand ring-4 ring-brand/15",
             )}
           >
@@ -343,7 +343,7 @@ export default function HomeApp() {
             />
 
             {isDragging && (
-              <div className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 rounded-2xl bg-background/95 text-sm font-medium">
+              <div className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 rounded-2xl bg-card/95 text-sm font-medium">
                 <Upload className="size-6 text-brand" />Drop to upload your video
               </div>
             )}
@@ -366,7 +366,7 @@ export default function HomeApp() {
                     // eslint-disable-next-line @next/next/no-img-element
                     <img src={youtubeThumbnailUrl} alt="" className="mt-0.5 hidden h-11 w-[78px] shrink-0 rounded-lg object-cover sm:block" />
                   ) : (
-                    <span className="mt-0.5 flex size-11 shrink-0 items-center justify-center rounded-xl bg-muted text-muted-foreground"><Youtube className="size-5" /></span>
+                    <span className="mt-0.5 flex size-11 shrink-0 items-center justify-center rounded-xl bg-muted text-muted-foreground"><Link2 className="size-5" /></span>
                   )}
                   <div className="min-w-0 flex-1">
                     <label htmlFor="youtube-url" className="sr-only">Video link</label>
@@ -463,7 +463,7 @@ export default function HomeApp() {
                               {availableFonts.length > 0 && filteredFonts.length === 0 && <SelectItem value="__no_match__" disabled>No fonts match your search</SelectItem>}
                             </SelectContent>
                           </Select>
-                          {fontLoadError && <p className="text-xs text-amber-700">{fontLoadError}</p>}
+                          {fontLoadError && <p className="text-xs text-amber-600 dark:text-amber-400">{fontLoadError}</p>}
                         </div>
                         <CaptionSizeControl value={fontSize} onChange={setFontSize} disabled={controlsDisabled} />
                         <div className="space-y-2">
@@ -568,16 +568,14 @@ export default function HomeApp() {
 
               <div className="ml-auto flex items-center gap-2">
                 <span className="hidden text-xs text-muted-foreground sm:inline-flex sm:items-center sm:gap-1">
-                  {isLoading ? <span role="status">{statusMessage || "Working…"}</span> : hasSource ? <><Kbd>⌘</Kbd><Kbd>↵</Kbd></> : null}
+                  {isLoading ? <span role="status">{statusMessage || "Working…"}</span> : hasSource ? <><Kbd>Ctrl</Kbd><Kbd>↵</Kbd></> : null}
                 </span>
                 <Button
                   type="submit"
-                  size="icon"
-                  aria-label="Generate clips"
                   disabled={!hasSource || isLoading}
-                  className="size-9 rounded-full bg-brand text-brand-foreground shadow-sm hover:bg-brand/90 disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100"
+                  className="h-9 rounded-full bg-brand px-4 font-semibold text-brand-foreground shadow-sm hover:bg-brand/90 disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100"
                 >
-                  {isLoading ? <Loader2 className="size-4 animate-spin" /> : <ArrowUp className="size-4" />}
+                  {isLoading ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />}Get clips
                 </Button>
               </div>
             </div>
@@ -586,9 +584,9 @@ export default function HomeApp() {
           {isLoading && statusMessage && <p role="status" className="mt-3 text-center text-sm text-muted-foreground sm:hidden">{statusMessage}</p>}
 
           {error && (
-            <Alert className="mt-4 border-red-200 bg-red-50">
-              <AlertCircle className="h-4 w-4 text-red-500" />
-              <AlertDescription className="text-sm text-red-700">{error}</AlertDescription>
+            <Alert variant="destructive" className="mt-4">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription className="text-sm">{error}</AlertDescription>
             </Alert>
           )}
 

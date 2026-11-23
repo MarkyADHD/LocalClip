@@ -26,7 +26,7 @@ test("results send editing to the selected clip and expose one status badge", as
 
 test("generation list refreshes active jobs without losing selection", async ({ page }) => {
   let reads = 0;
-  await page.route(/\/api\/tasks\/?$/, (route) => route.fulfill({ json: { tasks: [{ ...generation, status: ++reads === 1 ? "processing" : "completed" }] } }));
+  await page.route(/\/api\/tasks\/?$/, (route) => route.fulfill({ json: { tasks: [{ ...generation, status: ++reads <= 2 ? "processing" : "completed" }] } }));
   await page.goto("/list");
   await expect(page.getByText("Processing", { exact: true })).toBeVisible();
   await page.getByRole("checkbox").last().check();
@@ -84,7 +84,7 @@ test("font info stays open in a real selector and preserves the selected font", 
   await page.route("**/api/tasks/billing-summary", route => route.fulfill({ json: { monetization_enabled: false } }));
   await page.route("**/api/preferences", route => route.fulfill({ json: { fontFamily: "TikTokSans-Regular", fontSize: 24, fontColor: "#FFFFFF", notifyOnCompletion: true } }));
   await page.goto("/settings");
-  const selector = page.getByRole("combobox").first();
+  const selector = page.getByRole("combobox").last();
   await selector.click();
   await page.keyboard.press("ArrowRight");
   await expect(page.getByRole("button", { name: "Language support for TikTok Sans Regular" })).toBeFocused();

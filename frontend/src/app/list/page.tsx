@@ -299,10 +299,10 @@ export default function ListPage() {
 
   if (!session?.user) {
     return (
-      <div className="min-h-screen bg-white">
+      <div className="min-h-screen">
         <div className="max-w-4xl mx-auto px-4 py-24 text-center">
-          <h1 className="text-3xl font-bold text-black mb-4">Sign In Required</h1>
-          <p className="text-gray-600 mb-8">
+          <h1 className="text-3xl font-bold mb-4">Sign In Required</h1>
+          <p className="text-muted-foreground mb-8">
             You need to be signed in to view your generations.
           </p>
           <Link href="/sign-in">
@@ -336,7 +336,7 @@ export default function ListPage() {
         <div>
           <h1 className="font-display text-3xl font-bold tracking-tight">Library</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            {tasks.length} {tasks.length === 1 ? "generation" : "generations"} · hover to preview, select to batch-manage
+            {tasks.length} {tasks.length === 1 ? "video" : "videos"} · hover a cover to preview it
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -348,7 +348,7 @@ export default function ListPage() {
               onChange={(event) => setSearch(event.target.value)}
               placeholder="Search by title"
               aria-label="Search generations"
-              className="h-9 rounded-lg bg-background pl-9 pr-8"
+              className="h-9 rounded-lg bg-card pl-9 pr-8"
             />
             <Kbd className="absolute right-2 top-1/2 -translate-y-1/2">/</Kbd>
           </div>
@@ -369,7 +369,7 @@ export default function ListPage() {
               onClick={() => setFilter(item.id)}
               className={cn(
                 "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition-colors",
-                filter === item.id ? "border-foreground bg-foreground text-background" : "bg-background text-muted-foreground hover:text-foreground",
+                filter === item.id ? "border-foreground bg-foreground text-background" : "bg-card text-muted-foreground hover:text-foreground",
               )}
             >
               {item.label}
@@ -392,8 +392,8 @@ export default function ListPage() {
       )}
 
       {batchNotice && (
-        <Alert className={cn("mt-6", batchNotice.tone === "success" ? "border-emerald-200 bg-emerald-50/50" : "border-red-200 bg-red-50/50")}>
-          {batchNotice.tone === "success" ? <CheckCircle className="h-4 w-4 text-emerald-600" /> : <AlertCircle className="h-4 w-4 text-red-600" />}
+        <Alert className={cn("mt-6", batchNotice.tone === "success" ? "border-emerald-500/30 bg-emerald-500/10" : "border-destructive/30 bg-destructive/10")}>
+          {batchNotice.tone === "success" ? <CheckCircle className="h-4 w-4 text-emerald-500" /> : <AlertCircle className="h-4 w-4 text-destructive" />}
           <AlertDescription className="text-sm">{batchNotice.message}</AlertDescription>
         </Alert>
       )}
@@ -412,8 +412,8 @@ export default function ListPage() {
           <div className="flex flex-col items-center rounded-2xl border border-dashed px-6 py-20 text-center">
             <span className="flex size-14 items-center justify-center rounded-2xl bg-muted"><PlayCircle className="size-7 text-muted-foreground" /></span>
             <h2 className="mt-4 text-lg font-semibold">No generations yet</h2>
-            <p className="mt-1 max-w-sm text-sm text-muted-foreground">Paste a YouTube link or upload a video and your clips will land here.</p>
-            <Button asChild className="mt-6"><Link href="/">Create New Generation</Link></Button>
+            <p className="mt-1 max-w-sm text-sm text-muted-foreground">Paste a Twitch, Kick or YouTube link, or drop in a video file, and your clips land here.</p>
+            <Button asChild className="mt-6"><Link href="/">Make your first clips</Link></Button>
           </div>
         ) : visibleTasks.length === 0 ? (
           <p className="rounded-2xl border border-dashed px-6 py-16 text-center text-sm text-muted-foreground">
@@ -442,7 +442,7 @@ export default function ListPage() {
           style={{ animation: "command-bar-in 0.25s cubic-bezier(0.16, 1, 0.3, 1) both" }}
         >
           <div
-            className="pointer-events-auto flex items-center gap-1 rounded-2xl border border-stone-800 bg-stone-950 px-2 py-2 shadow-2xl"
+            className="pointer-events-auto flex items-center gap-1 rounded-2xl border border-white/15 bg-stone-900 px-2 py-2 shadow-2xl"
             style={{ animation: "command-bar-pulse 3s ease-in-out infinite" }}
           >
             {/* Select all checkbox */}
@@ -583,7 +583,7 @@ export default function ListPage() {
             <AlertDialogAction
               onClick={() => void handleDeleteSelected()}
               disabled={activeBatchAction === "delete" || selectedCount === 0}
-              className="bg-red-600 hover:bg-red-700"
+              className="bg-destructive text-white hover:bg-destructive/90"
             >
               {activeBatchAction === "delete" ? (
                 <>

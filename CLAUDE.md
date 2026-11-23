@@ -129,7 +129,8 @@ draw the same picture. See `docs/video-editor.md`.
 
 Next.js 15 App Router, React 19, Tailwind v4, shadcn/ui, Better Auth (Prisma). Prisma client is
 generated to `frontend/src/generated/prisma/`. In native mode a local session is used, so there is
-no sign-up.
+no sign-up. The app is dark by default (`class="dark"` on `<html>`); Settings > Appearance stores
+`localclip-theme` in localStorage. Use theme tokens (`bg-card`, `text-muted-foreground`, `text-destructive`), not `gray-*`/`white`.
 
 ### Database
 
