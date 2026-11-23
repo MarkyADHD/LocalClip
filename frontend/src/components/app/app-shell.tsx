@@ -5,11 +5,11 @@ import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Clapperboard, CornerDownLeft, Film, Plus, Search, Settings, Sparkles,
+  Clapperboard, CornerDownLeft, Film, Loader2, Plus, Search, Settings, Sparkles,
 } from "lucide-react";
 import { useSession } from "@/lib/auth-client";
 import { fetchGenerations, timeAgo, type GenerationSummary } from "@/lib/generations";
-import { StatusBadge } from "@/components/app/status-badge";
+import { StatusBadge, ACTIVE_TASK_STATUSES } from "@/components/app/status-badge";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Kbd } from "@/components/ui/kbd";
@@ -54,7 +54,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // Children must keep the same tree position whether or not the session has
   // loaded — otherwise the page remounts and re-runs its initial fetches.
   const user = session?.user;
-  const items = NAV;
+  const userId = user?.id;
+
+  // Videos still being clipped stay one click away from every page.
+  const [jobs, setJobs] = useState<GenerationSummary[]>([]);
+  const loadJobs = useCallback(() => {
+    fetchGenerations()
+      .then((all) => setJobs(all.filter((generation) => ACTIVE_TASK_STATUSES.includes(generation.status)).slice(0, 3)))
+      .catch(() => {});
+  }, []);
+  useEffect(() => { if (userId) loadJobs(); }, [userId, pathname, loadJobs]);
+  const hasJobs = jobs.length > 0;
+  useEffect(() => {
+    if (!hasJobs) return;
+    const timer = setInterval(loadJobs, 8000);
+    return () => clearInterval(timer);
+  }, [hasJobs, loadJobs]);
 
   return (
     <div data-app-shell={user ? "" : undefined} className={cn(user && "flex min-h-dvh bg-canvas")}>
@@ -69,12 +84,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           {!compact && "LocalClip"}
         </Link>
 
-        <SidebarLink compact={compact} href="/" label="New generation" shortcut="N" className="mb-4 mt-1 bg-foreground text-background hover:bg-foreground/90 hover:text-background">
+        <SidebarLink compact={compact} href="/" label="New clips" shortcut="N" className="mb-4 mt-1 bg-brand text-brand-foreground shadow-sm hover:bg-brand/90 hover:text-brand-foreground">
           <Plus className="size-4" />
         </SidebarLink>
 
         <nav aria-label="Main navigation" className="flex w-full flex-col gap-0.5">
-          {items.map((item) => {
+          {NAV.slice(1).map((item) => {
             const active = item.match(pathname);
             return (
               <SidebarLink key={item.href} compact={compact} href={item.href} label={item.label} active={active}>
@@ -88,14 +103,32 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           type="button"
           onClick={() => setPaletteOpen(true)}
           className={cn(
-            "mt-4 flex h-9 w-full items-center gap-2 rounded-lg border border-sidebar-border bg-background text-sm text-muted-foreground transition-colors hover:text-foreground",
+            "mt-4 flex h-9 w-full items-center gap-2 rounded-lg border border-sidebar-border bg-transparent text-sm text-muted-foreground transition-colors hover:text-foreground",
             compact ? "justify-center px-0" : "px-2.5",
           )}
           aria-label="Search generations"
         >
           <Search className="size-4 shrink-0" />
-          {!compact && <><span className="flex-1 text-left">Search</span><Kbd>⌘K</Kbd></>}
+          {!compact && <><span className="flex-1 text-left">Search</span><Kbd>Ctrl K</Kbd></>}
         </button>
+
+        {hasJobs && !compact && (
+          <section aria-label="In progress" className="mt-6 w-full">
+            <h2 className="px-2.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">In progress</h2>
+            <ul className="mt-1.5 flex flex-col gap-0.5">
+              {jobs.map((job) => (
+                <li key={job.id}>
+                  <Link href={`/tasks/${job.id}`} className="flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-foreground">
+                    <Loader2 className="size-3.5 shrink-0 animate-spin text-brand" aria-hidden />
+                    <span className="min-w-0 flex-1 truncate">{job.source_title}</span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
+        {!compact && <p className="mt-auto px-2.5 pb-4 text-[11px] leading-relaxed text-muted-foreground/70">Runs on this PC. Nothing is uploaded.</p>}
 
       </aside> : null}
 
@@ -113,7 +146,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         {children}
       </div>
 
-      {user ? <nav aria-label="Mobile navigation" className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-3 border-t bg-background/90 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden">
+      {user ? <nav aria-label="Mobile navigation" className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-4 border-t bg-background/90 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden">
         {NAV.map((item) => {
           const active = item.match(pathname);
           return (
@@ -141,7 +174,7 @@ function SidebarLink({ href, label, active, compact, shortcut, className, childr
       className={cn(
         "flex h-9 w-full items-center gap-2.5 rounded-lg text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         compact ? "justify-center" : "px-2.5",
-        active ? "bg-background text-foreground shadow-xs ring-1 ring-sidebar-border" : "text-muted-foreground hover:bg-sidebar-accent hover:text-foreground",
+        active ? "bg-sidebar-accent text-foreground" : "text-muted-foreground hover:bg-sidebar-accent hover:text-foreground",
         className,
       )}
     >
@@ -173,8 +206,9 @@ function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenChange: (
   const entries = useMemo<PaletteEntry[]>(() => {
     const q = query.trim().toLowerCase();
     const actions: PaletteEntry[] = [
-      { id: "new", label: "New generation", hint: "Paste a link or upload", href: "/", icon: Plus },
+      { id: "new", label: "New clips", hint: "Paste a link or upload", href: "/", icon: Plus },
       { id: "library", label: "Open library", href: "/list", icon: Film },
+      { id: "projects", label: "Video editor", href: "/projects", icon: Clapperboard },
       { id: "settings", label: "Settings", href: "/settings", icon: Settings },
     ].filter((entry) => !q || entry.label.toLowerCase().includes(q));
     const matches = generations

@@ -12,6 +12,8 @@ import { useParams, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { PageLoading, PageError } from "@/components/app/page-state";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
+import { sourceIcon } from "@/components/app/generation-card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   AlertDialog,
@@ -49,9 +51,7 @@ import {
   RotateCcw,
   Settings2,
   Trash2,
-  Upload,
   X,
-  Youtube,
 } from "lucide-react";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import Link from "next/link";
@@ -525,6 +525,7 @@ export default function TaskPage() {
   if (error) return <PageError message={error} retry={() => void fetchTaskStatus()} />;
 
   const isActive = task?.status === "processing" || task?.status === "queued";
+  const SourceIcon = sourceIcon(task?.source_type ?? "");
   const sortedClips = sortBy === "score"
     ? [...clips].sort((a, b) => (b.virality_score ?? 0) - (a.virality_score ?? 0) || a.clip_order - b.clip_order)
     : clips;
@@ -579,7 +580,7 @@ export default function TaskPage() {
             )}
             <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2 text-sm text-muted-foreground">
               <StatusBadge status={task.status} />
-              <span className="flex items-center gap-1.5 capitalize">{task.source_type === "youtube" ? <Youtube className="size-3.5" /> : <Upload className="size-3.5" />}{task.source_type}</span>
+              <span className="flex items-center gap-1.5 capitalize"><SourceIcon className="size-3.5" />{task.source_type}</span>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <span className="flex cursor-default items-center gap-1.5"><Clock className="size-3.5" />{timeAgo(task.created_at)}</span>
@@ -642,8 +643,8 @@ export default function TaskPage() {
                 <Button size="sm" variant="outline" onClick={() => setSettingsSheetOpen(true)}>
                   <Settings2 className="size-4" /><span className="hidden sm:inline">Restyle</span>
                 </Button>
-                <Button size="sm" asChild>
-                  <Link href={`/tasks/${task.id}/edit`}><Clapperboard className="size-4" />Open Editor</Link>
+                <Button size="sm" asChild className="bg-brand text-brand-foreground hover:bg-brand/90">
+                  <Link href={`/tasks/${task.id}/edit`}><Clapperboard className="size-4" />Open editor</Link>
                 </Button>
               </>
             )}
@@ -659,7 +660,7 @@ export default function TaskPage() {
             )}
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button size="icon-sm" variant="ghost" aria-label="Delete generation" className="text-muted-foreground hover:bg-red-50 hover:text-red-600" onClick={() => setShowDeleteDialog(true)}>
+                <Button size="icon-sm" variant="ghost" aria-label="Delete generation" className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive" onClick={() => setShowDeleteDialog(true)}>
                   <Trash2 className="size-4" />
                 </Button>
               </TooltipTrigger>
@@ -686,17 +687,17 @@ export default function TaskPage() {
         ) : task.status === "cancelled" && clips.length === 0 ? (
           <EmptyState icon={<PauseCircle className="size-7" />} title="Generation cancelled" body="Resume this generation when you are ready to continue." />
         ) : task.status === "error" ? (
-          <EmptyState tone="error" icon={<AlertCircle className="size-7" />} title="Processing Failed" body="There was an error processing your video. Resume to retry from where it stopped, or try another video.">
-            <Button asChild variant="outline"><Link href="/"><ArrowLeft className="size-4" />Back to Home</Link></Button>
+          <EmptyState tone="error" icon={<AlertCircle className="size-7" />} title="This one hit a problem" body="There was an error processing your video. Resume to retry from where it stopped, or try another video.">
+            <Button asChild variant="outline"><Link href="/"><ArrowLeft className="size-4" />Back to home</Link></Button>
           </EmptyState>
         ) : clips.length === 0 ? (
-          <EmptyState icon={<AlertCircle className="size-7" />} title="No Clips Generated" body="The generation completed but no clips were generated. The video may not have had suitable content for clipping.">
-            <Button asChild><Link href="/"><ArrowLeft className="size-4" />Try Another Video</Link></Button>
+          <EmptyState icon={<AlertCircle className="size-7" />} title="No clips found" body="The search finished without finding a moment worth clipping. Try a different part of the stream or another video.">
+            <Button asChild><Link href="/"><ArrowLeft className="size-4" />Try another video</Link></Button>
           </EmptyState>
         ) : (
           <>
             <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-              <div className="inline-flex rounded-lg border bg-background p-0.5" role="tablist" aria-label="Sort clips">
+              <div className="inline-flex rounded-lg border bg-card p-0.5" role="tablist" aria-label="Sort clips">
                 {([["score", "Best first"], ["timeline", "Timeline"]] as const).map(([value, label]) => (
                   <button key={value} type="button" role="tab" aria-selected={sortBy === value} onClick={() => setSortBy(value)}
                     className={cn("h-7 rounded-md px-3 text-xs font-medium transition-colors", sortBy === value ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground")}>
@@ -707,7 +708,7 @@ export default function TaskPage() {
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
                 <span className="hidden sm:inline">Download as</span>
                 <Select value={exportPreset} onValueChange={setExportPreset}>
-                  <SelectTrigger size="sm" aria-label="Download format" className="h-8 min-w-[112px] bg-background"><SelectValue /></SelectTrigger>
+                  <SelectTrigger size="sm" aria-label="Download format" className="h-8 min-w-[112px] bg-card"><SelectValue /></SelectTrigger>
                   <SelectContent align="end">
                     <SelectItem value="original">Original</SelectItem>
                     <SelectItem value="raw">Raw horizontal (no captions)</SelectItem>
@@ -741,12 +742,12 @@ export default function TaskPage() {
       <Sheet open={settingsSheetOpen} onOpenChange={setSettingsSheetOpen}>
         <SheetContent side="right" className="overflow-y-auto sm:max-w-md">
           <SheetHeader>
-            <SheetTitle className="flex items-center gap-2"><Settings2 className="size-4" />Generation settings</SheetTitle>
-            <SheetDescription>Configure font, caption, and cleanup settings for this generation&apos;s clips.</SheetDescription>
+            <SheetTitle className="flex items-center gap-2"><Settings2 className="size-4" />Restyle clips</SheetTitle>
+            <SheetDescription>Change the captions and cleanup, then re-render every clip from this video.</SheetDescription>
           </SheetHeader>
             <div className="space-y-5 px-4">
               <div className="space-y-1.5">
-                <label className="text-xs font-medium text-gray-500">Font</label>
+                <label className="text-xs font-medium text-muted-foreground">Font</label>
                 <Select
                   value={projectFontFamily ?? FONT_TEMPLATE_DEFAULT_VALUE}
                   onValueChange={(value) =>
@@ -774,13 +775,13 @@ export default function TaskPage() {
 
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
-                  <label className="text-xs font-medium text-gray-500">Color</label>
-                  <label className="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer">
+                  <label className="text-xs font-medium text-muted-foreground">Color</label>
+                  <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer">
                     <input
                       type="checkbox"
                       checked={projectFontColor === null}
                       onChange={(e) => setProjectFontColor(e.target.checked ? null : "#FFFFFF")}
-                      className="rounded"
+                      className="rounded accent-[var(--brand)]"
                     />
                     Template default
                   </label>
@@ -791,7 +792,7 @@ export default function TaskPage() {
                     value={projectFontColor ?? "#FFFFFF"}
                     onChange={(e) => setProjectFontColor(e.target.value)}
                     disabled={projectFontColor === null}
-                    className="h-9 w-9 rounded border border-gray-300 cursor-pointer disabled:cursor-not-allowed"
+                    className="h-9 w-9 rounded border bg-transparent cursor-pointer disabled:cursor-not-allowed"
                   />
                   <Input
                     value={projectFontColor ?? ""}
@@ -803,7 +804,7 @@ export default function TaskPage() {
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-xs font-medium text-gray-500">Caption Template</label>
+                <label className="text-xs font-medium text-muted-foreground">Caption style</label>
                 <Select value={projectCaptionTemplate} onValueChange={setProjectCaptionTemplate}>
                   <SelectTrigger>
                     <SelectValue>
@@ -815,7 +816,7 @@ export default function TaskPage() {
                       <SelectItem key={template.id} value={template.id}>
                         <div>
                           <div className="font-medium">{template.name}</div>
-                          <div className="text-xs text-gray-500">{template.description}</div>
+                          <div className="text-xs text-muted-foreground">{template.description}</div>
                         </div>
                       </SelectItem>
                     ))}
@@ -824,24 +825,19 @@ export default function TaskPage() {
                 </Select>
               </div>
 
-              <div className="rounded-lg border bg-gray-50 p-3 space-y-3">
+              <div className="rounded-lg border bg-muted/40 p-3 space-y-3">
                 <div>
-                  <div className="text-sm font-medium text-gray-900">Clip cleanup</div>
-                  <div className="text-xs text-gray-500">Apply silence and filler-word cuts to regenerated clips.</div>
+                  <div className="text-sm font-medium">Clip cleanup</div>
+                  <div className="text-xs text-muted-foreground">Apply silence and filler-word cuts to regenerated clips.</div>
                 </div>
 
-                <label className="flex items-center gap-2 text-sm text-gray-700">
-                  <input
-                    type="checkbox"
-                    checked={projectCutLongPauses}
-                    onChange={(e) => setProjectCutLongPauses(e.target.checked)}
-                    className="rounded"
-                  />
+                <label className="flex items-center justify-between gap-2 text-sm">
                   Shorten long pauses
+                  <Switch checked={projectCutLongPauses} onCheckedChange={setProjectCutLongPauses} />
                 </label>
 
                 <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-gray-500">Pause threshold (ms)</label>
+                  <label className="text-xs font-medium text-muted-foreground">Pause threshold (ms)</label>
                   <Input
                     type="number"
                     min={250}
@@ -853,18 +849,13 @@ export default function TaskPage() {
                   />
                 </div>
 
-                <label className="flex items-center gap-2 text-sm text-gray-700">
-                  <input
-                    type="checkbox"
-                    checked={projectRemoveFillerWords}
-                    onChange={(e) => setProjectRemoveFillerWords(e.target.checked)}
-                    className="rounded"
-                  />
+                <label className="flex items-center justify-between gap-2 text-sm">
                   Remove filler words
+                  <Switch checked={projectRemoveFillerWords} onCheckedChange={setProjectRemoveFillerWords} />
                 </label>
 
                 <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-gray-500">Extra filtered words or phrases</label>
+                  <label className="text-xs font-medium text-muted-foreground">Extra filtered words or phrases</label>
                   <Input
                     value={projectFilteredWords}
                     onChange={(e) => setProjectFilteredWords(e.target.value)}
@@ -880,7 +871,7 @@ export default function TaskPage() {
                 onClick={handleApplyProjectSettings}
                 disabled={isApplyingSettings}
               >
-                {isApplyingSettings ? "Applying..." : "Apply to All Clips"}
+                {isApplyingSettings ? "Applying…" : "Apply to all clips"}
               </Button>
             </SheetFooter>
         </SheetContent>
@@ -906,7 +897,7 @@ export default function TaskPage() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Keep it</AlertDialogCancel>
-            <AlertDialogAction onClick={() => void handleDeleteSource()} className="bg-red-600 hover:bg-red-700">Delete full video</AlertDialogAction>
+            <AlertDialogAction onClick={() => void handleDeleteSource()} className="bg-destructive text-white hover:bg-destructive/90">Delete full video</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
@@ -914,15 +905,14 @@ export default function TaskPage() {
       <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete Generation</AlertDialogTitle>
+            <AlertDialogTitle>Delete this video and its clips?</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete this generation? This will permanently delete all clips and cannot be
-              undone.
+              Every clip made from it is deleted from your PC. This cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDeleteTask} disabled={isDeleting} className="bg-red-600 hover:bg-red-700">
+            <AlertDialogAction onClick={handleDeleteTask} disabled={isDeleting} className="bg-destructive text-white hover:bg-destructive/90">
               {isDeleting ? "Deleting..." : "Delete"}
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -933,16 +923,16 @@ export default function TaskPage() {
       <AlertDialog open={!!deletingClipId} onOpenChange={(open) => !open && setDeletingClipId(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete Clip</AlertDialogTitle>
+            <AlertDialogTitle>Delete this clip?</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete this clip? This action cannot be undone.
+              The clip is removed from your PC. This cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => deletingClipId && handleDeleteClip(deletingClipId)}
-              className="bg-red-600 hover:bg-red-700"
+              className="bg-destructive text-white hover:bg-destructive/90"
             >
               Delete
             </AlertDialogAction>

@@ -1,12 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { AlertTriangle, Loader2, Youtube, Upload } from "lucide-react";
+import { AlertTriangle, Loader2, Twitch, Tv, Youtube, Upload } from "lucide-react";
 import { ClipCover, ScoreRing } from "@/components/app/clip-cover";
 import { StatusBadge, ACTIVE_TASK_STATUSES } from "@/components/app/status-badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { coverClipUrl, timeAgo, type GenerationSummary } from "@/lib/generations";
 import { cn } from "@/lib/utils";
+
+export const sourceIcon = (type: string) => ({ youtube: Youtube, twitch: Twitch, kick: Tv })[type] ?? Upload;
 
 export function GenerationCard({ generation, selected, onToggle, selectionDisabled, showStatus, className }: {
   generation: GenerationSummary;
@@ -20,7 +22,7 @@ export function GenerationCard({ generation, selected, onToggle, selectionDisabl
   const active = ACTIVE_TASK_STATUSES.includes(generation.status);
   const failed = generation.status === "error";
   const selectable = Boolean(onToggle);
-  const SourceIcon = generation.source_type === "youtube" ? Youtube : Upload;
+  const SourceIcon = sourceIcon(generation.source_type);
 
   return (
     <div className={cn("group relative", className)}>
@@ -28,8 +30,8 @@ export function GenerationCard({ generation, selected, onToggle, selectionDisabl
         <ClipCover
           src={coverClipUrl(generation)}
           className={cn(
-            "aspect-[3/4] rounded-xl ring-1 ring-black/5 transition-all duration-200 group-hover:shadow-lg group-hover:ring-black/10",
-            selected && "ring-2 ring-foreground",
+            "aspect-[3/4] rounded-xl ring-1 ring-foreground/10 transition-all duration-200 group-hover:-translate-y-0.5 group-hover:shadow-xl group-hover:ring-foreground/25",
+            selected && "ring-2 ring-brand",
           )}
         >
           <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/70 via-black/0 to-black/20" />

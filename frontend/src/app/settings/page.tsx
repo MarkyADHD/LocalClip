@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectTrigger, SelectValue } from "@/components/
 import { Slider } from "@/components/ui/slider";
 import { useSession } from "@/lib/auth-client";
 import { track } from "@/lib/datafast";
-import { AlertCircle, Bot, Check, Loader2, Type } from "lucide-react";
+import { AlertCircle, Bot, Check, Loader2, Moon, Palette, Sun, Type } from "lucide-react";
 import { AiModelPicker } from "@/components/ai-model-picker";
 import { cn } from "@/lib/utils";
 import { FontSelectOption, type FontOption } from "@/components/font-select-option";
@@ -161,9 +161,13 @@ export default function SettingsPage() {
   return (
     <main className={cn("mx-auto w-full max-w-3xl px-4 pt-8 sm:px-8 md:pt-10", showSaveBar ? "pb-32" : "pb-16")}>
       <h1 className="font-display text-3xl font-bold tracking-tight">Settings</h1>
-      <p className="mt-1 text-sm text-muted-foreground">Defaults for new generations.</p>
+      <p className="mt-1 text-sm text-muted-foreground">How LocalClip looks and the defaults for new clips.</p>
 
       <div className="mt-8 space-y-6">
+        <Section icon={<Palette className="size-4" />} title="Appearance" description="Dark matches the editors. Saved on this PC.">
+          <ThemePicker />
+        </Section>
+
         <Section icon={<Bot className="size-4" />} title="AI model" description="Picks the clips. Saved as soon as you choose.">
           <AiModelPicker />
         </Section>
@@ -242,22 +246,22 @@ export default function SettingsPage() {
         </Section>
 
         {error && (
-          <Alert className="border-red-200 bg-red-50">
-            <AlertCircle className="h-4 w-4 text-red-500" />
-            <AlertDescription className="text-sm text-red-700">{error}</AlertDescription>
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription className="text-sm">{error}</AlertDescription>
           </Alert>
         )}
       </div>
 
       {showSaveBar && (
         <div className="fixed inset-x-0 bottom-[calc(4rem+env(safe-area-inset-bottom))] z-30 flex justify-center px-4 pb-4 pointer-events-none md:bottom-0 md:pb-6 md:pl-64">
-          <div className="pointer-events-auto flex w-full max-w-3xl animate-in fade-in slide-in-from-bottom-4 duration-200 items-center justify-between gap-4 rounded-2xl border bg-background/95 px-4 py-3 shadow-lg backdrop-blur max-md:mr-14">
+          <div className="pointer-events-auto flex w-full max-w-3xl animate-in fade-in slide-in-from-bottom-4 duration-200 items-center justify-between gap-4 rounded-2xl border bg-popover/95 px-4 py-3 shadow-lg backdrop-blur max-md:mr-14">
             <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground">
-              {success ? <><Check className="size-4 text-emerald-600" />Preferences saved successfully!</>
+              {success ? <><Check className="size-4 text-emerald-500" />Saved</>
                 : <><span className="size-2 rounded-full bg-brand" />Unsaved changes</>}
             </p>
             <Button onClick={handleSavePreferences} disabled={isLoading}>
-              {isLoading ? <><Loader2 className="size-4 animate-spin" />Saving...</> : "Save Preferences"}
+              {isLoading ? <><Loader2 className="size-4 animate-spin" />Saving...</> : "Save preferences"}
             </Button>
           </div>
         </div>
@@ -266,9 +270,30 @@ export default function SettingsPage() {
   );
 }
 
+/** Dark is the default; the choice lives in localStorage and is applied before paint by the script in layout.tsx. */
+function ThemePicker() {
+  const [dark, setDark] = useState(true);
+  useEffect(() => setDark(document.documentElement.classList.contains("dark")), []);
+  const pick = (next: boolean) => {
+    setDark(next);
+    document.documentElement.classList.toggle("dark", next);
+    try { localStorage.setItem("localclip-theme", next ? "dark" : "light"); } catch { /* private mode: lasts until reload */ }
+  };
+  return (
+    <div className="grid grid-cols-2 gap-3 sm:max-w-sm" role="radiogroup" aria-label="Theme">
+      {([[true, "Dark", Moon], [false, "Light", Sun]] as const).map(([value, label, Icon]) => (
+        <button key={label} type="button" role="radio" aria-checked={dark === value} onClick={() => pick(value)}
+          className={cn("flex items-center gap-2.5 rounded-xl border px-4 py-3 text-sm font-medium transition-colors hover:bg-accent", dark === value && "border-brand ring-1 ring-brand")}>
+          <Icon className="size-4" />{label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function Section({ id, icon, title, description, children }: { id?: string; icon: React.ReactNode; title: string; description: string; children: React.ReactNode }) {
   return (
-    <section id={id} className="scroll-mt-6 rounded-2xl border bg-background">
+    <section id={id} className="scroll-mt-6 rounded-2xl border bg-card">
       <div className="flex items-start gap-3 border-b px-5 py-4">
         <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted">{icon}</span>
         <div>

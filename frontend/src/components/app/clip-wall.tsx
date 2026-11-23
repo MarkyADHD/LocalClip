@@ -60,7 +60,7 @@ export function ClipTile({ clip, taskId, busy, best, editable, onOpen, onDownloa
       >
         <ClipCover
           src={getClipUrl(clip.video_url, clip.filename)}
-          className="aspect-[9/16] rounded-xl ring-1 ring-black/5 transition-shadow duration-200 group-hover:shadow-xl"
+          className="aspect-[9/16] rounded-xl ring-1 ring-foreground/10 transition-all duration-200 group-hover:-translate-y-0.5 group-hover:shadow-xl group-hover:ring-foreground/25"
         >
           <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/75 via-transparent to-black/25" />
           {best && (
@@ -92,7 +92,7 @@ export function ClipTile({ clip, taskId, busy, best, editable, onOpen, onDownloa
             </Button>
           )}
           {onDelete && (
-            <Button size="icon-sm" variant="ghost" className="size-7 text-muted-foreground hover:bg-red-50 hover:text-red-600" onClick={onDelete} aria-label="Delete clip">
+            <Button size="icon-sm" variant="ghost" className="size-7 text-muted-foreground hover:bg-destructive/10 hover:text-destructive" onClick={onDelete} aria-label="Delete clip">
               <Trash2 className="size-3.5" />
             </Button>
           )}
@@ -225,7 +225,7 @@ export function ClipFocus({ clip, taskId, index, total, busy, editable, onNaviga
                   </>
                 )}
                 {onDelete && (
-                  <Button size="sm" variant="ghost" className="ml-auto text-muted-foreground hover:bg-red-50 hover:text-red-600" onClick={onDelete}>
+                  <Button size="sm" variant="ghost" className="ml-auto text-muted-foreground hover:bg-destructive/10 hover:text-destructive" onClick={onDelete}>
                     <Trash2 className="size-4" />Delete
                   </Button>
                 )}
@@ -258,7 +258,7 @@ export function ProcessingPanel({ status, progress, message, readyCount }: { sta
   const byProgress = STEPS.findIndex((step) => progress < step.until);
   const activeStep = status === "queued" ? -1 : stepFromMessage(message) ?? (byProgress === -1 ? STEPS.length - 1 : byProgress);
   return (
-    <section className="overflow-hidden rounded-2xl border bg-background" aria-live="polite">
+    <section className="overflow-hidden rounded-2xl border bg-card" aria-live="polite">
       <div className="relative h-1 bg-muted">
         <div className="absolute inset-y-0 left-0 overflow-hidden bg-brand transition-[width] duration-700 ease-out progress-sheen" style={{ width: `${Math.max(progress, status === "queued" ? 2 : 6)}%` }} />
       </div>
@@ -297,7 +297,7 @@ export function ProcessingPanel({ status, progress, message, readyCount }: { sta
 export function EmptyState({ icon, title, body, tone, children }: { icon: React.ReactNode; title: string; body: string; tone?: "error"; children?: React.ReactNode }) {
   return (
     <div className="flex flex-col items-center rounded-2xl border border-dashed px-6 py-16 text-center">
-      <span className={cn("flex size-14 items-center justify-center rounded-2xl", tone === "error" ? "bg-red-50 text-red-600" : "bg-muted text-muted-foreground")}>{icon}</span>
+      <span className={cn("flex size-14 items-center justify-center rounded-2xl", tone === "error" ? "bg-destructive/10 text-destructive" : "bg-muted text-muted-foreground")}>{icon}</span>
       <h2 className="mt-4 text-lg font-semibold">{title}</h2>
       <p className="mt-1 max-w-md text-sm text-muted-foreground">{body}</p>
       {children && <div className="mt-6 flex gap-2">{children}</div>}

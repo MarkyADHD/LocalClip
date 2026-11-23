@@ -35,7 +35,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    // Dark by default, like the editors; Settings > Appearance can switch it (stored in localStorage).
+    <html lang="en" className="dark" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: `try{if(localStorage.getItem("localclip-theme")==="light")document.documentElement.classList.remove("dark")}catch(e){}` }} />
+      </head>
       <body className={`${geistSans.variable} ${geistMono.variable} ${syne.variable} antialiased`}>
         <TooltipProvider>
           <LocalAutoSignIn />
