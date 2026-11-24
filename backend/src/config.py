@@ -106,6 +106,8 @@ class Config:
         self.temp_dir = os.getenv("TEMP_DIR", "temp")
         # Twitch/Kick downloads older than this are deleted automatically; 0 keeps them forever.
         self.source_keep_days = float(os.getenv("SOURCE_KEEP_DAYS", "3"))
+        # Client ID of a *public* Twitch app (not a secret) for "Log in with Twitch".
+        self.twitch_client_id = os.getenv("TWITCH_CLIENT_ID", "").strip()
 
         # Redis configuration
         self.redis_host = os.getenv("REDIS_HOST", "localhost")

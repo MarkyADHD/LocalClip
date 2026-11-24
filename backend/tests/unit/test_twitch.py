@@ -79,3 +79,59 @@ def test_kick_and_clip_links():
     for url in ("https://kick.com/somestreamer", "https://www.twitch.tv/somestreamer", "https://kick.com/../videos/x"):
         assert get_stream_source(url) is None
     assert get_twitch_video_id("https://clips.twitch.tv/FaintLightGullWholeWheat") is None  # no chat replay for clips
+
+
+def test_twitch_login_then_list_vods_with_token_refresh(monkeypatch, tmp_path):
+    import asyncio
+    from types import SimpleNamespace
+
+    from src import twitch
+
+    monkeypatch.setattr(twitch, "get_config", lambda: SimpleNamespace(temp_dir=str(tmp_path), twitch_client_id="cid"))
+
+    class Reply:
+        def __init__(self, status, body):
+            self.status_code, self._body, self.content, self.text = status, body, b"x", str(body)
+
+        def json(self):
+            return self._body
+
+    approved = {"yes": False}
+
+    async def oauth(path, **form):
+        if path == "device":
+            return Reply(200, {"device_code": "dev", "user_code": "ABCD", "verification_uri": "https://twitch.tv/activate"})
+        if form.get("grant_type") == "refresh_token":
+            assert form["refresh_token"] == "r1"
+            return Reply(200, {"access_token": "a2", "refresh_token": "r2"})
+        if not approved["yes"]:
+            return Reply(400, {"status": 400, "message": "authorization_pending"})
+        return Reply(200, {"access_token": "a1", "refresh_token": "r1"})
+
+    async def helix(auth, path, **params):
+        if path == "users":
+            return Reply(200, {"data": [{"id": "7", "login": "marky", "display_name": "Marky"}]})
+        if auth["access_token"] == "a1":  # expired: forces one refresh
+            return Reply(401, {})
+        assert params["user_id"] == "7"
+        video = {"id": "42", "title": "ranked", "url": "https://www.twitch.tv/videos/42",
+                 "thumbnail_url": "https://x/%{width}x%{height}.jpg", "duration": "3h2m1s", "type": "archive"}
+        return Reply(200, {"data": [video], "pagination": {"cursor": "next"}})
+
+    monkeypatch.setattr(twitch, "_oauth", oauth)
+    monkeypatch.setattr(twitch, "_helix", helix)
+
+    assert asyncio.run(twitch.list_my_vods()) == {"configured": True, "logged_in": False}
+    assert asyncio.run(twitch.start_twitch_login())["user_code"] == "ABCD"
+    assert asyncio.run(twitch.poll_twitch_login()) is False
+    approved["yes"] = True
+    assert asyncio.run(twitch.poll_twitch_login()) is True
+
+    listing = asyncio.run(twitch.list_my_vods())
+    assert listing["name"] == "Marky" and listing["cursor"] == "next"
+    assert listing["vods"][0]["thumbnail"] == "https://x/320x180.jpg"
+    assert get_twitch_video_id(listing["vods"][0]["url"]) == "42"
+    assert twitch._load_auth()["refresh_token"] == "r2"  # the single-use refresh token was replaced
+
+    asyncio.run(twitch.twitch_logout())
+    assert asyncio.run(twitch.list_my_vods())["logged_in"] is False
