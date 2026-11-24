@@ -34,9 +34,9 @@
 
 ---
 
-### 🎉 Over 370 downloads and counting
+### 🎉 Over 370 streamers have installed LocalClip
 
-LocalClip passed **370 downloads** in November 2026. Thank you, genuinely. The green **downloads** badge above is live from GitHub, so it always shows today's number.
+The installer passed **370 downloads** in November 2026. Thank you, genuinely. The green **downloads** badge above is live from GitHub and counts every file downloaded from the releases page (installer, app and updates), so it keeps itself up to date.
 
 <p align="center">
   <i>Made by a streamer, for streamers. Because sometimes we just don't have the time to manually clip things, y'know?</i>
