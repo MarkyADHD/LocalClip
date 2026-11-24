@@ -309,5 +309,6 @@ class UsageCountChoice(BaseModel):
 async def set_usage_count(request: Request, payload: UsageCountChoice, db: AsyncSession = Depends(get_db)):
     await _require_settings_user(request, db)
     usage_count.set_choice(payload.enabled)
-    await usage_count.ping()
+    # In the background: ping() retries for up to an hour when the counter can't be reached.
+    request.app.state.usage_ping = asyncio.create_task(usage_count.ping())
     return {"enabled": payload.enabled}

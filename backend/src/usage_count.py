@@ -6,6 +6,7 @@ The request carries no ID and no data about the PC or its videos: it is a bare G
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -50,22 +51,28 @@ def set_choice(enabled: bool) -> None:
     _save({**load(), "enabled": enabled})
 
 
+# Waits between tries while the app stays open. A timeout on the first try (seen on a real PC,
+# 10 s after startup) used to mean no count until the next launch.
+RETRY_DELAYS = (0, 60, 600, 3600)
+
+
 async def ping() -> None:
     """Count this install (once) and this month (once). Never raises: counting must not break the app."""
-    try:
-        # Only the real Windows app counts, not dev servers, Docker or CI.
-        if os.getenv("LOCALCLIP_NATIVE") != "1" or not get_choice():
+    for delay in RETRY_DELAYS:
+        await asyncio.sleep(delay)
+        try:
+            # Only the real Windows app counts, not dev servers, Docker or CI.
+            if os.getenv("LOCALCLIP_NATIVE") != "1" or not get_choice():
+                return
+            month = datetime.now(timezone.utc).strftime("%Y-%m")
+            async with httpx.AsyncClient(timeout=30) as client:
+                # Saved after each hit, so a failure on the second never counts the first twice.
+                if not load().get("installed"):
+                    (await client.get(f"{COUNTER_URL}/installs")).raise_for_status()
+                    _save({**load(), "installed": True})
+                if load().get("month") != month:
+                    (await client.get(f"{COUNTER_URL}/active-{month}")).raise_for_status()
+                    _save({**load(), "month": month})
             return
-        state = load()
-        month = datetime.now(timezone.utc).strftime("%Y-%m")
-        keys = ([] if state.get("installed") else ["installs"]) + (
-            [] if state.get("month") == month else [f"active-{month}"]
-        )
-        if not keys:
-            return
-        async with httpx.AsyncClient(timeout=10) as client:
-            for key in keys:
-                (await client.get(f"{COUNTER_URL}/{key}")).raise_for_status()
-        _save({**load(), "installed": True, "month": month})
-    except Exception as exc:  # offline, service down: try again next start
-        logger.info("Usage count not sent: %s", exc)
+        except Exception as exc:  # offline, service down: try again later, then next start
+            logger.warning("Usage count not sent: %r", exc)
