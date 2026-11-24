@@ -81,7 +81,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       >
         <Link href="/" className={cn("flex h-14 items-center gap-2 font-display text-lg font-bold tracking-tight", compact ? "justify-center" : "px-2")}>
           <Image src="/logo.png" alt="" width={24} height={24} className="size-6" priority />
-          {!compact && "LocalClip"}
+          {!compact && <Brand />}
         </Link>
 
         <SidebarLink compact={compact} href="/" label="New clips" shortcut="N" className="mb-4 mt-1 bg-brand text-brand-foreground shadow-sm hover:bg-brand/90 hover:text-brand-foreground">
@@ -135,7 +135,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <div className={cn(user && "flex min-w-0 flex-1 flex-col pb-[calc(4rem+env(safe-area-inset-bottom))] md:pb-0")}>
         {user ? <header className="sticky top-0 z-30 flex h-14 items-center justify-between border-b bg-background/80 px-4 backdrop-blur md:hidden">
           <Link href="/" className="flex items-center gap-2 font-display text-lg font-bold tracking-tight">
-            <Image src="/logo.png" alt="" width={22} height={22} className="size-[22px]" />LocalClip
+            <Image src="/logo.png" alt="" width={22} height={22} className="size-[22px]" /><Brand />
           </Link>
           <div className="flex items-center gap-1">
             <button type="button" onClick={() => setPaletteOpen(true)} aria-label="Search generations" className="rounded-lg p-2 text-muted-foreground hover:bg-accent">
@@ -160,6 +160,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
       {user ? <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} /> : null}
     </div>
+  );
+}
+
+function Brand() {
+  return (
+    <span className="flex flex-col leading-none">
+      LocalClip
+      <span className="mt-0.5 font-sans text-[10px] font-medium tracking-normal text-muted-foreground">By MarkyADHD</span>
+    </span>
   );
 }
 
