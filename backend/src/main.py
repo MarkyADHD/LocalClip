@@ -75,7 +75,7 @@ def create_app(
             await queue_adapter.get_pool()
             logger.info("✅ Job queue initialized")
 
-            # Opt-in anonymous user count (see usage_count.py); does nothing unless the user said yes.
+            # Anonymous user count (see usage_count.py); retries in the background, off switch in Settings.
             app.state.usage_ping = asyncio.create_task(usage_count.ping())
 
             if mcp:

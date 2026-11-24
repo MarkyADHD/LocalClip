@@ -34,3 +34,25 @@ def test_counts_once_per_install_and_month_unless_turned_off(monkeypatch, tmp_pa
     (tmp_path / "usage_count.json").unlink()
     asyncio.run(usage_count.ping())
     assert len(hits) == 2
+
+
+def test_retries_after_a_failure_without_counting_the_install_twice(monkeypatch, tmp_path):
+    hits = []
+
+    class Client:
+        def __init__(self, **_): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *_): pass
+        async def get(self, url):
+            hits.append(url)
+            if len(hits) == 2:  # the month hit times out once
+                raise httpx.ConnectTimeout("")
+            return httpx.Response(200, request=httpx.Request("GET", url))
+
+    monkeypatch.setattr(usage_count, "_file", lambda: tmp_path / "usage_count.json")
+    monkeypatch.setattr(usage_count.httpx, "AsyncClient", Client)
+    monkeypatch.setattr(usage_count, "RETRY_DELAYS", (0, 0))
+    monkeypatch.setenv("LOCALCLIP_NATIVE", "1")
+
+    asyncio.run(usage_count.ping())
+    assert [h.rsplit("/", 1)[1][:7] for h in hits] == ["install", "active-", "active-"], hits
