@@ -5,7 +5,7 @@ import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Clapperboard, CornerDownLeft, Film, Loader2, Plus, Search, Settings, Sparkles,
+  Clapperboard, CornerDownLeft, Film, Loader2, Plus, Search, Settings, Sparkles, X,
 } from "lucide-react";
 import { useSession } from "@/lib/auth-client";
 import { fetchGenerations, timeAgo, type GenerationSummary } from "@/lib/generations";
@@ -143,6 +143,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </button>
           </div>
         </header> : null}
+        {user && !compact ? <FollowBar /> : null}
         {children}
       </div>
 
@@ -159,6 +160,37 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </nav> : null}
 
       {user ? <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} /> : null}
+    </div>
+  );
+}
+
+/** "Follow me on Twitch" strip above the page; the X hides it for good (localStorage). Not shown in the editors. */
+function FollowBar() {
+  const [show, setShow] = useState(false);
+  useEffect(() => {
+    try { setShow(localStorage.getItem("localclip-follow-bar") !== "off"); } catch { setShow(true); }
+  }, []);
+  if (!show) return null;
+  return (
+    <div role="region" aria-label="Announcement" className="flex items-center gap-2 border-b bg-brand/10 py-1.5 pl-4 pr-2 text-sm">
+      <p className="min-w-0 flex-1 text-center">
+        Support my project by{" "}
+        {/* target=_blank: the desktop app hands new windows to the system browser. */}
+        <a href="https://twitch.tv/markyadhd" target="_blank" rel="noreferrer" className="font-medium text-brand underline-offset-4 hover:underline">
+          following me on Twitch
+        </a>
+      </p>
+      <button
+        type="button"
+        aria-label="Dismiss"
+        onClick={() => {
+          setShow(false);
+          try { localStorage.setItem("localclip-follow-bar", "off"); } catch { /* private mode: lasts until reload */ }
+        }}
+        className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+      >
+        <X className="size-4" />
+      </button>
     </div>
   );
 }
