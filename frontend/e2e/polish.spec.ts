@@ -153,3 +153,22 @@ test("the Twitch follow bar can be dismissed and stays dismissed", async ({ page
   await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
   await expect(bar).toHaveCount(0);
 });
+
+test("home shows setup problems; warnings can be hidden, errors cannot", async ({ page }) => {
+  await page.route("**/api/tasks/billing-summary", route => route.fulfill({ json: { monetization_enabled: false } }));
+  await page.route("**/api/preferences", route => route.fulfill({ json: { fontFamily: "TikTokSans-Regular", fontSize: 24, fontColor: "#FFFFFF", notifyOnCompletion: true } }));
+  await page.route(/\/api\/tasks\/?$/, route => route.fulfill({ json: { tasks: [] } }));
+  await page.route("**/api/setup-check", route => route.fulfill({ json: { problems: [
+    { id: "ai", level: "error", title: "No AI model to pick clips", detail: 'Claude Code is installed but not signed in. Open a terminal, run "claude" and sign in. Or pick a model that runs on this PC (Ollama, LM Studio) in Settings > AI model.', link: "/settings" },
+    { id: "gpu", level: "warning", title: "No NVIDIA graphics card found", detail: "LocalClip still works, but transcribing and rendering run on the processor and take much longer." },
+  ] } }));
+  await page.goto("/");
+  const problems = page.getByRole("region", { name: "Setup problems" });
+  await expect(problems.getByText("No AI model to pick clips")).toBeVisible();
+  await expect(problems.getByRole("link", { name: "Open Settings" })).toHaveAttribute("href", "/settings");
+  if (process.env.SHOT) await page.screenshot({ path: process.env.SHOT });
+  await problems.getByRole("button", { name: "Hide: No NVIDIA graphics card found" }).click();
+  await page.reload();
+  await expect(problems.getByText("No AI model to pick clips")).toBeVisible();
+  await expect(problems.getByText("No NVIDIA graphics card found")).toHaveCount(0);
+});

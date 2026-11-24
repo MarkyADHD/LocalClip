@@ -30,6 +30,7 @@ import { buildFontOptionsPayload, FONT_TEMPLATE_DEFAULT_VALUE } from "@/lib/font
 import { fetchGenerations, greeting, type GenerationSummary } from "@/lib/generations";
 import { cn } from "@/lib/utils";
 import { FontSelectOption, type FontOption } from "@/components/font-select-option";
+import { SetupCheck } from "@/components/setup-check";
 import { TwitchVodPicker } from "@/components/twitch-vod-picker";
 
 interface CaptionTemplate {
@@ -309,6 +310,8 @@ export default function HomeApp() {
             className="mb-8"
           />
         )}
+
+        <SetupCheck className="mx-auto mb-8 max-w-3xl" />
 
         <div className="mx-auto max-w-3xl animate-rise">
           <h1 className="text-center font-display text-3xl font-bold tracking-tight sm:text-[2.6rem] sm:leading-tight">

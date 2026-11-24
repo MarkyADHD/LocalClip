@@ -9,7 +9,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...admin_auth import require_admin_user
-from ... import problem_report, usage_count
+from ... import problem_report, setup_check, usage_count
 from ...ai import _get_missing_llm_key_error
 from ...auth_headers import get_authenticated_user_id
 from ...config import get_config
@@ -292,6 +292,13 @@ async def _save_settings(
                 "updated_by": user_id,
             },
         )
+
+
+@router.get("/setup-check")
+async def get_setup_check(request: Request, db: AsyncSession = Depends(get_db)):
+    """What stops this PC from making clips (no AI model, no ffmpeg) or slows it down. Empty when all is well."""
+    await _require_settings_user(request, db)
+    return {"problems": await asyncio.to_thread(setup_check.check, get_config())}
 
 
 @router.get("/problem-report")
