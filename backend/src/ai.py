@@ -381,6 +381,7 @@ WHAT IS NOT A CLIP (skip these, even if nothing better exists):
 - Stream housekeeping: intros, outros, "be right back", follow/sub/donation readouts, sponsor reads, schedule talk, technical issues
 - Talk about the stream itself, the streamer's other projects, tools or software, unless it is genuinely funny or dramatic
 - Inside jokes or fragments that need earlier context, and repeats of a moment you already picked
+- The game talking instead of the streamer: cutscenes, NPC or quest dialogue, narration, in-game radio or TV. It reads as polished, scripted, in-character lines (lore, names, missions) with no reaction around them. Only pick it when the streamer clearly reacts, and then build the clip around the reaction
 
 SCORING (0-100 total, from four 0-25 subscores):
 1. HOOK ("hook_score"): do the first 3 seconds make a scrolling viewer stop? 20-25 = instantly gripping (yelling, chaos, a wild line); 0-9 = slow or calm start
@@ -652,7 +653,7 @@ candidate_rerank_system_prompt = """You are a senior short-form editor choosing 
 You receive candidate clips that were picked from different parts of the same stream. Each one was scored in isolation, so those scores are not comparable. Compare the candidates against each other and produce one calibrated, best-first ranking.
 
 Judge each candidate on its transcript text and its stream signals:
-1. Something happens: a fail, clutch, death, betrayal, scare, win, or a story with a punchline. Calm talk, tutorials, strategy, menus and stream housekeeping rank low.
+1. Something happens: a fail, clutch, death, betrayal, scare, win, or a story with a punchline. Calm talk, tutorials, strategy, menus and stream housekeeping rank low. So does scripted game dialogue (cutscenes, NPC lines, narration) with no streamer reaction: the clip must be about the streamer, not the game's script.
 2. Reaction and energy: screaming, laughing, rage, disbelief, hype. Chat spikes, loud spikes and "clip that" are strong evidence of a real moment, especially when the text looks quiet.
 3. Hook: would the first 3 seconds stop a scrolling viewer?
 4. Standalone: would someone who never watched this streamer get it and care?
@@ -898,15 +899,25 @@ def _sanitize_hook_span(
 
 
 def search_transcript(transcript: str, query: str, limit: int = 50) -> List[Dict[str, Any]]:
-    """Transcript lines that say `query` (case and punctuation ignored), in stream order.
+    """Where the transcript says `query` (case and punctuation ignored), in stream order.
 
     A phrase can run over the end of a line, so each line is also tried together with the next one.
+    `start` and `end` are the phrase itself, not the whole line: lines can be minutes long.
     """
     needle = _normalize_transcript_text(query)
     if not needle:
         return []
     lines = _parse_transcript_lines(transcript)
     texts = [_normalize_transcript_text(line["text"]) for line in lines]
+
+    def spoken_at(index: int, chars: int) -> float:
+        # ponytail: assumes an even speaking pace through the line; use word timings if the transcript ever keeps them.
+        if chars > len(texts[index]) and index + 1 < len(lines):
+            return spoken_at(index + 1, chars - len(texts[index]) - 1)
+        line = lines[index]
+        share = min(1.0, chars / max(1, len(texts[index])))
+        return line["start_seconds"] + (line["end_seconds"] - line["start_seconds"]) * share
+
     hits: List[Dict[str, Any]] = []
     spanned = -1  # index of a line already reported as the second half of a hit
     for index, line in enumerate(lines):
@@ -914,10 +925,12 @@ def search_transcript(transcript: str, query: str, limit: int = 50) -> List[Dict
         if needle in texts[index] or (index != spanned and needle in both and needle not in texts[index + 1]):
             last = lines[index] if needle in texts[index] else lines[index + 1]
             spanned = index + 1 if last is not line else spanned
+            found = both.find(needle)
+            start = int(spoken_at(index, found))
             hits.append({
-                "start": line["start_seconds"],
-                "end": last["end_seconds"],
-                "label": line["start_time"],
+                "start": start,
+                "end": max(start + 1, round(spoken_at(index, found + len(needle)))),
+                "label": f"{start // 60:02d}:{start % 60:02d}",
                 "text": line["text"] if last is line else f"{line['text']} {last['text']}",
             })
             if len(hits) >= limit:
