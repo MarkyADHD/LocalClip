@@ -1,8 +1,10 @@
 <p align="center">
-  <img src="frontend/public/logo.png" width="96" alt="LocalClip logo" />
+  <a href="https://github.com/MarkyADHD/LocalClip/releases/latest"><img src="docs/screenshots/banner.jpg" alt="LocalClip: the free, open source StreamLadder alternative" width="100%" /></a>
 </p>
 
-<h1 align="center">LocalClip</h1>
+<h1 align="center">
+  <img src="frontend/public/logo.png" width="40" alt="" align="top" />&nbsp;LocalClip
+</h1>
 
 <p align="center">
   <b>Bye Bye StreamLadder, Hello LocalClip.</b><br/>
@@ -10,22 +12,45 @@
 </p>
 
 <p align="center">
-  <i>Made by a streamer, for streamers. Because sometimes we just don't have the time to manually clip things, y'know?</i>
+  <a href="https://github.com/MarkyADHD/LocalClip/releases/latest/download/LocalClip-Setup.exe"><img alt="Download LocalClip for Windows" src="https://img.shields.io/badge/Download%20for%20Windows-LocalClip--Setup.exe-FF6B2C?style=for-the-badge" height="44" /></a>
 </p>
 
 <p align="center">
-  <a href="../../releases/latest"><img alt="Download" src="https://img.shields.io/github/v/release/MarkyADHD/LocalClip?label=download&style=for-the-badge" /></a>
-  <img alt="Windows" src="https://img.shields.io/badge/Windows-10%2F11-0078D6?style=for-the-badge&logo=windows" />
-  <img alt="AI: Claude Code or any local model" src="https://img.shields.io/badge/AI-Claude%20Code%20or%20local%20models-D97757?style=for-the-badge" />
-  <img alt="License" src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge" />
-  <a href="https://twitch.tv/markyadhd"><img alt="Follow me on Twitch" src="https://img.shields.io/badge/Follow%20me%20on%20Twitch-markyadhd-9146FF?style=for-the-badge&logo=twitch&logoColor=white" /></a>
+  <a href="https://github.com/MarkyADHD/LocalClip/releases"><img alt="Total downloads" src="https://img.shields.io/github/downloads/MarkyADHD/LocalClip/total?style=for-the-badge&label=downloads&color=C6FF3D&labelColor=1a1a1a" /></a>
+  <a href="https://github.com/MarkyADHD/LocalClip/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/MarkyADHD/LocalClip?style=for-the-badge&label=latest&color=9146FF&labelColor=1a1a1a" /></a>
+  <a href="https://github.com/MarkyADHD/LocalClip/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/MarkyADHD/LocalClip?style=for-the-badge&color=FFD23F&labelColor=1a1a1a" /></a>
+  <a href="LICENSE"><img alt="License: AGPL-3.0" src="https://img.shields.io/badge/license-AGPL--3.0-blue?style=for-the-badge&labelColor=1a1a1a" /></a>
+  <a href="https://twitch.tv/markyadhd"><img alt="Follow MarkyADHD on Twitch" src="https://img.shields.io/badge/Twitch-markyadhd-9146FF?style=for-the-badge&logo=twitch&logoColor=white&labelColor=1a1a1a" /></a>
 </p>
 
-![LocalClip home](docs/screenshots/home.png)
+<p align="center">
+  <a href="#install-windows-1011">Install</a> ·
+  <a href="#features">Features</a> ·
+  <a href="#why-not-streamladder">vs StreamLadder</a> ·
+  <a href="#how-it-works">How it works</a> ·
+  <a href="#troubleshooting">Troubleshooting</a> ·
+  <a href="https://twitch.tv/markyadhd">Twitch</a>
+</p>
+
+---
+
+### 🎉 Over 370 downloads and counting
+
+LocalClip passed **370 downloads** in November 2026. Thank you, genuinely. The green **downloads** badge above is live from GitHub, so it always shows today's number.
+
+<p align="center">
+  <i>Made by a streamer, for streamers. Because sometimes we just don't have the time to manually clip things, y'know?</i>
+</p>
+
+![LocalClip home screen](docs/screenshots/home.jpg)
 
 Paste a Twitch or Kick VOD (or clip) or a YouTube link. LocalClip downloads it, transcribes it on your GPU, reads your Twitch chat to find where it went off, and has an AI model pick the best moments: **Claude Code**, or **any local model** on your PC (Ollama, LM Studio, llama.cpp and more). Then it renders captioned 9:16 clips with your facecam stacked over your gameplay, just like the paid clipping tools do.
 
 You don't need a subscription, you don't upload your VODs to someone else's server, and there are no watermarks or monthly clip limits. Everything runs on your machine.
+
+| 💸 Free forever | 🖥️ Runs on your PC | 🤖 AI finds the clips | 🚫 No watermark |
+|:---:|:---:|:---:|:---:|
+| Open source, no subscription | Your GPU does the work, your VODs stay home | Reads the whole VOD plus your chat | No clip limits either |
 
 ## Why not StreamLadder?
 
@@ -41,30 +66,50 @@ You don't need a subscription, you don't upload your VODs to someone else's serv
 
 ## Features
 
-- **Twitch and Kick VODs and clips, and YouTube links**, or upload any video file.
+### Find the clips
+
+![A finished generation with scored clips](docs/screenshots/clips.jpg)
+
+- **Twitch and Kick VODs and clips, and YouTube links**, or upload any video file. Streams of any length work, 24-hour ones included.
+- **Log in with Twitch** and pick a stream from your own VOD list instead of hunting for the link.
 - **AI clip finding, tuned for streams.** The AI reads the whole transcript and picks 15–60 second stream moments (fails, clutches, reactions, chat going wild) with a strong hook, scoring each one for virality.
-- **Pick your AI model.** Settings > AI model lists Claude Code (the default) plus every Ollama and LM Studio model on your PC and any OpenAI-compatible server that's running (llama.cpp, Jan, KoboldCpp, text-generation-webui, LocalAI, GPT4All, vLLM). With a local model LocalClip runs 100% offline.
 - **Twitch chat signals.** LocalClip pulls the chat replay and finds the spikes where chat exploded (KEKW, LUL, Pog, "clip it"). The AI gets those as hints.
 - **"Clip that" detection.** Say "clip that" (or "clip it" / "clip this") on stream and LocalClip always makes a clip of the 45 seconds or so before it, on top of the moments the AI picks.
+- **Find more clips.** Not enough? One button searches the same VOD again and adds new clips without repeating the ones you have.
+- **Pick your AI model.** Settings > AI model lists Claude Code (the default) plus every Ollama and LM Studio model on your PC and any OpenAI-compatible server that's running (llama.cpp, Jan, KoboldCpp, text-generation-webui, LocalAI, GPT4All, vLLM). With a local model LocalClip runs 100% offline.
+
+<p align="center">
+  <img src="docs/screenshots/twitch-vods.jpg" width="49%" alt="Picking a stream from your Twitch VODs" />
+  <img src="docs/screenshots/clip.jpg" width="49%" alt="A clip with its virality score and +30s buttons" />
+</p>
+
+### Make them look good
+
 - **StreamLadder-style templates.** It auto-detects your webcam and builds the layout around it:
   - **Facecam top**: cam on top, gameplay below (the default)
   - **Gameplay top**: gameplay on top, cam below
   - **Floating cam**: the whole game frame on a blurred background, with your cam above it
   - **Gameplay only**: the centre of the game, no cam
   - Plus face-tracked crop, speaker pan, split-screen and original aspect for talking or podcast content
-- **Word-synced captions** in several styles, with your own fonts and colours, plus an AI-written hook title for the first few seconds.
+- **Word-synced captions** in several styles, with your own fonts and colours, plus an AI-written hook title for the first few seconds. When more than one person talks, each speaker gets their own caption colour.
+- **Cleaner sound and a snap zoom, automatically.** Every clip gets mic rumble and hiss removed and a quick zoom on its loudest moment.
 - **+30s before / +30s after.** Open a clip and extend it either way as many times as you like until the length is right. Each press re-renders the clip from the VOD.
 - **GPU rendering.** Clips are encoded with NVENC on NVIDIA cards, two at a time, with an automatic CPU fallback.
-- **Full-screen editor.** A timeline with drag-to-trim, split and cuts; facecam layouts (Fill, Fit, Cam top, Cam bottom, Floating cam); six one-click caption looks; click any word to fix or **bleep** it (or bleep every swear at once); TikTok / Reels / Shorts safe-zone guides; and an export dialog with a title and hashtags ready to copy.
+
+### Edit
+
+![The clip editor](docs/screenshots/editor.jpg)
+
+- **Full-screen clip editor.** A timeline with drag-to-trim, split and cuts; facecam layouts (Fill, Fit, Cam top, Cam bottom, Floating cam); six one-click caption looks; click any word to fix or **bleep** it (or bleep every swear at once); punch-in zooms, slow motion and instant replays; TikTok / Reels / Shorts safe-zone guides; and an export dialog with a title and hashtags ready to copy.
+- **Video editor for whole videos.** A multi-track timeline for longer edits, with captions, text, overlays and music.
+
+![The multi-track video editor](docs/screenshots/video-editor.jpg)
+
+### A proper Windows app
+
 - **A real Windows app.** `LocalClip.exe` opens in its own window with its own taskbar icon. Closing the window shuts everything down (handy before you game).
 - **Automatic updates.** Every time you open LocalClip it checks GitHub for a new release and installs it before starting, with nothing to click.
-
-<p align="center">
-  <img src="docs/screenshots/templates.png" width="49%" alt="Framing templates" />
-  <img src="docs/screenshots/clip.png" width="49%" alt="A clip with +30s buttons" />
-</p>
-
-![A generation's clips](docs/screenshots/clips.png)
+- **Dark by default**, with a light theme in Settings > Appearance.
 
 ## Install (Windows 10/11)
 
@@ -76,7 +121,7 @@ You don't need a subscription, you don't upload your VODs to someone else's serv
 - An NVIDIA GPU is strongly recommended for fast transcription. It works on CPU, just slowly. 16 GB of RAM or more is recommended.
 - Plenty of disk space. VODs are big. Deleting a generation in LocalClip also deletes its downloaded VOD and clips.
 
-**Option A (recommended):** download **`LocalClip-Setup.exe`** from the [latest release](../../releases/latest) and run it. It installs the LocalClip app with Start menu and desktop shortcuts, then downloads LocalClip itself and asks you to sign in to Claude Code if needed (using a local model instead? type `/exit` in that window to skip the sign-in, then choose your model in Settings > AI model). Uninstall it from Windows Settings like any app (your videos and settings in `%LOCALAPPDATA%\LocalClip` are kept).
+**Option A (recommended):** download **[`LocalClip-Setup.exe`](https://github.com/MarkyADHD/LocalClip/releases/latest/download/LocalClip-Setup.exe)** (or get it from the [latest release](https://github.com/MarkyADHD/LocalClip/releases/latest)) and run it. It installs the LocalClip app with Start menu and desktop shortcuts, then downloads LocalClip itself and asks you to sign in to Claude Code if needed (using a local model instead? type `/exit` in that window to skip the sign-in, then choose your model in Settings > AI model). Uninstall it from Windows Settings like any app (your videos and settings in `%LOCALAPPDATA%\LocalClip` are kept).
 
 **Option B:** double-click `Install-LocalClip.cmd` from the release, or paste this into PowerShell:
 
@@ -231,7 +276,13 @@ LocalClip has no accounts, no tracking and no other analytics or telemetry.
 
 ## Follow me on Twitch
 
-LocalClip is made by [MarkyADHD](https://twitch.tv/markyadhd). If it saves you some time, come hang out and drop a follow: **[twitch.tv/markyadhd](https://twitch.tv/markyadhd)**
+LocalClip is made by [MarkyADHD](https://twitch.tv/markyadhd). If it saves you some time, come hang out and drop a follow:
+
+<p align="center">
+  <a href="https://twitch.tv/markyadhd"><img alt="Follow MarkyADHD on Twitch" src="https://img.shields.io/badge/Follow%20on%20Twitch-twitch.tv%2Fmarkyadhd-9146FF?style=for-the-badge&logo=twitch&logoColor=white" height="40" /></a>
+</p>
+
+A star on this repo helps other streamers find it too.
 
 ## License
 
