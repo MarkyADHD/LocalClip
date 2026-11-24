@@ -39,9 +39,15 @@ async def test_rerank_runs_through_claude_code_cli(tmp_path, monkeypatch):
 @pytest.mark.asyncio
 async def test_cli_error_is_raised(tmp_path, monkeypatch):
     fake = tmp_path / "claude"
-    fake.write_text("#!/bin/sh\necho '" + json.dumps({"is_error": True, "result": "Not logged in"}) + "'\n")
-    fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
     monkeypatch.setenv("CLAUDE_CODE_PATH", str(fake))
     agent = ClaudeCodeAgent("sonnet", ai.CandidateRanking, "sys")
-    with pytest.raises(RuntimeError, match="Not logged in"):
-        await agent.run("hi")
+    for said, shown in [
+        ("Rate limited", "Claude Code failed: Rate limited"),
+        # Sign-in trouble says what to do instead of the raw error.
+        ("Not logged in", "signed out. Open a terminal, run claude"),
+        ("Failed to authenticate: OAuth session expired and could not be refreshed", "signed out"),
+    ]:
+        fake.write_text("#!/bin/sh\necho '" + json.dumps({"is_error": True, "result": said}) + "'\n")
+        fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
+        with pytest.raises(RuntimeError, match=shown):
+            await agent.run("hi")

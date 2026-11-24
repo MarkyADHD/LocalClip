@@ -12,15 +12,19 @@ def test_finds_phrases_ignoring_case_and_punctuation_even_across_lines():
     assert search_transcript(TRANSCRIPT, "banana") == []
 
     (hit,) = search_transcript(TRANSCRIPT, "oh my god")
-    assert (hit["start"], hit["end"], hit["label"]) == (6, 12, "00:06")
+    assert (hit["start"], hit["end"], hit["label"]) == (6, 8, "00:06")
 
     # The phrase runs over a line end: one hit covering both lines, not two.
     (hit,) = search_transcript(TRANSCRIPT, "did not just do that")
-    assert (hit["start"], hit["end"]) == (6, 19) and "Clip that" in hit["text"]
+    assert (hit["start"], hit["end"]) == (9, 15) and "Clip that" in hit["text"]
 
     # A phrase inside one line is not also reported through the line before it.
     (hit,) = search_transcript(TRANSCRIPT, "clip that")
-    assert hit["start"] == 12
+    assert (hit["start"], hit["label"]) == (15, "00:15")
+
+    # A long line: the hit is where the phrase is said, not the whole line.
+    (hit,) = search_transcript("[10:00 - 12:00] " + "blah " * 50 + "there it is " + "blah " * 49, "there it is")
+    assert 10 * 60 + 55 <= hit["start"] <= hit["end"] <= 10 * 60 + 65
 
     assert search_transcript(TRANSCRIPT, "no way")[0]["start"] == 100 * 60 + 5  # past 99 minutes
     assert len(search_transcript(TRANSCRIPT * 40, "welcome", limit=5)) == 5
