@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { popScale } from "./render";
 import {
   captionGroups,
   editDuration,
@@ -167,4 +168,11 @@ describe("slow motion and punch-ins", () => {
     ]);
     expect(needsServerExport(doc)).toBe(true);
   });
+});
+
+it("a popping caption grows past full size and settles on it", () => {
+  // Same three sizes as the \fscx tags in editor_document.py's enter_tags.
+  expect(popScale(0)).toBeCloseTo(0.6);
+  expect(popScale(0.6)).toBeCloseTo(1.12);
+  expect(popScale(1)).toBeCloseTo(1);
 });

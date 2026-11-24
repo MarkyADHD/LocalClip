@@ -366,3 +366,51 @@ def test_sharpened_facecam_is_cut_with_the_video(tmp_path, monkeypatch, layout):
         ).stdout
     )["streams"][0]
     assert (video["width"], video["height"]) == (1080, 1920) and abs(float(video["duration"]) - 2) < 0.1
+
+
+def _caption_events(tmp_path, **captions):
+    from src.editor_document import write_ass
+
+    doc = document(
+        segments=[{"id": "a", "start": 0, "end": 2}],
+        words=[
+            {"id": "1", "start": 0, "end": 0.4, "text": "oh"},
+            {"id": "2", "start": 0.5, "end": 1, "text": "no"},
+        ],
+        captions=captions,
+        title="Wait",
+    )
+    write_ass(tmp_path / "c.ass", doc, 1080, 1920)
+    return [line for line in (tmp_path / "c.ass").read_text().splitlines() if line.startswith("Dialogue")]
+
+
+def test_caption_entrance_animates_each_caption_once_and_never_the_title(tmp_path):
+    title, first, second = _caption_events(tmp_path, active=True, animation="pop", background=False)
+    assert "\\t(" not in title and "\\fscx" not in title
+    assert "\\fscx60\\fscy60\\t(0,90,\\fscx112\\fscy112)\\t(90,150,\\fscx100\\fscy100)" in first
+    assert "\\fscx" not in second  # same caption, next spoken word: already on screen
+
+    assert "\\fad(150,0)" in _caption_events(tmp_path, animation="fade")[1]
+    slide = _caption_events(tmp_path, animation="slide", y=0.5)[1]
+    assert "\\move(540.00,1017.60,540.00,960.00,0,150)" in slide and "\\pos" not in slide
+    assert "\\pos(540.00," in _caption_events(tmp_path)[1] and "\\fad" not in _caption_events(tmp_path)[1]
+    with pytest.raises(ValidationError):
+        document(captions={"animation": "spin"})
+
+
+@pytest.mark.skipif(not shutil.which("ffmpeg"), reason="ffmpeg is required")
+def test_libass_draws_a_popping_caption_small_then_full_size(tmp_path):
+    """The preview trusts libass to honour the pop tags; count lit pixels at the start and after it."""
+    _caption_events(tmp_path, animation="pop", background=False, outline=0)
+
+    def lit(at: float) -> int:
+        frame = subprocess.run(
+            ["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "color=black:s=270x480:r=50:d=1", "-vf",
+             f"subtitles={tmp_path / 'c.ass'},crop=270:300:0:180", "-ss", str(at), "-frames:v", "1",
+             "-f", "rawvideo", "-pix_fmt", "gray", "-"],
+            capture_output=True, check=True,
+        ).stdout
+        return sum(1 for value in frame if value > 128)
+
+    start, settled = lit(0.0), lit(0.3)
+    assert settled > 0 and start < settled * 0.6, (start, settled)

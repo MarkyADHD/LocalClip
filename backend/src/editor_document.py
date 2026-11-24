@@ -99,6 +99,8 @@ class CaptionStyle(Model):
     uppercase: bool = False
     outline: float = Field(default=4, ge=0, le=12)  # % of the font size
     active: bool = False  # colour the word being spoken
+    # How each caption comes in (clip editor only); same timing as drawEditorFrame in render.ts.
+    animation: Literal["none", "pop", "fade", "slide"] = "none"
     # Colours of speakers 1, 2, ... (speaker 0 uses `color`).
     speakerColors: list[Annotated[str, HexColor]] = Field(
         default_factory=lambda: list(SPEAKER_COLORS), max_length=MAX_SPEAKERS - 1
@@ -436,8 +438,28 @@ Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour,
 ASS_EVENTS = "\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
 
 
-def ass_event(style: CaptionStyle, width, height, start, end, y, words, accent, x=0.5, name="Default", tags=""):
-    """One Dialogue line: `words` centred on (x, y); accent(i) lights word i."""
+ENTER_MS = 150  # length of a caption entrance; ENTER_SECONDS in render.ts
+SLIDE = 0.03  # a sliding caption starts this far below its place (share of the height)
+
+
+def enter_tags(animation: str, width: int, height: int, x: float, y: float) -> str:
+    """ASS override tags that place a caption at (x, y) and bring it in; mirrors captionEntrance in render.ts."""
+    px, py = width * x, height * y
+    if animation == "slide":
+        return f"\\move({px:.2f},{py + height * SLIDE:.2f},{px:.2f},{py:.2f},0,{ENTER_MS})\\fad({ENTER_MS},0)"
+    pos = f"\\pos({px:.2f},{py:.2f})"
+    if animation == "pop":  # 60% -> 112% -> 100%
+        peak = int(ENTER_MS * 0.6)
+        return pos + f"\\fscx60\\fscy60\\t(0,{peak},\\fscx112\\fscy112)\\t({peak},{ENTER_MS},\\fscx100\\fscy100)"
+    if animation == "fade":
+        return pos + f"\\fad({ENTER_MS},0)"
+    return pos
+
+
+def ass_event(
+    style: CaptionStyle, width, height, start, end, y, words, accent, x=0.5, name="Default", tags="", enter="none"
+):
+    """One Dialogue line: `words` centred on (x, y); accent(i) lights word i; `enter` animates it in."""
     from .clip_editor import _ass_color, _ass_timestamp, _escape_ass_text
 
     def text_of(word):
@@ -451,7 +473,7 @@ def ass_event(style: CaptionStyle, width, height, start, end, y, words, accent, 
     )
     return (
         f"Dialogue: 0,{_ass_timestamp(start)},{_ass_timestamp(end)},{name},,0,0,0,,"
-        f"{{\\pos({width * x:.2f},{height * y:.2f}){tags}}}{text}\n"
+        f"{{{enter_tags(enter, width, height, x, y)}{tags}}}{text}\n"
     )
 
 
@@ -483,8 +505,11 @@ def write_ass(path: Path, document: EditDocument, width: int, height: int):
         until = min(total, document.titleSeconds or total)
         lines.append(ass_event(style, width, height, 0, until, TITLE_Y, words, lambda i: False))
     if style.enabled:
+        entered = set()  # with "active" a caption is several events; only its first one animates in
         for start, end, group, accent in caption_events(style, mapped_words(document)):
-            lines.append(ass_event(style, width, height, start, end, style.y, group, accent))
+            enter = "none" if id(group) in entered else style.animation
+            entered.add(id(group))
+            lines.append(ass_event(style, width, height, start, end, style.y, group, accent, enter=enter))
     path.write_text(header + line + ASS_EVENTS + "".join(lines))
 
 

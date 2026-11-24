@@ -55,6 +55,7 @@ import {
   wordColor,
   uid,
   type EditDocument,
+  type CaptionAnimation,
   type CaptionStyle,
   type EditorState,
   type Framing,
@@ -737,6 +738,24 @@ export function Inspector({
               />
             </Section>
             <Separator />
+            <Field label="Entrance">
+              <ToggleGroup
+                type="single"
+                variant="outline"
+                aria-label="Caption entrance"
+                className="w-full"
+                value={doc.captions.animation ?? "none"}
+                onValueChange={(animation) =>
+                  animation && caption({ animation: animation as CaptionAnimation })
+                }
+              >
+                {(["none", "pop", "fade", "slide"] as const).map((value) => (
+                  <ToggleGroupItem key={value} value={value} className="flex-1 capitalize">
+                    {value}
+                  </ToggleGroupItem>
+                ))}
+              </ToggleGroup>
+            </Field>
             <details className="group space-y-4" open={false}>
               <summary className="cursor-pointer text-sm font-semibold select-none">
                 Customise the style

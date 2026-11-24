@@ -24,6 +24,8 @@ locally for recovery after an interrupted save.
 - **Captions**: pick a look (Clean, Karaoke, Hype, Impact, Comic, Boxed) and fine-tune
   it under Customise: font, size, colours, outline, ALL CAPS, and lighting up the word
   being spoken. Drag the captions in the preview to move them.
+  **Entrance** brings each caption in with a pop, fade or slide (150 ms; `captionEntrance` in `render.ts` and
+  `enter_tags` in `editor_document.py` must keep the same timing and sizes).
 - **Speakers**: each clip's voices are told apart on your PC when the clip is made, and
   everyone after the main speaker gets their own caption colour. Pick each speaker's
   colour here. If a line went to the wrong person, click its first word in the transcript
