@@ -223,7 +223,9 @@ What LocalClip does contact, because you asked it to:
 - **Your AI model.** With Claude Code, the transcript text of your video is sent to Anthropic under [their privacy policy](https://www.anthropic.com/legal/privacy). With a local model nothing is sent anywhere.
 - **Download servers for its tools** on first start (Python packages, Node, ffmpeg, PostgreSQL, Redis, the Whisper model).
 
-LocalClip has no accounts, no analytics and no telemetry.
+- **The user counter, only if you say yes.** LocalClip asks once whether to count you as a user (change it any time in Settings > Privacy). If you agree, it adds 1 to a public counter at [abacus.jasoncameron.dev](https://abacus.jasoncameron.dev) once for the install and once per calendar month. The request is a bare web address with no ID and nothing about you, your PC or your videos; like any web request, the counter's server sees your IP address. If you say no, nothing is sent. The code is `backend/src/usage_count.py`.
+
+LocalClip has no accounts, no analytics and no tracking: the counter above is the only usage signal, and it is off until you turn it on.
 
 ## Follow me on Twitch
 

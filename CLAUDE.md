@@ -135,6 +135,12 @@ generated to `frontend/src/generated/prisma/`. In native mode a local session is
 no sign-up. The app is dark by default (`class="dark"` on `<html>`); Settings > Appearance stores
 `localclip-theme` in localStorage. Use theme tokens (`bg-card`, `text-muted-foreground`, `text-destructive`), not `gray-*`/`white`.
 
+### User counter
+
+`backend/src/usage_count.py`: opt-in only (first-launch prompt, Settings > Privacy; `GET/PUT /admin/usage-count`). When on, the
+native app hits a public Abacus counter once per install and once per month, with no ID. The README privacy policy promises
+nothing is sent without the user asking (a SignPath signing condition), so do not make it on by default unless Marky changes that policy.
+
 ### Database
 
 PostgreSQL, schema in `init.sql` (plus `backend/src/migrations/sql/`). `tasks`, `sources`,

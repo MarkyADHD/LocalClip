@@ -1,5 +1,6 @@
 "use client";
 
+import { UsageCountPrompt } from "@/components/usage-count";
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
@@ -159,6 +160,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </nav> : null}
 
       {user ? <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} /> : null}
+      {user ? <UsageCountPrompt /> : null}
     </div>
   );
 }
