@@ -689,6 +689,7 @@ export default function TaskPage() {
         ) : task.status === "error" ? (
           <EmptyState tone="error" icon={<AlertCircle className="size-7" />} title="This one hit a problem" body="There was an error processing your video. Resume to retry from where it stopped, or try another video.">
             <Button asChild variant="outline"><Link href="/"><ArrowLeft className="size-4" />Back to home</Link></Button>
+            <Button asChild variant="ghost"><Link href="/settings#help">Report this problem</Link></Button>
           </EmptyState>
         ) : clips.length === 0 ? (
           <EmptyState icon={<AlertCircle className="size-7" />} title="No clips found" body="The search finished without finding a moment worth clipping. Try a different part of the stream or another video.">

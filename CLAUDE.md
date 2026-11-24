@@ -141,6 +141,12 @@ no sign-up. The app is dark by default (`class="dark"` on `<html>`); Settings > 
 The native app hits a public Abacus counter once per install and once per month, with no ID. Keep the README privacy policy
 accurate about exactly what is sent.
 
+### Problem reports
+
+`LocalClip.ps1` moves the last run's logs to `.localclip/logs/old/<time>` (5 runs kept). Settings > Help > "Report a problem"
+(`backend/src/problem_report.py`, `GET /admin/problem-report`) shows the PC's details and log ends for the user to paste into a
+GitHub issue. The app never sends it; keep it that way (README privacy policy).
+
 ### Database
 
 PostgreSQL, schema in `init.sql` (plus `backend/src/migrations/sql/`). `tasks`, `sources`,
