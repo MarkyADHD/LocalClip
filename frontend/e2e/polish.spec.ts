@@ -128,3 +128,17 @@ for (const path of ["/", "/tasks/one"]) {
     await expect(page.getByRole("combobox").first()).toHaveText("Inter");
   });
 }
+
+test("the Twitch follow bar can be dismissed and stays dismissed", async ({ page }) => {
+  await page.route(/\/api\/tasks\/?$/, (route) => route.fulfill({ json: { tasks: [generation] } }));
+  await page.goto("/list");
+  const bar = page.getByRole("region", { name: "Announcement" });
+  const link = bar.getByRole("link", { name: "following me on Twitch" });
+  await expect(link).toHaveAttribute("href", "https://twitch.tv/markyadhd");
+  await expect(link).toHaveAttribute("target", "_blank");
+  await bar.getByRole("button", { name: "Dismiss" }).click();
+  await expect(bar).toHaveCount(0);
+  await page.reload();
+  await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+  await expect(bar).toHaveCount(0);
+});
