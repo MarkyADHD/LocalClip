@@ -43,7 +43,7 @@ export function UsageCountPrompt() {
   const [enabled, choose] = useUsageCount();
   if (enabled !== null) return null;
   return (
-    <div role="dialog" aria-label="Count me as a LocalClip user?"
+    <div role="region" aria-label="Count me as a LocalClip user?"
       className="fixed inset-x-4 bottom-[calc(5rem+env(safe-area-inset-bottom))] z-40 mx-auto max-w-sm rounded-2xl border bg-popover p-4 shadow-lg md:inset-x-auto md:bottom-6 md:right-6">
       <p className="text-sm font-semibold">Count me as a LocalClip user?</p>
       <p className="mt-1 text-xs text-muted-foreground">

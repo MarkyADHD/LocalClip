@@ -160,7 +160,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </nav> : null}
 
       {user ? <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} /> : null}
-      {user ? <UsageCountPrompt /> : null}
+      {/* Not a dialog and not in the editors: it must never sit over the work or block it. */}
+      {user && !compact ? <UsageCountPrompt /> : null}
     </div>
   );
 }
