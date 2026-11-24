@@ -228,6 +228,8 @@ export function drawEditorFrame(
   const spoken = doc.captions.active
     ? group.findLastIndex((w) => w.start <= time)
     : -1;
+  ctx.save();
+  captionEntrance(ctx, doc.captions.animation, (time - group[0].start) / ENTER_SECONDS, doc.captions.y);
   drawWords(
     ctx,
     doc.captions,
@@ -235,6 +237,36 @@ export function drawEditorFrame(
     doc.captions.y,
     (i) => group[i].highlight || i === spoken,
   );
+  ctx.restore();
+}
+
+/** Length of a caption entrance; ENTER_MS in editor_document.py. */
+export const ENTER_SECONDS = 0.15;
+/** A sliding caption starts this far below its place (share of the height); SLIDE in editor_document.py. */
+const SLIDE = 0.03;
+
+/** Pop size at `progress` 0..1: 60% up to 112%, then back to 100% (the two steps in enter_tags). */
+export const popScale = (progress: number) =>
+  progress < 0.6 ? 0.6 + (0.52 * progress) / 0.6 : 1.12 - (0.12 * (progress - 0.6)) / 0.4;
+
+/** Transforms the canvas so a caption centred on `y` is drawn part-way through its entrance. */
+function captionEntrance(
+  ctx: CanvasRenderingContext2D,
+  animation: CaptionStyle["animation"],
+  progress: number,
+  y: number,
+) {
+  if (!animation || animation === "none" || progress >= 1) return;
+  const { width, height } = ctx.canvas,
+    p = Math.max(0, progress);
+  if (animation === "pop") {
+    ctx.translate(width / 2, height * y);
+    ctx.scale(popScale(p), popScale(p));
+    ctx.translate(-width / 2, -height * y);
+    return;
+  }
+  ctx.globalAlpha = p;
+  if (animation === "slide") ctx.translate(0, height * SLIDE * (1 - p));
 }
 /** Where the hook title sits (0..1 of the height); same in editor_document.py. */
 export const TITLE_Y = 0.14;

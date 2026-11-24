@@ -28,6 +28,7 @@ export interface CaptionWord {
   /** Who says it: 0 talks most. Picks the caption colour. */
   speaker?: number;
 }
+export type CaptionAnimation = "none" | "pop" | "fade" | "slide";
 export interface CaptionStyle {
   enabled: boolean;
   font: keyof typeof CAPTION_FONTS;
@@ -42,6 +43,8 @@ export interface CaptionStyle {
   outline: number;
   /** Colour the word being spoken with the highlight colour. */
   active: boolean;
+  /** How each caption comes in (older drafts have none). */
+  animation?: CaptionAnimation;
   /** Colours of speakers 1, 2, ... (speaker 0 uses `color`). */
   speakerColors?: string[];
 }
@@ -137,6 +140,7 @@ export function normalize(doc: EditDocument): EditDocument {
         uppercase: doc.captions.uppercase ?? false,
         outline: doc.captions.outline ?? 4,
         active: doc.captions.active ?? false,
+        animation: doc.captions.animation ?? "none",
         speakerColors: doc.captions.speakerColors ?? SPEAKER_COLORS,
       },
       framing: {

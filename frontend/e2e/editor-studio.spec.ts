@@ -346,6 +346,7 @@ test("layout, caption look, hook title and safe zone", async ({ page }) => {
     return r.fulfill({ json: { id: "job", status: "queued", progress: 0 } });
   });
   await page.getByRole("button", { name: "Hype", exact: true }).click();
+  await page.getByRole("group", { name: "Caption entrance" }).getByText("pop", { exact: true }).click();
   await page.getByLabel("Hook title").fill("Wait for it");
   await page.getByRole("slider", { name: "Title stays for" }).press("ArrowRight");
   await page.getByRole("tab", { name: "Layout" }).click();
@@ -386,7 +387,7 @@ test("layout, caption look, hook title and safe zone", async ({ page }) => {
     w: expect.closeTo(0.25, 2),
   });
   expect(request!.document).toMatchObject({
-    captions: { font: "THEBOLDFONT", uppercase: true, active: true },
+    captions: { font: "THEBOLDFONT", uppercase: true, active: true, animation: "pop" },
   });
 });
 
