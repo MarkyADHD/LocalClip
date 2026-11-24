@@ -2,6 +2,7 @@
 Video service - handles video processing business logic.
 """
 
+from types import SimpleNamespace
 import asyncio
 import math
 from pathlib import Path
@@ -41,7 +42,7 @@ from ..clip_source_map import (
     save_clip_source_ranges,
     source_range_bounds,
 )
-from ..ai import get_most_relevant_parts_by_transcript
+from ..ai import _format_minutes_label, get_most_relevant_parts_by_transcript
 from ..config import get_config
 
 logger = logging.getLogger(__name__)
@@ -416,9 +417,12 @@ class VideoService:
         progress_callback: Optional[Callable[[int, str, str], Awaitable[None]]] = None,
         should_cancel: Optional[Callable[[], Awaitable[bool]]] = None,
         exclude_ranges: Optional[List[tuple[int, int]]] = None,
+        manual_range: Optional[tuple[int, int]] = None,
     ) -> Dict[str, Any]:
         """
         Complete video processing pipeline.
+
+        manual_range: (start, end) seconds the user picked; clips exactly that and skips the AI search.
         Returns dict with segments and clips info.
 
         exclude_ranges: (start, end) seconds already clipped; set (even empty) to search
@@ -520,7 +524,18 @@ class VideoService:
                 )
 
             relevant_parts = None
-            if cached_analysis_json and exclude_ranges is None:
+            if manual_range:
+                relevant_parts = SimpleNamespace(
+                    summary=None,
+                    key_topics=[],
+                    most_relevant_segments=[{
+                        "start_time": _format_minutes_label(manual_range[0]),
+                        "end_time": _format_minutes_label(manual_range[1]),
+                        "relevance_score": 1.0,
+                        "reasoning": "Picked by you from the transcript.",
+                    }],
+                )
+            elif cached_analysis_json and exclude_ranges is None:
                 try:
                     cached_analysis = json.loads(cached_analysis_json)
                     segments = cached_analysis.get("most_relevant_segments", [])

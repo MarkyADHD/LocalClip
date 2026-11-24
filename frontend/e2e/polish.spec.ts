@@ -172,3 +172,30 @@ test("home shows setup problems; warnings can be hidden, errors cannot", async (
   await expect(problems.getByText("No AI model to pick clips")).toBeVisible();
   await expect(problems.getByText("No NVIDIA graphics card found")).toHaveCount(0);
 });
+
+test("search the stream finds a phrase and clips around it", async ({ page }) => {
+  let asked = "";
+  let range: unknown;
+  await page.route("**/api/tasks/one/transcript/search**", (route) => {
+    asked = new URL(route.request().url()).searchParams.get("q") ?? "";
+    return route.fulfill({ json: { hits: [
+      { start: 1325, end: 1331, label: "22:05", text: "oh my God, he did NOT just do that" },
+      { start: 6005, end: 6011, label: "100:05", text: "no way, no way, clip that" },
+    ] } });
+  });
+  await page.route("**/api/tasks/one/clips/from-range", (route) => {
+    range = route.request().postDataJSON();
+    return route.fulfill({ json: { message: "Task resumed" } });
+  });
+  await page.goto("/tasks/one");
+  await page.getByRole("button", { name: "Search the stream" }).click();
+  await page.getByLabel("Words to find").fill("no way");
+  await page.getByRole("button", { name: "Search", exact: true }).click();
+  await expect(page.getByRole("list", { name: "Search results" }).getByRole("listitem")).toHaveCount(2);
+  expect(asked).toBe("no way");
+  if (process.env.SHOT) await page.screenshot({ path: process.env.SHOT });
+  await page.getByRole("button", { name: "Clip the moment at 100:05" }).click();
+  // 20 seconds before the phrase to 10 seconds after it.
+  await expect.poll(() => range).toEqual({ start: 5985, end: 6021 });
+  await expect(page.getByRole("dialog")).toBeHidden();
+});

@@ -889,3 +889,20 @@ async def test_search_again_that_finds_nothing_leaves_the_task_completed(tmp_pat
     )
     assert not any(c.args[2] == "error" for c in service.task_repo.update_task_status.await_args_list)
     callback.assert_awaited_with(100, "No new clips found", "completed")
+
+
+@pytest.mark.asyncio
+async def test_a_picked_range_is_passed_to_the_pipeline_and_cleared_afterwards(tmp_path):
+    service = _search_again_service()
+    service.config.temp_dir = str(tmp_path)
+    service.clip_repo.create_clip = AsyncMock(return_value="new-1")
+    service.task_repo.load_source_metadata = AsyncMock(return_value={"manual_range": [5985, 6021]})
+
+    await service.process_task(
+        task_id="task-1", url="upload://source.mp4", source_type="video_url", find_more=True
+    )
+
+    assert service.video_service.process_video_complete.await_args.kwargs["manual_range"] == (5985, 6021)
+    service.task_repo.save_source_metadata.assert_any_await(
+        service.db, "task-1", {"find_more": False, "manual_range": None}
+    )
