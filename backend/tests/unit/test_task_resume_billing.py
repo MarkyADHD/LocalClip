@@ -149,3 +149,16 @@ async def test_resume_of_a_stalled_search_stays_a_search(resume_context, monkeyp
     monkeypatch.setattr(tasks, "_load_task_source_metadata", AsyncMock(return_value={"find_more": True}))
     await tasks.resume_task("task-1", SimpleNamespace(), db=None)
     assert queue.await_args.kwargs["find_more"] is True
+
+
+@pytest.mark.asyncio
+async def test_clip_from_range_queues_one_picked_clip_on_a_finished_task(resume_context):
+    task, _repo, _billing_guard, queue, _redis = resume_context
+    task["status"] = "completed"
+    with pytest.raises(HTTPException) as error:  # four minutes is too long for one clip
+        await tasks.clip_from_range("task-1", tasks.ClipRange(start=10, end=250), SimpleNamespace(), db=None)
+    assert error.value.status_code == 400 and not queue.await_count
+
+    await tasks.clip_from_range("task-1", tasks.ClipRange(start=5985, end=6021), SimpleNamespace(), db=None)
+    assert queue.await_args.kwargs["find_more"] is True
+    assert tasks._save_task_source_metadata.await_args.args[1]["manual_range"] == [5985, 6021]

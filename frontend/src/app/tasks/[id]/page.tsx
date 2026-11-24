@@ -36,6 +36,7 @@ import {
 import { useSession } from "@/lib/auth-client";
 import { ApiRequestError, formatSupportMessage, parseApiError } from "@/lib/api-error";
 import { useBillingSummary } from "@/hooks/use-billing-summary";
+import { TranscriptSearch } from "@/components/transcript-search";
 import { UpgradeDialog, upgradeReasonForError, type UpgradeReason } from "@/components/billing/upgrade-prompt";
 import { buildFontOptionsPayload, FONT_TEMPLATE_DEFAULT_VALUE } from "@/lib/font-options";
 import {
@@ -620,6 +621,19 @@ export default function TaskPage() {
                 })}>
                 <RotateCcw className="size-4" />Resume
               </Button>
+            )}
+            {task.status === "completed" && (
+              <TranscriptSearch
+                taskId={task.id}
+                disabled={pendingAction !== null}
+                onClip={async (range) => {
+                  await requestAction(`${taskApiUrl}/${task.id}/clips/from-range`, "POST", range);
+                  await fetchTaskStatus();
+                  toast.success(!task.source_bytes && ["youtube", "twitch", "kick"].includes(task.source_type)
+                    ? "Making your clip. The full video is downloaded again first."
+                    : "Making your clip. The ones you have are kept.");
+                }}
+              />
             )}
             {task.status === "completed" && (
               <Tooltip>

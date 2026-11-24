@@ -5,6 +5,7 @@ Task API routes using refactored architecture.
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import FileResponse
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sse_starlette.sse import EventSourceResponse
 from pathlib import Path
@@ -38,6 +39,7 @@ from ...clip_cleanup import (
     updated_cleanup_settings,
 )
 from ...video_utils import VALID_OUTPUT_FORMATS
+from ...ai import search_transcript
 from ...admin_auth import require_admin_user
 import redis.asyncio as redis
 from ...clip_editor import export_with_preset, EXPORT_PRESETS
@@ -1186,8 +1188,59 @@ async def find_more_clips(
     return await _requeue_task(task_id, request, db, find_more=True)
 
 
+# A picked moment: long enough to be a clip, short enough to render quickly.
+MANUAL_CLIP_MIN_SECONDS, MANUAL_CLIP_MAX_SECONDS = 5, 180
+
+
+class ClipRange(BaseModel):
+    start: int = Field(ge=0)
+    end: int = Field(gt=0)
+
+
+@router.get("/{task_id}/transcript/search")
+async def search_task_transcript(
+    task_id: str, q: str, request: Request, db: AsyncSession = Depends(get_db)
+):
+    """Where in the stream a phrase was said, from the transcript kept for this video."""
+    task_service = TaskService(db)
+    task = await _require_task_owner(request, task_service, db, task_id)
+    metadata = await _load_task_source_metadata(task_id, db=db)
+    url = task.get("source_url") or metadata.get("url")
+    source_type = task.get("source_type") or metadata.get("source_type")
+    mode = task.get("processing_mode") or get_config().default_processing_mode
+    cache = None
+    if url and source_type:
+        cache = await task_service.cache_repo.get_cache(
+            db, task_service._build_cache_key(url, source_type, mode)
+        )
+    transcript = (cache or {}).get("transcript_text")
+    if not transcript:
+        raise HTTPException(status_code=404, detail="This video has no saved transcript to search.")
+    return {"hits": search_transcript(transcript, q[:200])}
+
+
+@router.post("/{task_id}/clips/from-range")
+async def clip_from_range(
+    task_id: str, payload: ClipRange, request: Request, db: AsyncSession = Depends(get_db)
+):
+    """Make one clip from a picked part of a finished task's video (used by transcript search)."""
+    length = payload.end - payload.start
+    if not MANUAL_CLIP_MIN_SECONDS <= length <= MANUAL_CLIP_MAX_SECONDS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"A clip must be {MANUAL_CLIP_MIN_SECONDS} to {MANUAL_CLIP_MAX_SECONDS} seconds long.",
+        )
+    return await _requeue_task(
+        task_id, request, db, find_more=True, manual_range=(payload.start, payload.end)
+    )
+
+
 async def _requeue_task(
-    task_id: str, request: Request, db: AsyncSession, find_more: bool = False
+    task_id: str,
+    request: Request,
+    db: AsyncSession,
+    find_more: bool = False,
+    manual_range: Optional[tuple[int, int]] = None,
 ):
     try:
         task_service = TaskService(db)
@@ -1280,6 +1333,8 @@ async def _requeue_task(
                     processing_job_id = f"{task_id}:{secrets.token_hex(16)}"
                     metadata["processing_job_id"] = processing_job_id
                     metadata["find_more"] = find_more
+                    # Kept across a crashed run's resume; cleared when the run ends.
+                    metadata["manual_range"] = list(manual_range) if manual_range else metadata.get("manual_range")
                     await _save_task_source_metadata(task_id, metadata, db=db)
                     job_id = await JobQueue.enqueue_processing_job(
                         "process_video_task",

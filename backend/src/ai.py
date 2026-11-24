@@ -897,6 +897,34 @@ def _sanitize_hook_span(
         segment.hook_end_time = None
 
 
+def search_transcript(transcript: str, query: str, limit: int = 50) -> List[Dict[str, Any]]:
+    """Transcript lines that say `query` (case and punctuation ignored), in stream order.
+
+    A phrase can run over the end of a line, so each line is also tried together with the next one.
+    """
+    needle = _normalize_transcript_text(query)
+    if not needle:
+        return []
+    lines = _parse_transcript_lines(transcript)
+    texts = [_normalize_transcript_text(line["text"]) for line in lines]
+    hits: List[Dict[str, Any]] = []
+    spanned = -1  # index of a line already reported as the second half of a hit
+    for index, line in enumerate(lines):
+        both = f"{texts[index]} {texts[index + 1]}" if index + 1 < len(lines) else texts[index]
+        if needle in texts[index] or (index != spanned and needle in both and needle not in texts[index + 1]):
+            last = lines[index] if needle in texts[index] else lines[index + 1]
+            spanned = index + 1 if last is not line else spanned
+            hits.append({
+                "start": line["start_seconds"],
+                "end": last["end_seconds"],
+                "label": line["start_time"],
+                "text": line["text"] if last is line else f"{line['text']} {last['text']}",
+            })
+            if len(hits) >= limit:
+                break
+    return hits
+
+
 def _parse_transcript_timestamp_seconds(timestamp: str) -> int:
     """Parse MM:SS or HH:MM:SS transcript timestamps into seconds."""
     parts = [int(part) for part in timestamp.split(":")]

@@ -353,9 +353,13 @@ class TaskService(ClipEditingMixin):
             # clips deleted since (remembered in the task metadata).
             existing_clips: list[Dict[str, Any]] = []
             exclude_ranges: Optional[list[tuple[int, int]]] = None
+            # (start, end) seconds picked in "Search the stream": clip that instead of searching.
+            manual_range: Optional[tuple[int, int]] = None
             if find_more:
                 existing_clips = await self.clip_repo.get_clips_by_task(self.db, task_id)
                 metadata = await self.task_repo.load_source_metadata(self.db, task_id)
+                if metadata.get("manual_range"):
+                    manual_range = (int(metadata["manual_range"][0]), int(metadata["manual_range"][1]))
                 exclude_ranges = sorted(
                     {(int(r[0]), int(r[1])) for r in metadata.get("excluded_ranges") or []}
                     | {
@@ -398,6 +402,7 @@ class TaskService(ClipEditingMixin):
                 progress_callback=update_progress,
                 should_cancel=should_cancel,
                 exclude_ranges=exclude_ranges,
+                manual_range=manual_range,
             )
             stage_timings["pipeline_seconds"] = round(
                 perf_counter() - pipeline_start, 3
@@ -570,7 +575,7 @@ class TaskService(ClipEditingMixin):
             if completed is False:
                 raise TaskCancelled()
             if find_more:
-                await self.task_repo.save_source_metadata(self.db, task_id, {"find_more": False})
+                await self.task_repo.save_source_metadata(self.db, task_id, {"find_more": False, "manual_range": None})
 
             if progress_callback:
                 await progress_callback(100, "Complete!", "completed")
@@ -620,7 +625,7 @@ class TaskService(ClipEditingMixin):
                     self.db, task_id, "completed", progress=100, progress_message=message,
                     expected_statuses=["queued", "processing"],
                 )
-                await self.task_repo.save_source_metadata(self.db, task_id, {"find_more": False})
+                await self.task_repo.save_source_metadata(self.db, task_id, {"find_more": False, "manual_range": None})
                 if progress_callback:
                     try:
                         await progress_callback(100, message, "completed")

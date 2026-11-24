@@ -115,3 +115,36 @@ async def test_cached_text_regenerates_missing_word_timings(monkeypatch, tmp_pat
     analysis = json.dumps({"most_relevant_segments": [{"start_time": "00:00", "end_time": "00:17", "text": "Cached segment"}], "summary": "Test", "key_topics": []})
     await VideoService.process_video_complete(url="upload://source.mp4", source_type="video_url", cached_transcript="Cached transcript", cached_analysis_json=analysis)
     transcribe.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_a_picked_range_becomes_the_only_clip_without_asking_the_ai(monkeypatch, tmp_path):
+    video_path = tmp_path / "source.mp4"
+    video_path.write_bytes(b"placeholder")
+    monkeypatch.setattr(
+        video_service_module, "get_config", lambda: SimpleNamespace(max_video_duration=86400, clip_duration=30)
+    )
+    monkeypatch.setattr(VideoService, "resolve_local_video_path", staticmethod(lambda _url: video_path))
+    monkeypatch.setattr(VideoService, "_get_file_duration", staticmethod(lambda _path: 7000.0))
+
+    async def fake_generate_transcript(_video_path, processing_mode="balanced", source_url=None):
+        return "[100:05 - 100:11] no way"
+
+    async def no_ai(*_args, **_kwargs):
+        raise AssertionError("a picked range must not run the AI search")
+
+    async def fake_run_in_thread(_func, *_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(VideoService, "generate_transcript", staticmethod(fake_generate_transcript))
+    monkeypatch.setattr(VideoService, "analyze_transcript", staticmethod(no_ai))
+    monkeypatch.setattr(video_service_module, "run_in_thread", fake_run_in_thread)
+
+    result = await VideoService.process_video_complete(
+        url="upload://source.mp4", source_type="video_url", processing_mode="fast",
+        exclude_ranges=[(0, 30)], manual_range=(5985, 6021),
+    )
+
+    (segment,) = result["segments_to_render"]
+    assert (segment["start_time"], segment["end_time"]) == ("99:45", "100:21")
+    assert segment["relevance_score"] == 1.0 and segment["hook_title"] is None
