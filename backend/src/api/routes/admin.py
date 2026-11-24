@@ -296,7 +296,7 @@ async def _save_settings(
 
 @router.get("/usage-count")
 async def get_usage_count(request: Request, db: AsyncSession = Depends(get_db)):
-    """Whether this install is counted as a user: true, false, or null when not asked yet."""
+    """Whether this install is counted as a user (on unless turned off)."""
     await _require_settings_user(request, db)
     return {"enabled": usage_count.get_choice()}
 

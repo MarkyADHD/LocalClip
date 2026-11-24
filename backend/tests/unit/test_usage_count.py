@@ -5,7 +5,7 @@ import httpx
 from src import usage_count
 
 
-def test_nothing_is_sent_until_the_user_says_yes(monkeypatch, tmp_path):
+def test_counts_once_per_install_and_month_unless_turned_off(monkeypatch, tmp_path):
     hits = []
 
     class Client:
@@ -20,18 +20,17 @@ def test_nothing_is_sent_until_the_user_says_yes(monkeypatch, tmp_path):
     monkeypatch.setattr(usage_count.httpx, "AsyncClient", Client)
     monkeypatch.setenv("LOCALCLIP_NATIVE", "1")
 
-    asyncio.run(usage_count.ping())  # not asked yet
     usage_count.set_choice(False)
-    asyncio.run(usage_count.ping())  # said no
+    asyncio.run(usage_count.ping())  # turned off in Settings
     assert hits == []
 
-    usage_count.set_choice(True)
-    asyncio.run(usage_count.ping())
+    (tmp_path / "usage_count.json").unlink()
+    asyncio.run(usage_count.ping())  # fresh install: on by default
     assert [h.rsplit("/", 1)[1][:7] for h in hits] == ["install", "active-"], hits
     asyncio.run(usage_count.ping())  # same month: nothing more
     assert len(hits) == 2
 
     monkeypatch.delenv("LOCALCLIP_NATIVE")  # dev / Docker never counts
-    usage_count._save({"enabled": True})
+    (tmp_path / "usage_count.json").unlink()
     asyncio.run(usage_count.ping())
     assert len(hits) == 2

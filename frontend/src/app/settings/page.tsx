@@ -173,7 +173,7 @@ export default function SettingsPage() {
           <AiModelPicker />
         </Section>
 
-        <Section icon={<ShieldCheck className="size-4" />} title="Privacy" description="Off unless you turn it on. Saved as soon as you choose.">
+        <Section icon={<ShieldCheck className="size-4" />} title="Privacy" description="The only thing LocalClip reports. Saved as soon as you choose.">
           <UsageCountSwitch />
         </Section>
 

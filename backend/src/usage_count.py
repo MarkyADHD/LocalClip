@@ -1,7 +1,6 @@
-"""Opt-in, anonymous user count.
+"""Anonymous user count, on by default; Settings > Privacy turns it off.
 
-Nothing is sent until the user says yes (the first-launch question or Settings > Privacy).
-After that LocalClip adds 1 to a public counter once per install and once per calendar month.
+LocalClip adds 1 to a public counter once per install and once per calendar month.
 The request carries no ID and no data about the PC or its videos: it is a bare GET to COUNTER_URL.
 """
 
@@ -42,10 +41,9 @@ def _save(state: dict) -> None:
     path.write_text(json.dumps(state))
 
 
-def get_choice() -> bool | None:
-    """True = count me, False = don't, None = not asked yet."""
-    enabled = load().get("enabled")
-    return enabled if isinstance(enabled, bool) else None
+def get_choice() -> bool:
+    """Counted unless the user turned it off."""
+    return load().get("enabled") is not False
 
 
 def set_choice(enabled: bool) -> None:
@@ -56,7 +54,7 @@ async def ping() -> None:
     """Count this install (once) and this month (once). Never raises: counting must not break the app."""
     try:
         # Only the real Windows app counts, not dev servers, Docker or CI.
-        if os.getenv("LOCALCLIP_NATIVE") != "1" or get_choice() is not True:
+        if os.getenv("LOCALCLIP_NATIVE") != "1" or not get_choice():
             return
         state = load()
         month = datetime.now(timezone.utc).strftime("%Y-%m")

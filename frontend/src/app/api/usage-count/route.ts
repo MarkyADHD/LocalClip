@@ -3,7 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createTextProxyResponse, fetchBackend } from "@/server/backend-api";
 import { getServerSession } from "@/server/session";
 
-// GET: whether this install is counted as a user (true, false, or null = not asked yet). PUT: choose.
+// GET: whether this install is counted as a user (on unless turned off). PUT: choose.
 async function proxy(method: "GET" | "PUT", body?: string) {
   const session = await getServerSession();
   if (!session?.user?.id) {

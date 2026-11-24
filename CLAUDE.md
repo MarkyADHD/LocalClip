@@ -137,9 +137,9 @@ no sign-up. The app is dark by default (`class="dark"` on `<html>`); Settings > 
 
 ### User counter
 
-`backend/src/usage_count.py`: opt-in only (first-launch prompt, Settings > Privacy; `GET/PUT /admin/usage-count`). When on, the
-native app hits a public Abacus counter once per install and once per month, with no ID. The README privacy policy promises
-nothing is sent without the user asking (a SignPath signing condition), so do not make it on by default unless Marky changes that policy.
+`backend/src/usage_count.py`: on by default (Marky's call), off switch in Settings > Privacy (`GET/PUT /admin/usage-count`).
+The native app hits a public Abacus counter once per install and once per month, with no ID. Keep the README privacy policy
+accurate about exactly what is sent.
 
 ### Database
 
