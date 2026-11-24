@@ -89,7 +89,7 @@ export function TwitchVodPicker({ open, onOpenChange, onPick }: {
 
   const startLogin = () => run(async () => {
     const started = await api<Login>("login", "POST");
-    // Without Twitch's ?device-code=: desktop apps up to 1.6.0 open File Explorer for a link with a query.
+    // Without Twitch's ?device-code=: desktop apps before 1.6.1 open File Explorer for a link with a query.
     started.verification_uri = started.verification_uri.split("?")[0];
     setLogin(started);
     window.open(started.verification_uri, "_blank", "noopener");
