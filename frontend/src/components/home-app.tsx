@@ -4,7 +4,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import Link from "next/link";
 import {
   AlertCircle, ArrowRight, Captions, CaptionsOff, Check, ChevronDown, Crop, FileVideo,
-  Link2, Loader2, Paintbrush, Paperclip, Sparkles, Upload, Wand2, X,
+  Link2, Loader2, Paintbrush, Paperclip, Sparkles, Twitch, Upload, Wand2, X,
 } from "lucide-react";
 import { CaptionSizeControl } from "@/components/caption-size-control";
 import { FONT_SEARCH_THRESHOLD, getYouTubeThumbnailUrl, uploadVideoFile } from "@/lib/video-upload";
@@ -30,6 +30,7 @@ import { buildFontOptionsPayload, FONT_TEMPLATE_DEFAULT_VALUE } from "@/lib/font
 import { fetchGenerations, greeting, type GenerationSummary } from "@/lib/generations";
 import { cn } from "@/lib/utils";
 import { FontSelectOption, type FontOption } from "@/components/font-select-option";
+import { TwitchVodPicker } from "@/components/twitch-vod-picker";
 
 interface CaptionTemplate {
   id: string;
@@ -66,6 +67,7 @@ export default function HomeApp() {
   const [isLoading, setIsLoading] = useState(false);
   const [statusMessage, setStatusMessage] = useState("");
   const [file, setFile] = useState<File | null>(null);
+  const [twitchOpen, setTwitchOpen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -395,6 +397,12 @@ export default function HomeApp() {
                   <Paperclip className="size-3.5" /><span className="hidden sm:inline">Upload</span>
                 </Chip>
               )}
+              {!file && (
+                <Chip onClick={() => setTwitchOpen(true)} disabled={controlsDisabled} aria-label="Pick one of your Twitch VODs">
+                  <Twitch className="size-3.5" /><span className="hidden sm:inline">My Twitch VODs</span>
+                </Chip>
+              )}
+              <TwitchVodPicker open={twitchOpen} onOpenChange={setTwitchOpen} onPick={setUrl} />
 
               <Popover>
                 <PopoverTrigger asChild>

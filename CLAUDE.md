@@ -73,6 +73,9 @@ Blocking work (ffmpeg, downloads, transcription) is wrapped in `run_in_thread()`
    generation is deleted, the "Delete full video" button is used, or `SOURCE_KEEP_DAYS` (3) pass), YouTube URL, or uploaded file.
 2. **Transcription**: faster-whisper (CTranslate2, fp16 on the GPU, VAD on) locally (`WHISPER_MODEL`).
    No torch; cuBLAS/cuDNN come from the `nvidia-*` wheels. Close games while clipping: they share the GPU.
+   "My Twitch VODs" on the home screen logs in with Twitch's device code flow (`TWITCH_CLIENT_ID`, a public app, no
+   secret; tokens in `TEMP_DIR/twitch_login.json`) and lists the user's videos from Helix (`/tasks/twitch/*`); picking
+   one just fills in its link.
 3. **Twitch chat signals**: for Twitch VODs, `twitch.py` downloads the chat replay and scores
    activity spikes, which feed the clip selection as an extra signal.
 4. **AI analysis**: the LLM picks segments with virality scores; the prompts target stream

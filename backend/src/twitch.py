@@ -7,6 +7,8 @@ import urllib.request
 from pathlib import Path
 from typing import List, Optional, Tuple
 
+import httpx
+
 from .config import get_config
 from .media.timeline import spike_spans
 
@@ -155,3 +157,156 @@ def chat_signal_lines(url: str, duration: float) -> List[str]:
         f"- [{timestamp_label(a)} - {timestamp_label(b)}] score=4.0: Twitch chat exploded here (viewers reacted to this moment)"
         for a, b in spans
     ]
+
+
+# --- "Log in with Twitch": device code login (no client secret) and the user's own videos ---
+
+TWITCH_ID = "https://id.twitch.tv/oauth2"
+DEVICE_GRANT = "urn:ietf:params:oauth:grant-type:device_code"
+_pending_login: dict = {}  # the device code being approved; one login at a time is enough for a one-user app
+
+
+class TwitchLoginError(Exception):
+    pass
+
+
+def _auth_file() -> Path:
+    return Path(get_config().temp_dir) / "twitch_login.json"
+
+
+def _client_id() -> str:
+    client_id = get_config().twitch_client_id
+    if not client_id:
+        raise TwitchLoginError("Twitch login is not set up: TWITCH_CLIENT_ID is missing")
+    return client_id
+
+
+def _load_auth() -> Optional[dict]:
+    try:
+        return json.loads(_auth_file().read_text())
+    except (OSError, ValueError):
+        return None
+
+
+def _save_auth(auth: dict) -> None:
+    path = _auth_file()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(auth))
+
+
+async def _oauth(path: str, **form) -> httpx.Response:
+    async with httpx.AsyncClient(timeout=15) as client:
+        return await client.post(f"{TWITCH_ID}/{path}", data={"client_id": _client_id(), **form})
+
+
+async def _helix(auth: dict, path: str, **params) -> httpx.Response:
+    async with httpx.AsyncClient(timeout=15) as client:
+        return await client.get(
+            f"https://api.twitch.tv/helix/{path}",
+            params=params,
+            headers={"Client-Id": _client_id(), "Authorization": f"Bearer {auth['access_token']}"},
+        )
+
+
+async def start_twitch_login() -> dict:
+    """Ask Twitch for a device code; the user approves it at the returned link."""
+    response = await _oauth("device", scopes="")  # public videos need no scopes
+    if response.status_code != 200:
+        raise TwitchLoginError(f"Twitch refused the login request: {response.text[:200]}")
+    data = response.json()
+    _pending_login.clear()
+    _pending_login.update(device_code=data["device_code"])
+    return {
+        "user_code": data["user_code"],
+        "verification_uri": data["verification_uri"],
+        "interval": data.get("interval", 5),
+        "expires_in": data.get("expires_in", 1800),
+    }
+
+
+async def poll_twitch_login() -> bool:
+    """True once the user has approved the code (tokens saved), False while still waiting."""
+    device_code = _pending_login.get("device_code")
+    if not device_code:
+        raise TwitchLoginError("No Twitch login in progress")
+    response = await _oauth("token", scopes="", device_code=device_code, grant_type=DEVICE_GRANT)
+    if response.status_code != 200:
+        message = str(response.json().get("message", "")) if response.content else ""
+        if "pending" in message or "slow_down" in message:
+            return False
+        _pending_login.clear()
+        raise TwitchLoginError(f"Twitch login failed: {message or response.status_code}")
+    tokens = response.json()
+    auth = {"access_token": tokens["access_token"], "refresh_token": tokens.get("refresh_token")}
+    users = (await _helix(auth, "users")).json().get("data") or []
+    if not users:
+        raise TwitchLoginError("Twitch login worked but the account could not be read")
+    auth.update(user_id=users[0]["id"], name=users[0].get("display_name") or users[0]["login"])
+    _save_auth(auth)
+    _pending_login.clear()
+    return True
+
+
+async def _refresh(auth: dict) -> Optional[dict]:
+    if not auth.get("refresh_token"):
+        return None
+    response = await _oauth("token", grant_type="refresh_token", refresh_token=auth["refresh_token"])
+    if response.status_code != 200:
+        return None
+    tokens = response.json()
+    # Public-client refresh tokens are single use: keep the new one.
+    auth.update(access_token=tokens["access_token"], refresh_token=tokens.get("refresh_token"))
+    _save_auth(auth)
+    return auth
+
+
+def vod_summary(video: dict) -> dict:
+    return {
+        "id": video["id"],
+        "title": video.get("title") or "Untitled stream",
+        "url": video.get("url") or f"https://www.twitch.tv/videos/{video['id']}",
+        # Empty while a stream is still live or being processed.
+        "thumbnail": (video.get("thumbnail_url") or "").replace("%{width}", "320").replace("%{height}", "180"),
+        "duration": video.get("duration", ""),
+        "created_at": video.get("created_at", ""),
+        "type": video.get("type", "archive"),
+    }
+
+
+async def list_my_vods(after: Optional[str] = None) -> dict:
+    """The logged-in user's past broadcasts, highlights and uploads, newest first."""
+    auth = _load_auth()
+    if not auth:
+        return {"configured": bool(get_config().twitch_client_id), "logged_in": False}
+    params = {"user_id": auth["user_id"], "first": 50, **({"after": after} if after else {})}
+    response = await _helix(auth, "videos", **params)
+    if response.status_code == 401:
+        auth = await _refresh(auth)
+        if not auth:  # revoked, or unused for 30 days
+            twitch_logout_local()
+            return {"configured": True, "logged_in": False}
+        response = await _helix(auth, "videos", **params)
+    if response.status_code != 200:
+        raise TwitchLoginError(f"Twitch did not return your videos ({response.status_code})")
+    body = response.json()
+    return {
+        "configured": True,
+        "logged_in": True,
+        "name": auth.get("name"),
+        "vods": [vod_summary(video) for video in body.get("data", [])],
+        "cursor": (body.get("pagination") or {}).get("cursor"),
+    }
+
+
+def twitch_logout_local() -> None:
+    _auth_file().unlink(missing_ok=True)
+
+
+async def twitch_logout() -> None:
+    auth = _load_auth()
+    twitch_logout_local()
+    if auth:
+        try:
+            await _oauth("revoke", token=auth["access_token"])
+        except (httpx.HTTPError, TwitchLoginError) as exc:
+            logger.warning("Twitch token revoke failed: %s", exc)

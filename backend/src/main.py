@@ -172,6 +172,8 @@ def create_app(
             headers={TRACE_HEADER: trace_id},
         )
 
+    from .api.routes.twitch import router as twitch_router
+    app.include_router(twitch_router)  # before tasks: /tasks/twitch/... must not match /tasks/{task_id}/...
     app.include_router(tasks.router)
     from .api.routes.editor import router as editor_router
     app.include_router(editor_router)
