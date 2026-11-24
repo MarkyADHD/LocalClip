@@ -147,6 +147,11 @@ accurate about exactly what is sent.
 (`backend/src/problem_report.py`, `GET /admin/problem-report`) shows the PC's details and log ends for the user to paste into a
 GitHub issue. The app never sends it; keep it that way (README privacy policy).
 
+### Setup check
+
+`backend/src/setup_check.py` (`GET /admin/setup-check`) lists what stops this PC from making clips (no AI model, no ffmpeg) or
+slows it down (no NVIDIA card, low disk). The home screen shows the list (`components/setup-check.tsx`); warnings can be hidden.
+
 ### Database
 
 PostgreSQL, schema in `init.sql` (plus `backend/src/migrations/sql/`). `tasks`, `sources`,
