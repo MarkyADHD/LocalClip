@@ -33,6 +33,18 @@ function Get-Zip($from, $to) {
 if (Test-Up) { if (-not $NoBrowser) { Start-Process $url }; exit }
 & (Join-Path $root "Close LocalClip.ps1")   # clear out anything left half-running
 
+# Keep the last 5 runs' logs in logs\old\<time> so "Report a problem" can show what went wrong before this start.
+try {
+    $oldLogs = Join-Path $logs "old"
+    # Not launcher.log: the desktop app is writing this run's into it right now. Not postgres.log: Postgres appends to it.
+    $last = Get-ChildItem $logs -Filter *.log | Where-Object { $_.Name -notin "launcher.log", "postgres.log" }
+    if ($last | Where-Object Length -gt 0) {
+        $run = New-Item -ItemType Directory -Force (Join-Path $oldLogs (Get-Date -Format "yyyyMMdd-HHmmss"))
+        $last | Move-Item -Destination $run -Force
+    }
+    Get-ChildItem $oldLogs -Directory -ErrorAction SilentlyContinue | Sort-Object Name -Descending | Select-Object -Skip 5 | Remove-Item -Recurse -Force
+} catch { Write-Host "Could not keep the old logs: $_" }
+
 # Pick up the latest LocalClip changes (harmless if offline or not a git checkout).
 try { git pull --ff-only --quiet 2>$null } catch {}
 

@@ -76,6 +76,17 @@ test("signed-in settings waits for preferences before showing the form", async (
   await expect(page.getByRole("button", { name: /save preferences/i })).toHaveCount(0);
 });
 
+test("settings builds a problem report the user can read before posting it", async ({ page }) => {
+  await page.route("**/api/tasks/billing-summary", route => route.fulfill({ json: { monetization_enabled: false } }));
+  await page.route("**/api/preferences", route => route.fulfill({ json: { fontFamily: "TikTokSans-Regular", fontSize: 24, fontColor: "#FFFFFF", notifyOnCompletion: true } }));
+  await page.route("**/api/problem-report", route => route.fulfill({ json: { report: "**What happened?**\n\n- GPU: NVIDIA GeForce RTX 4070, 12282 MiB\n- AI model: claude-code:sonnet\n\nworker.err.log\nRuntimeError: Claude Code CLI not found." } }));
+  await page.goto("/settings");
+  await page.getByRole("button", { name: "Report a problem" }).click();
+  await expect(page.getByRole("textbox", { name: "Problem report" })).toHaveValue(/RTX 4070[\s\S]*CLI not found/);
+  await expect(page.getByRole("link", { name: "Open GitHub and paste" })).toHaveAttribute("href", "https://github.com/MarkyADHD/LocalClip/issues/new");
+  if (process.env.SHOT) await page.locator("#help").screenshot({ path: process.env.SHOT });
+});
+
 test("font info stays open in a real selector and preserves the selected font", async ({ page }) => {
   await page.route("**/api/fonts", route => route.fulfill({ json: { fonts: [
     { name: "TikTokSans-Regular", display_name: "TikTok Sans Regular", scope: "system", supported_languages: ["en", "pt", "es", "fr", "de", "it", "pl", "tr", "vi", "el", "ru", "uk", "af"] },

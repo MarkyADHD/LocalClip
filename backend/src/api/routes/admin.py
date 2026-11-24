@@ -9,7 +9,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...admin_auth import require_admin_user
-from ... import usage_count
+from ... import problem_report, usage_count
 from ...ai import _get_missing_llm_key_error
 from ...auth_headers import get_authenticated_user_id
 from ...config import get_config
@@ -292,6 +292,13 @@ async def _save_settings(
                 "updated_by": user_id,
             },
         )
+
+
+@router.get("/problem-report")
+async def get_problem_report(request: Request, db: AsyncSession = Depends(get_db)):
+    """Text the user can paste into a bug report. Shown to them first; never sent by the app."""
+    await _require_settings_user(request, db)
+    return {"report": await asyncio.to_thread(problem_report.build)}
 
 
 @router.get("/usage-count")

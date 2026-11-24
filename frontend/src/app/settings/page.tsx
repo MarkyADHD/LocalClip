@@ -11,8 +11,9 @@ import { Select, SelectContent, SelectTrigger, SelectValue } from "@/components/
 import { Slider } from "@/components/ui/slider";
 import { useSession } from "@/lib/auth-client";
 import { track } from "@/lib/datafast";
-import { AlertCircle, Bot, Check, Loader2, Moon, Palette, ShieldCheck, Sun, Type } from "lucide-react";
+import { AlertCircle, Bot, Check, Loader2, Moon, Palette, LifeBuoy, ShieldCheck, Sun, Type } from "lucide-react";
 import { AiModelPicker } from "@/components/ai-model-picker";
+import { ReportProblem } from "@/components/report-problem";
 import { UsageCountSwitch } from "@/components/usage-count";
 import { cn } from "@/lib/utils";
 import { FontSelectOption, type FontOption } from "@/components/font-select-option";
@@ -175,6 +176,10 @@ export default function SettingsPage() {
 
         <Section icon={<ShieldCheck className="size-4" />} title="Privacy" description="The only thing LocalClip reports. Saved as soon as you choose.">
           <UsageCountSwitch />
+        </Section>
+
+        <Section id="help" icon={<LifeBuoy className="size-4" />} title="Help" description="Tell us when something goes wrong so it gets fixed.">
+          <ReportProblem />
         </Section>
 
         <Section icon={<Type className="size-4" />} title="Caption defaults" description="Applied to every new generation. You can still change them per video.">
