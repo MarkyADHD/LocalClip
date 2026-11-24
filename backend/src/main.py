@@ -8,6 +8,7 @@ This is the new main entry point with:
 - Thread pool for blocking operations
 """
 
+import asyncio
 from contextlib import asynccontextmanager
 import logging
 import time
@@ -19,6 +20,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from . import usage_count
 from .config import Config, get_config, set_config_override
 from .database import AsyncSessionLocal, close_db, configure_database, get_db, init_db
 from .mcp_server import create_mcp
@@ -72,6 +74,9 @@ def create_app(
 
             await queue_adapter.get_pool()
             logger.info("✅ Job queue initialized")
+
+            # Opt-in anonymous user count (see usage_count.py); does nothing unless the user said yes.
+            app.state.usage_ping = asyncio.create_task(usage_count.ping())
 
             if mcp:
                 async with mcp.session_manager.run():

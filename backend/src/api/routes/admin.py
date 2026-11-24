@@ -9,6 +9,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...admin_auth import require_admin_user
+from ... import usage_count
 from ...ai import _get_missing_llm_key_error
 from ...auth_headers import get_authenticated_user_id
 from ...config import get_config
@@ -291,3 +292,22 @@ async def _save_settings(
                 "updated_by": user_id,
             },
         )
+
+
+@router.get("/usage-count")
+async def get_usage_count(request: Request, db: AsyncSession = Depends(get_db)):
+    """Whether this install is counted as a user (on unless turned off)."""
+    await _require_settings_user(request, db)
+    return {"enabled": usage_count.get_choice()}
+
+
+class UsageCountChoice(BaseModel):
+    enabled: bool
+
+
+@router.put("/usage-count")
+async def set_usage_count(request: Request, payload: UsageCountChoice, db: AsyncSession = Depends(get_db)):
+    await _require_settings_user(request, db)
+    usage_count.set_choice(payload.enabled)
+    await usage_count.ping()
+    return {"enabled": payload.enabled}

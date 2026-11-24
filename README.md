@@ -214,7 +214,7 @@ Changes from anyone else come in as pull requests and are reviewed before they a
 
 ### Privacy policy
 
-This program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it.
+Apart from the anonymous user count described below, this program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it.
 
 What LocalClip does contact, because you asked it to:
 
@@ -223,7 +223,11 @@ What LocalClip does contact, because you asked it to:
 - **Your AI model.** With Claude Code, the transcript text of your video is sent to Anthropic under [their privacy policy](https://www.anthropic.com/legal/privacy). With a local model nothing is sent anywhere.
 - **Download servers for its tools** on first start (Python packages, Node, ffmpeg, PostgreSQL, Redis, the Whisper model).
 
-LocalClip has no accounts, no analytics and no telemetry.
+What it sends on its own, so Marky can see how many people use it:
+
+- **An anonymous user count.** The app adds 1 to a public counter at [abacus.jasoncameron.dev](https://abacus.jasoncameron.dev) once for the install and once per calendar month. The request is a bare web address with no ID and nothing about you, your PC or your videos; like any web request, the counter's server sees your IP address. Turn it off in **Settings > Privacy** and nothing is sent. The code is `backend/src/usage_count.py`.
+
+LocalClip has no accounts, no tracking and no other analytics or telemetry.
 
 ## Follow me on Twitch
 
