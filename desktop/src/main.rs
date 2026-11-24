@@ -211,7 +211,8 @@ fn newer_version_compares_numbers() {
 }
 
 fn open_in_browser(url: &str) {
-    let _ = Command::new("explorer").arg(url).spawn();
+    // Not `explorer <url>`: it opens a File Explorer window instead when the link has a ?query.
+    let _ = Command::new("rundll32").args(["url.dll,FileProtocolHandler", url]).spawn();
 }
 
 const LOADING_PAGE: &str = r#"<!doctype html>

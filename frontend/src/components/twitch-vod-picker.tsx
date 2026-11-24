@@ -89,6 +89,8 @@ export function TwitchVodPicker({ open, onOpenChange, onPick }: {
 
   const startLogin = () => run(async () => {
     const started = await api<Login>("login", "POST");
+    // Without Twitch's ?device-code=: desktop apps up to 1.6.0 open File Explorer for a link with a query.
+    started.verification_uri = started.verification_uri.split("?")[0];
     setLogin(started);
     window.open(started.verification_uri, "_blank", "noopener");
   });
@@ -121,7 +123,7 @@ export function TwitchVodPicker({ open, onOpenChange, onPick }: {
           <p className="py-6 text-sm text-muted-foreground">Twitch login is not set up in this build yet (no TWITCH_CLIENT_ID).</p>
         ) : login ? (
           <div className="flex flex-col items-center gap-3 py-6 text-center">
-            <p className="text-sm text-muted-foreground">Approve LocalClip in the Twitch page that just opened. If it asks for a code, enter:</p>
+            <p className="text-sm text-muted-foreground">Enter this code on the Twitch page that just opened, then approve LocalClip:</p>
             <p className="rounded-lg border bg-muted px-4 py-2 font-mono text-2xl font-semibold tracking-widest">{login.user_code}</p>
             <a href={login.verification_uri} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-sm underline underline-offset-4">
               Open the Twitch page again<ExternalLink className="size-3.5" />
