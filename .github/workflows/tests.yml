@@ -59,6 +59,14 @@ jobs:
       - name: Run backend tests
         run: cd backend && .venv/bin/pytest
 
+  launcher:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check the Windows launcher scripts
+        shell: powershell
+        run: .github\launcher-check.ps1
+
   frontend:
     runs-on: ubuntu-latest
     env:
