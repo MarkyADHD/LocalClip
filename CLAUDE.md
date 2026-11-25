@@ -128,7 +128,7 @@ clip from the source with extra time (the UI's "+30s" buttons; max 600s each sid
 ### Posting
 
 "Post" on a finished clip (`components/post-clip.tsx`, `api/routes/post.py`): a button each for YouTube, TikTok and Instagram copies the
-caption, shows the file in Explorer and opens the upload page. LocalClip uploads nothing itself (a YouTube login was built and removed at
+caption, shows the file in Explorer and opens the upload page. "Write with AI" (`post_captions.py`, `POST /tasks/{id}/clips/{clip_id}/captions`) writes a caption with hashtags per site from the clip's transcript with the Settings > AI model. LocalClip uploads nothing itself (a YouTube login was built and removed at
 Marky's request). See `docs/posting.md`.
 
 ### Video editor

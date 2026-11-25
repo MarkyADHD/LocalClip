@@ -150,25 +150,9 @@ def build_prompt(document: ProjectDocument, words: list[dict], message: str, his
 
 def assistant_agent():
     """The configured model (Settings > AI model), answering with a Proposal."""
-    from .ai import _build_transcript_model, _get_missing_llm_key_error, _output_type, _split_llm_name
-    from .claude_code import ClaudeCodeAgent
-    from .config import get_config
+    from .ai import build_agent
 
-    config = get_config()
-    provider, name = _split_llm_name(config.llm)
-    error = _get_missing_llm_key_error(config.llm, config)
-    if error:
-        raise RuntimeError(error)
-    if provider == "claude-code":
-        return ClaudeCodeAgent(name, Proposal, SYSTEM_PROMPT)
-    from pydantic_ai import Agent
-
-    return Agent(
-        model=_build_transcript_model(config),
-        output_type=_output_type(provider, Proposal),
-        system_prompt=SYSTEM_PROMPT,
-        output_retries=2,
-    )
+    return build_agent(Proposal, SYSTEM_PROMPT)
 
 
 async def ask(document: ProjectDocument, words: list[dict], message: str, history: list[dict]) -> dict:
