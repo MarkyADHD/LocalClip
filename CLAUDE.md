@@ -127,10 +127,9 @@ clip from the source with extra time (the UI's "+30s" buttons; max 600s each sid
 
 ### Posting
 
-"Post" on a finished clip (`components/post-clip.tsx`, `backend/src/youtube_upload.py`, `api/routes/post.py`): uploads to YouTube with
-Google's device login (`YOUTUBE_CLIENT_ID`/`YOUTUBE_CLIENT_SECRET`; login in `TEMP_DIR/youtube_login.json`). TikTok and Instagram have no API
-a desktop app can ship, so those buttons copy the caption, show the file in Explorer and open the upload page. Only on the user's click; keep
-the README privacy policy accurate. See `docs/posting.md`.
+"Post" on a finished clip (`components/post-clip.tsx`, `api/routes/post.py`): a button each for YouTube, TikTok and Instagram copies the
+caption, shows the file in Explorer and opens the upload page. LocalClip uploads nothing itself (a YouTube login was built and removed at
+Marky's request). See `docs/posting.md`.
 
 ### Video editor
 
