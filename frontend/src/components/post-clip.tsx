@@ -18,7 +18,7 @@ export interface PostableClip {
 }
 
 // No ?query in these links: desktop apps before 1.6.1 open File Explorer for a link that has one.
-const UPLOAD_PAGES = [
+export const UPLOAD_PAGES = [
   { name: "YouTube", key: "youtube", url: "https://www.youtube.com/upload", label: "Title", max: 100 },
   { name: "TikTok", key: "tiktok", url: "https://www.tiktok.com/tiktokstudio/upload", label: "Caption", max: 2200 },
   { name: "Instagram", key: "instagram", url: "https://www.instagram.com/", label: "Caption", max: 2200 },
@@ -39,6 +39,11 @@ function readStored(clipId: string): Captions | null {
   }
 }
 
+export function clipCaption(clip: PostableClip) {
+  const name = clip.hook_title || `Clip ${clip.clip_order}`;
+  return [name, (clip.hashtags ?? []).map((tag) => `#${tag}`).join(" ")].filter(Boolean).join(" ");
+}
+
 /** Post one finished clip: caption on the clipboard, the file selected in File Explorer, the site's upload page open. */
 export function PostClipDialog({ clip, taskId, onClose }: { clip: PostableClip | null; taskId: string; onClose: () => void }) {
   const [captions, setCaptions] = useState<Captions>({ youtube: "", tiktok: "", instagram: "" });
@@ -51,8 +56,7 @@ export function PostClipDialog({ clip, taskId, onClose }: { clip: PostableClip |
 
   useEffect(() => {
     if (!clip) return;
-    const name = clip.hook_title || `Clip ${clip.clip_order}`;
-    const plain = [name, (clip.hashtags ?? []).map((tag) => `#${tag}`).join(" ")].filter(Boolean).join(" ");
+    const plain = clipCaption(clip);
     setCaptions(readStored(clip.id) ?? { youtube: plain.slice(0, 100), tiktok: plain, instagram: plain });
     setTab("youtube");
     setFilePath(null);

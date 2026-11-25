@@ -58,6 +58,7 @@ import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip
 import Link from "next/link";
 import { ClipTile, ClipFocus, ProcessingPanel, EmptyState } from "@/components/app/clip-wall";
 import { PostClipDialog } from "@/components/post-clip";
+import { BatchExportBar } from "@/components/batch-export";
 import { timeAgo } from "@/lib/generations";
 import { cn } from "@/lib/utils";
 import { FontSelectOption, type FontOption } from "@/components/font-select-option";
@@ -130,6 +131,7 @@ export default function TaskPage() {
   const [postingClip, setPostingClip] = useState<Clip | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [exportPreset, setExportPreset] = useState("original");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   // null means "use the caption template's own value" — mirrors the create form's contract.
   const [projectFontFamily, setProjectFontFamily] = useState<string | null>(null);
@@ -533,6 +535,7 @@ export default function TaskPage() {
     ? [...clips].sort((a, b) => (b.virality_score ?? 0) - (a.virality_score ?? 0) || a.clip_order - b.clip_order)
     : clips;
   const focusedClip = focusIndex !== null ? sortedClips[focusIndex] : null;
+  const selectedClips = clips.filter((clip) => selectedIds.has(clip.id)); // clip order; drops deleted clips
   const bestScore = clips.reduce((best, clip) => Math.max(best, clip.virality_score || 0), 0);
   const totalSeconds = clips.reduce((sum, clip) => sum + (clip.duration || 0), 0);
 
@@ -543,6 +546,12 @@ export default function TaskPage() {
       taskId={task?.id ?? String(params.id)}
       busy={pendingAction === clip.id}
       best={bestScore > 0 && clip.virality_score === bestScore}
+      selected={selectedIds.has(clip.id)}
+      onSelect={(selected) => setSelectedIds((current) => {
+        const next = new Set(current);
+        if (selected) next.add(clip.id); else next.delete(clip.id);
+        return next;
+      })}
       onOpen={() => setFocusIndex(index)}
       onDownload={() => handleDownloadClip(clip)}
       onPost={() => setPostingClip(clip)}
@@ -724,6 +733,10 @@ export default function TaskPage() {
                 ))}
               </div>
               <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Button size="sm" variant="ghost" className="h-8 text-xs"
+                  onClick={() => setSelectedIds(selectedClips.length === clips.length ? new Set() : new Set(clips.map((clip) => clip.id)))}>
+                  {selectedClips.length === clips.length ? "Select none" : "Select all"}
+                </Button>
                 <span className="hidden sm:inline">Download as</span>
                 <Select value={exportPreset} onValueChange={setExportPreset}>
                   <SelectTrigger size="sm" aria-label="Download format" className="h-8 min-w-[112px] bg-card"><SelectValue /></SelectTrigger>
@@ -757,6 +770,7 @@ export default function TaskPage() {
         onExtend={(before, after) => focusedClip && handleExtendClip(focusedClip.id, before, after)}
         hookTypeLabel={getHookTypeLabel}
       />
+      <BatchExportBar clips={selectedClips} taskId={task?.id ?? String(params.id)} preset={exportPreset} onClear={() => setSelectedIds(new Set())} />
       <PostClipDialog clip={postingClip} taskId={task?.id ?? String(params.id)} onClose={() => setPostingClip(null)} />
 
       <Sheet open={settingsSheetOpen} onOpenChange={setSettingsSheetOpen}>

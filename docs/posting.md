@@ -11,6 +11,14 @@ Settings > AI model for a YouTube Shorts title, a TikTok caption and an Instagra
 clip's transcript, on-screen title and suggested hashtags. The text stays editable, and is kept in the browser's
 localStorage (`localclip-post-captions:<clip id>`) so reopening the window does not ask the model again.
 
+## Several clips at once
+
+Each clip on the results page has a tick box, and "Select all" sits next to the download format. With clips ticked, a bar
+at the bottom offers **Export all** (`frontend/src/components/batch-export.tsx`). It calls
+`POST /tasks/{id}/clips/{clip_id}/export-to-folder?preset=` once per clip, which copies the clip (in the chosen download
+format) to `Videos\LocalClip\<stream title>\01 <hook title>.mp4`, then `POST /tasks/{id}/export-folder/open` shows that
+folder in File Explorer. The window that follows lists each caption with a Copy button and links to the three upload pages.
+
 Why not post through the sites' APIs:
 
 - **YouTube**: possible (Google's device login allows the `youtube` scope), but it needs a Google Cloud project
