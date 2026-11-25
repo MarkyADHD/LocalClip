@@ -212,11 +212,27 @@ test("a clip can be handed to a site's upload page with its caption", async ({ p
   });
   await page.goto("/tasks/one");
   await page.getByRole("button", { name: "Post He did NOT see that coming" }).click();
-  await expect(page.getByLabel("Caption")).toHaveValue("He did NOT see that coming #valorant #clutch");
+  await expect(page.getByLabel("YouTube title")).toHaveValue("He did NOT see that coming #valorant #clutch");
   await expect(page.getByRole("button", { name: "Open TikTok" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Open Instagram" })).toBeVisible();
+  await page.route("**/api/tasks/one/clips/clip/captions", (route) => route.fulfill({ json: {
+    youtube: "Last one alive against four and my hands won't stop shaking #valorant #shorts",
+    tiktok: "last one alive, four of them... chat was NOT ready #valorant #clutch #ranked",
+    instagram: "Last one standing against four. How would you have played this round?\n\n#valorant #clutch #ranked #1v4 #fps",
+  } }));
+  await page.getByRole("button", { name: "Write with AI" }).click();
+  await expect(page.getByLabel("YouTube title")).toHaveValue(/hands won't stop shaking/);
+  await page.getByRole("tab", { name: "TikTok" }).click();
+  await page.getByLabel("TikTok caption").fill("my own words #valorant");
+  await page.getByRole("tab", { name: "Instagram" }).click();
+  await expect(page.getByLabel("Instagram caption")).toHaveValue(/How would you have played/);
   await page.waitForTimeout(400);
   await page.screenshot({ path: "test-results/post-clip.png" });
+  // Closing and reopening keeps what the AI wrote and what was typed over it.
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "Post He did NOT see that coming" }).click();
+  await page.getByRole("tab", { name: "TikTok" }).click();
+  await expect(page.getByLabel("TikTok caption")).toHaveValue("my own words #valorant");
   await page.getByRole("button", { name: "Open YouTube" }).click();
   await expect(page.getByText("File: C:\clips\clip.mp4")).toBeVisible();
   expect(revealed).toBe(1);

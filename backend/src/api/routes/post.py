@@ -1,5 +1,5 @@
-"""Post finished clips: show a clip's file in File Explorer, or copy several into one folder,
-ready to drag onto a site's upload page.
+"""Post finished clips: show a clip's file in File Explorer, or copy several into one folder, ready to drag
+onto a site's upload page, and write a clip's captions with the AI model.
 Under /tasks so the frontend's task proxy reaches it."""
 
 import os
@@ -15,11 +15,11 @@ from ...clip_editor import EXPORT_PRESETS, export_with_preset
 from ...auth_headers import get_authenticated_user_id
 from ...config import get_config
 from ...database import get_db
+from ...post_captions import write_captions
 from ...services.task_service import TaskService
 from ...utils.async_helpers import run_in_thread
 
 router = APIRouter(prefix="/tasks", tags=["post"])
-
 
 EXPORT_ROOT = Path.home() / "Videos" / "LocalClip"  # ponytail: fixed place, a setting if someone asks for another drive
 
@@ -47,27 +47,38 @@ def open_in_explorer(*args: str) -> bool:
     return True
 
 
-async def _owned_task(request: Request, service: TaskService, db: AsyncSession, task_id: str) -> dict:
+async def owned_clip(task_id: str, clip_id: str, request: Request, db: AsyncSession) -> tuple[dict, dict]:
     user_id = str(get_authenticated_user_id(request, get_config()))
+    service = TaskService(db)
     task = await service.task_repo.get_task_by_id(db, task_id)
     if not task or task.get("user_id") != user_id:
         raise HTTPException(status_code=404, detail="Task not found")
-    return task
-
-
-async def _clip_with_file(service: TaskService, db: AsyncSession, task_id: str, clip_id: str) -> dict:
     clip = await service.clip_repo.get_clip_by_id(db, clip_id)
-    if not clip or clip.get("task_id") != task_id or not Path(clip["file_path"]).exists():
-        raise HTTPException(status_code=404, detail="Clip file not found")
-    return clip
+    if not clip or clip.get("task_id") != task_id:
+        raise HTTPException(status_code=404, detail="Clip not found")
+    return task, clip
+
+
+@router.post("/{task_id}/clips/{clip_id}/captions")
+async def clip_captions(task_id: str, clip_id: str, request: Request,
+                        db: AsyncSession = Depends(get_db, scope="function")):
+    """A caption with hashtags for each site, written by the AI model from the clip's transcript."""
+    task, clip = await owned_clip(task_id, clip_id, request, db)
+    try:
+        return await write_captions(clip, task.get("source_title"))
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error))
+    except Exception as error:
+        raise HTTPException(status_code=502, detail=f"The AI model could not answer: {str(error)[:300]}")
 
 
 @router.post("/{task_id}/clips/{clip_id}/reveal")
 async def reveal_clip(task_id: str, clip_id: str, request: Request,
                       db: AsyncSession = Depends(get_db, scope="function")):
-    service = TaskService(db)
-    await _owned_task(request, service, db, task_id)
-    path = Path((await _clip_with_file(service, db, task_id, clip_id))["file_path"]).resolve()
+    _, clip = await owned_clip(task_id, clip_id, request, db)
+    if not Path(clip["file_path"]).exists():
+        raise HTTPException(status_code=404, detail="Clip file not found")
+    path = Path(clip["file_path"]).resolve()
     return {"revealed": open_in_explorer(f"/select,{path}"), "path": str(path)}
 
 
@@ -77,14 +88,14 @@ async def export_clip_to_folder(task_id: str, clip_id: str, request: Request, pr
     """Copy one clip into the generation's export folder. The batch bar calls this once per ticked clip."""
     if preset not in {"original", "raw", *EXPORT_PRESETS}:
         raise HTTPException(status_code=400, detail="Unknown export format")
-    service = TaskService(db)
-    task = await _owned_task(request, service, db, task_id)
-    clip = await _clip_with_file(service, db, task_id, clip_id)
+    task, clip = await owned_clip(task_id, clip_id, request, db)
+    source = Path(clip["file_path"])
+    if not source.exists():
+        raise HTTPException(status_code=404, detail="Clip file not found")
     if preset == "raw":
-        source = await service.render_raw_clip(task_id, clip)
+        source = await TaskService(db).render_raw_clip(task_id, clip)
     else:
         await db.close()  # not held through the encode, as in export_clip
-        source = Path(clip["file_path"])
         if preset != "original":
             source = await run_in_thread(export_with_preset, source, Path(get_config().temp_dir) / "exports", preset)
     target = export_folder(task) / export_name(clip, preset)
@@ -98,7 +109,10 @@ async def export_clip_to_folder(task_id: str, clip_id: str, request: Request, pr
 
 @router.post("/{task_id}/export-folder/open")
 async def open_export_folder(task_id: str, request: Request, db: AsyncSession = Depends(get_db, scope="function")):
-    folder = export_folder(await _owned_task(request, TaskService(db), db, task_id))
+    task = await TaskService(db).task_repo.get_task_by_id(db, task_id)
+    if not task or task.get("user_id") != str(get_authenticated_user_id(request, get_config())):
+        raise HTTPException(status_code=404, detail="Task not found")
+    folder = export_folder(task)
     if not folder.is_dir():
         raise HTTPException(status_code=404, detail="Nothing has been exported yet")
     return {"opened": open_in_explorer(str(folder)), "folder": str(folder)}

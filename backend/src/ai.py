@@ -579,6 +579,24 @@ def _output_type(provider: str, schema):
     return schema
 
 
+def build_agent(schema, system_prompt: str):
+    """An agent on the configured model (Settings > AI model) that answers with `schema`."""
+    runtime_config = get_config()
+    provider, name = _split_llm_name(runtime_config.llm)
+    apply_settings_to_process_env(runtime_config.as_runtime_settings())
+    config_error = _get_missing_llm_key_error(runtime_config.llm, runtime_config)
+    if config_error:
+        raise RuntimeError(config_error)
+    if provider == "claude-code":
+        return ClaudeCodeAgent(name, schema, system_prompt)
+    return Agent(
+        model=_build_transcript_model(runtime_config),
+        output_type=_output_type(provider, schema),
+        system_prompt=system_prompt,
+        output_retries=2,
+    )
+
+
 def get_transcript_agent() -> Agent[None, TranscriptAnalysis]:
     """Get or create the transcript analysis agent (lazy initialization)."""
     global _transcript_agent, _transcript_agent_signature
