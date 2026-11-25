@@ -128,7 +128,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </section>
         )}
 
-        {!compact && <p className="mt-auto px-2.5 pb-4 text-[11px] leading-relaxed text-muted-foreground/70">Runs on this PC. Nothing is uploaded unless you post it.</p>}
+        {!compact && <p className="mt-auto px-2.5 pb-4 text-[11px] leading-relaxed text-muted-foreground/70">Runs on this PC. Nothing is uploaded.</p>}
 
       </aside> : null}
 

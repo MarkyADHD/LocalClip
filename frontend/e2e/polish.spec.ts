@@ -200,29 +200,25 @@ test("search the stream finds a phrase and clips around it", async ({ page }) =>
   await expect(page.getByRole("dialog")).toBeHidden();
 });
 
-test("a clip can be posted to YouTube, or handed to TikTok's upload page", async ({ page }) => {
+test("a clip can be handed to a site's upload page with its caption", async ({ page }) => {
   await page.route("**/api/tasks/one/clips", (route) => route.fulfill({ json: { clips: [{ ...clip, hook_title: "He did NOT see that coming", hashtags: ["valorant", "clutch"] }] } }));
-  await page.route("**/api/tasks/post/youtube", (route) => route.fulfill({ json: { configured: true, logged_in: true, name: "Alex Plays" } }));
-  let posted: Record<string, string> = {};
-  await page.route("**/api/tasks/one/clips/clip/post/youtube", (route) => {
-    posted = route.request().postDataJSON();
-    return route.fulfill({ json: { id: "vid", url: "https://youtube.com/shorts/vid" } });
-  });
   let revealed = 0;
   await page.route("**/api/tasks/one/clips/clip/reveal", (route) => {
     revealed++;
-    return route.fulfill({ json: { revealed: true, path: "C:\\clips\\clip.mp4" } });
+    return route.fulfill({ json: { revealed: true, path: "C:\clips\clip.mp4" } });
   });
-  await page.addInitScript(() => { window.open = () => null; });
+  await page.addInitScript(() => {
+    window.open = (url) => { (window as unknown as { opened: unknown }).opened = url; return null; };
+  });
   await page.goto("/tasks/one");
   await page.getByRole("button", { name: "Post He did NOT see that coming" }).click();
   await expect(page.getByLabel("Caption")).toHaveValue("He did NOT see that coming #valorant #clutch");
+  await expect(page.getByRole("button", { name: "Open TikTok" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Open Instagram" })).toBeVisible();
+  await page.waitForTimeout(400);
   await page.screenshot({ path: "test-results/post-clip.png" });
-  await page.getByLabel("Title (YouTube)").fill("Edited title");
-  await page.getByRole("button", { name: "Post to YouTube" }).click();
-  await expect(page.getByRole("link", { name: /Open it on YouTube/ })).toHaveAttribute("href", "https://youtube.com/shorts/vid");
-  expect(posted).toEqual({ title: "Edited title", description: "He did NOT see that coming #valorant #clutch", privacy: "public" });
-  await page.getByRole("button", { name: "Open TikTok" }).click();
-  await expect(page.getByText("File: C:\\clips\\clip.mp4")).toBeVisible();
+  await page.getByRole("button", { name: "Open YouTube" }).click();
+  await expect(page.getByText("File: C:\clips\clip.mp4")).toBeVisible();
   expect(revealed).toBe(1);
+  expect(await page.evaluate(() => (window as unknown as { opened: unknown }).opened)).toBe("https://www.youtube.com/upload");
 });
