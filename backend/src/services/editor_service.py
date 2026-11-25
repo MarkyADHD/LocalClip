@@ -122,6 +122,7 @@ async def prepare_editor(ctx, task_id: str, clip_id: str, filename: str):
     )
     from ..clip_editor import _caption_words_with_timings
     from ..clip_source_map import load_clip_caption_settings
+    from ..caption_templates import get_template
     from ..media.stream_layouts import FULLSCREEN_CAM_WIDTH, detect_facecam, pad_face
     from ..media.diarization import assign_speakers, label_speakers
     from typing import get_args
@@ -200,6 +201,7 @@ async def prepare_editor(ctx, task_id: str, clip_id: str, filename: str):
                     words, [(w["start"], w["end"], w.get("speaker")) for w in words]
                 )
             duration = metadata["duration"]
+            look = get_template(task.get("caption_template") or "default").get("editor", {})
             initial = (
                 EditDocument.model_validate(
                     {
@@ -219,11 +221,13 @@ async def prepare_editor(ctx, task_id: str, clip_id: str, filename: str):
                             **({"cam": dict(zip("xywh", cam))} if cam else {}),
                         },
                         "captions": {
+                            # Open with the look the clip was generated with.
+                            **look,
                             "enabled": source_settings.get("add_subtitles", True),
                             "font": task.get("font_family")
                             if task.get("font_family") in CAPTION_FONTS
-                            else "TikTokSans-Regular",
-                            "color": task.get("font_color") or "#FFFFFF",
+                            else look.get("font", "TikTokSans-Regular"),
+                            "color": task.get("font_color") or look.get("color", "#FFFFFF"),
                             "y": max(
                                 0.1,
                                 min(0.9, caption_settings.get("position_y") or 0.78),

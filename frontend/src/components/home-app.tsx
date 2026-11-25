@@ -41,6 +41,9 @@ interface CaptionTemplate {
   font_family?: string;
   font_size?: number;
   font_color?: string;
+  highlight_color?: string;
+  uppercase?: boolean;
+  background?: boolean;
 }
 
 type OutputFormat = "facecam_top" | "gameplay_top" | "floating_cam" | "gameplay_only" | "vertical" | "vertical_pan" | "vertical_split" | "original";
@@ -428,7 +431,21 @@ export default function HomeApp() {
                               onClick={() => setCaptionTemplate(template.id)}
                               className={cn("flex w-full min-w-0 items-center gap-3 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-accent", captionTemplate === template.id && "bg-accent")}
                             >
-                              <span className="size-3 shrink-0 rounded-full border" style={{ backgroundColor: template.font_color || "#fff" }} />
+                              <span
+                                aria-hidden
+                                className="flex h-8 w-16 shrink-0 items-center justify-center rounded-md bg-stone-700 text-[11px] leading-none"
+                                style={{
+                                  fontFamily: `'${template.font_family}', system-ui, sans-serif`,
+                                  color: template.font_color || "#fff",
+                                  textTransform: template.uppercase ? "uppercase" : undefined,
+                                  WebkitTextStroke: template.background ? undefined : "1.5px #101010",
+                                  paintOrder: "stroke fill",
+                                }}
+                              >
+                                <span className={cn("px-1 py-0.5", template.background && "bg-[#101010]")}>
+                                  No <span style={{ color: template.highlight_color }}>way</span>
+                                </span>
+                              </span>
                               <span className="min-w-0 flex-1">
                                 <span className="block text-sm font-medium">{template.name}</span>
                                 <span className="block truncate text-xs text-muted-foreground">{template.description}</span>

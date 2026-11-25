@@ -345,6 +345,9 @@ test("layout, caption look, hook title and safe zone", async ({ page }) => {
     request = r.request().postDataJSON();
     return r.fulfill({ json: { id: "job", status: "queued", progress: 0 } });
   });
+  // A look sets its entrance and words per line too.
+  await page.getByRole("button", { name: "Impact", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Impact", exact: true })).toHaveAttribute("aria-pressed", "true");
   await page.getByRole("button", { name: "Hype", exact: true }).click();
   await page.getByRole("group", { name: "Caption entrance" }).getByText("pop", { exact: true }).click();
   await page.getByLabel("Hook title").fill("Wait for it");

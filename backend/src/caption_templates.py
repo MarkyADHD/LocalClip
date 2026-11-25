@@ -183,6 +183,58 @@ CAPTION_TEMPLATES: Dict[str, Dict[str, Any]] = {
 }
 
 
+
+def _look(name: str, description: str, **editor: Any) -> Dict[str, Any]:
+    """A look the clip editor also has: `editor` is its caption style there.
+
+    Keep the rows below the same as PRESETS in frontend/src/components/editor/inspector.tsx
+    (tests/unit/test_caption_looks.py compares them), so a clip generated with a look opens
+    in the editor with that look picked.
+    """
+    return {
+        "name": name,
+        "description": description,
+        "font_family": editor["font"],
+        "font_size": 30,
+        "font_color": editor["color"],
+        "highlight_color": editor["accent"],
+        "emphasis_color": editor["accent"],
+        "stroke_color": "#101010",
+        # % of the font size, like the editor; a text background is a box this much bigger than the text.
+        "outline_pct": 10 if editor["background"] else editor["outline"],
+        "background": editor["background"],
+        "background_color": "#10101080",
+        "animation": "karaoke" if editor["active"] else "none",
+        "entrance": editor["animation"],
+        "word_pop": False,
+        "emoji": False,
+        "uppercase": editor["uppercase"],
+        "shadow": False,
+        "max_words_per_line": editor["wordsPerLine"],
+        "position_y": 0.78,
+        "editor": editor,
+    }
+
+
+_W, _Y = "#FFFFFF", "#FACC15"
+CAPTION_TEMPLATES.update(
+    {
+        "clean": _look("Clean", "White, yellow on key words, fades in", font="TikTokSans-Bold", color=_W, accent=_Y, background=False, uppercase=False, outline=5, active=False, animation="fade", wordsPerLine=4),
+        "karaoke": _look("Karaoke", "The spoken word lights up yellow", font="Poppins-ExtraBold", color=_W, accent=_Y, background=False, uppercase=False, outline=6, active=True, animation="pop", wordsPerLine=4),
+        "hype": _look("Hype", "Loud capitals with a lime highlight", font="THEBOLDFONT", color=_W, accent="#A3E635", background=False, uppercase=True, outline=7, active=True, animation="pop", wordsPerLine=3),
+        "impact": _look("Impact", "Tall capitals that slide in, pink highlight", font="Anton-Regular", color=_W, accent="#FB7185", background=False, uppercase=True, outline=5, active=True, animation="slide", wordsPerLine=3),
+        "comic": _look("Comic", "Yellow comic lettering", font="Bangers-Regular", color="#FDE047", accent=_W, background=False, uppercase=True, outline=7, active=True, animation="pop", wordsPerLine=3),
+        "boxed": _look("Boxed", "Quiet text on a dark box", font="TikTokSans-Regular", color=_W, accent=_Y, background=True, uppercase=False, outline=0, active=True, animation="fade", wordsPerLine=5),
+        "solo": _look("Solo", "One big word at a time", font="Poppins-ExtraBold", color=_W, accent=_Y, background=False, uppercase=True, outline=7, active=False, animation="pop", wordsPerLine=1),
+        "arcade": _look("Arcade", "Lime arcade lettering, two words at a time", font="Bangers-Regular", color="#A3E635", accent=_W, background=False, uppercase=True, outline=7, active=True, animation="pop", wordsPerLine=2),
+        "cyber": _look("Cyber", "Cyan capitals with a pink highlight", font="BebasNeue-Regular", color="#67E8F9", accent="#F0ABFC", background=False, uppercase=True, outline=5, active=True, animation="fade", wordsPerLine=3),
+        "sunset": _look("Sunset", "Heavy white text that slides in, orange highlight", font="ArchivoBlack-Regular", color=_W, accent="#FB923C", background=False, uppercase=False, outline=6, active=True, animation="slide", wordsPerLine=3),
+        "stream": _look("Stream", "Bold capitals on a box, purple highlight", font="TikTokSans-Bold", color=_W, accent="#C084FC", background=True, uppercase=True, outline=0, active=True, animation="pop", wordsPerLine=3),
+        "soft": _look("Soft", "Small and calm, for talking clips", font="TikTokSans-Regular", color=_W, accent="#FDE68A", background=False, uppercase=False, outline=3, active=False, animation="fade", wordsPerLine=6),
+    }
+)
+
+
 # Defaults for any styling key a template might omit, so the renderer can rely
 # on get_template(...).get(key, ...) without scattering fallbacks everywhere.
 TEMPLATE_DEFAULTS: Dict[str, Any] = {
@@ -235,6 +287,8 @@ def get_template_info() -> list:
             "font_size": template["font_size"],
             "font_color": template["font_color"],
             "highlight_color": template["highlight_color"],
+            "uppercase": bool(template.get("uppercase")),
+            "background": bool(template.get("background")),
         }
         for name, template in CAPTION_TEMPLATES.items()
     ]

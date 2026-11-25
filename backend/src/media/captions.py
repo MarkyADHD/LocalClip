@@ -367,6 +367,12 @@ def build_assemblyai_ass_subtitles(
     )
 
     font_px = get_scaled_font_size(effective_font_size, video_width)
+    if template.get("editor") and not font_size:
+        # Looks shared with the clip editor are as big as the editor draws them (its default size, 54).
+        from ..editor_document import _em_scale
+
+        look_font = find_font_path(effective_font_family)
+        font_px = round(54 * video_width / 1080 * (_em_scale(look_font) if look_font else 1))
     base_stroke = int(template.get("stroke_width", 3) or 0)
     # Scale the outline with the font so big captions keep a chunky, readable edge.
     outline_px = (
@@ -374,6 +380,8 @@ def build_assemblyai_ass_subtitles(
         if (has_outline and base_stroke)
         else 0
     )
+    if template.get("outline_pct") is not None:  # looks shared with the clip editor
+        outline_px = round(font_px * template["outline_pct"] / 100)
     shadow_px = max(2, font_px // 20) if template.get("shadow") else 0
     box_bord = max(outline_px + 2, font_px // 5)
     pos_y = (
@@ -492,6 +500,17 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     # only as the first word of a chunk appears — gives a pop without any
     # per-word reflow/vibration.
     line_entrance = "\\fscx92\\fscy92\\t(0,140,\\fscx100\\fscy100)" if word_pop else ""
+    # Looks shared with the clip editor come in the way they do there.
+    entering_prefix = line_prefix
+    if template.get("entrance"):
+        from ..editor_document import enter_tags
+
+        entering_prefix = (
+            "{"
+            + enter_tags(template["entrance"], video_width, video_height, 0.5, y_pos / video_height)
+            + ("\\blur4" if glow else "")
+            + "}"
+        )
 
     events: List[str] = []
     total = len(relevant_words)
@@ -520,7 +539,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 # once per word.
                 entrance = f"{{{line_entrance}}}" if (line_entrance and local_i == 0) else ""
                 events.append(
-                    f"Dialogue: 0,{ass_timestamp(start)},{ass_timestamp(end)},Default,,0,0,0,,{line_prefix}{entrance}{line}"
+                    f"Dialogue: 0,{ass_timestamp(start)},{ass_timestamp(end)},Default,,0,0,0,,{entering_prefix if local_i == 0 else line_prefix}{entrance}{line}"
                 )
         else:
             start = float(chunk[0]["start"])
@@ -549,7 +568,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     "\\t(120,240,\\fscx100\\fscy100)}"
                 )
             events.append(
-                f"Dialogue: 0,{ass_timestamp(start)},{ass_timestamp(end)},Default,,0,0,0,,{line_prefix}{effect}{chunk_text}"
+                f"Dialogue: 0,{ass_timestamp(start)},{ass_timestamp(end)},Default,,0,0,0,,{entering_prefix}{effect}{chunk_text}"
             )
 
     all_events = hook_events + events
