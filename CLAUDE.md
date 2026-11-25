@@ -125,6 +125,13 @@ Trim, split, merge, captions, export presets, plus
 `POST /tasks/{id}/clips/{clip_id}/extend` with `{"before": s, "after": s}` which re-renders the
 clip from the source with extra time (the UI's "+30s" buttons; max 600s each side).
 
+### Posting
+
+"Post" on a finished clip (`components/post-clip.tsx`, `backend/src/youtube_upload.py`, `api/routes/post.py`): uploads to YouTube with
+Google's device login (`YOUTUBE_CLIENT_ID`/`YOUTUBE_CLIENT_SECRET`; login in `TEMP_DIR/youtube_login.json`). TikTok and Instagram have no API
+a desktop app can ship, so those buttons copy the caption, show the file in Explorer and open the upload page. Only on the user's click; keep
+the README privacy policy accurate. See `docs/posting.md`.
+
 ### Video editor
 
 `/projects` (`frontend/src/components/project/`, `backend/src/project_document.py`,
