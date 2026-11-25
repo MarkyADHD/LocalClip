@@ -122,14 +122,23 @@ function SwitchRow({
   );
 }
 
-/** One-click looks; each sets every style field it shows so presets never mix. */
+/**
+ * One-click looks; each sets every style field it shows so presets never mix.
+ * The same rows are in backend/src/caption_templates.py, so new clips can be made with a look.
+ */
 export const PRESETS: [string, Partial<CaptionStyle>][] = [
-  ["Clean", { font: "TikTokSans-Bold", color: "#FFFFFF", accent: "#FACC15", background: false, uppercase: false, outline: 5, active: false }],
-  ["Karaoke", { font: "Poppins-ExtraBold", color: "#FFFFFF", accent: "#FACC15", background: false, uppercase: false, outline: 6, active: true }],
-  ["Hype", { font: "THEBOLDFONT", color: "#FFFFFF", accent: "#A3E635", background: false, uppercase: true, outline: 7, active: true }],
-  ["Impact", { font: "Anton-Regular", color: "#FFFFFF", accent: "#FB7185", background: false, uppercase: true, outline: 5, active: true }],
-  ["Comic", { font: "Bangers-Regular", color: "#FDE047", accent: "#FFFFFF", background: false, uppercase: true, outline: 7, active: true }],
-  ["Boxed", { font: "TikTokSans-Regular", color: "#FFFFFF", accent: "#FACC15", background: true, uppercase: false, outline: 0, active: true }],
+  ["Clean", { font: "TikTokSans-Bold", color: "#FFFFFF", accent: "#FACC15", background: false, uppercase: false, outline: 5, active: false, animation: "fade", wordsPerLine: 4 }],
+  ["Karaoke", { font: "Poppins-ExtraBold", color: "#FFFFFF", accent: "#FACC15", background: false, uppercase: false, outline: 6, active: true, animation: "pop", wordsPerLine: 4 }],
+  ["Hype", { font: "THEBOLDFONT", color: "#FFFFFF", accent: "#A3E635", background: false, uppercase: true, outline: 7, active: true, animation: "pop", wordsPerLine: 3 }],
+  ["Impact", { font: "Anton-Regular", color: "#FFFFFF", accent: "#FB7185", background: false, uppercase: true, outline: 5, active: true, animation: "slide", wordsPerLine: 3 }],
+  ["Comic", { font: "Bangers-Regular", color: "#FDE047", accent: "#FFFFFF", background: false, uppercase: true, outline: 7, active: true, animation: "pop", wordsPerLine: 3 }],
+  ["Boxed", { font: "TikTokSans-Regular", color: "#FFFFFF", accent: "#FACC15", background: true, uppercase: false, outline: 0, active: true, animation: "fade", wordsPerLine: 5 }],
+  ["Solo", { font: "Poppins-ExtraBold", color: "#FFFFFF", accent: "#FACC15", background: false, uppercase: true, outline: 7, active: false, animation: "pop", wordsPerLine: 1 }],
+  ["Arcade", { font: "Bangers-Regular", color: "#A3E635", accent: "#FFFFFF", background: false, uppercase: true, outline: 7, active: true, animation: "pop", wordsPerLine: 2 }],
+  ["Cyber", { font: "BebasNeue-Regular", color: "#67E8F9", accent: "#F0ABFC", background: false, uppercase: true, outline: 5, active: true, animation: "fade", wordsPerLine: 3 }],
+  ["Sunset", { font: "ArchivoBlack-Regular", color: "#FFFFFF", accent: "#FB923C", background: false, uppercase: false, outline: 6, active: true, animation: "slide", wordsPerLine: 3 }],
+  ["Stream", { font: "TikTokSans-Bold", color: "#FFFFFF", accent: "#C084FC", background: true, uppercase: true, outline: 0, active: true, animation: "pop", wordsPerLine: 3 }],
+  ["Soft", { font: "TikTokSans-Regular", color: "#FFFFFF", accent: "#FDE68A", background: false, uppercase: false, outline: 3, active: false, animation: "fade", wordsPerLine: 6 }],
 ];
 
 const LAYOUTS: [string, Partial<Framing>, ReactNode][] = [
