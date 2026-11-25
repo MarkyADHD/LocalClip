@@ -222,3 +222,41 @@ test("a clip can be handed to a site's upload page with its caption", async ({ p
   expect(revealed).toBe(1);
   expect(await page.evaluate(() => (window as unknown as { opened: unknown }).opened)).toBe("https://www.youtube.com/upload");
 });
+
+test("ticked clips are exported to one folder with their captions ready", async ({ page }) => {
+  const clips = [
+    { ...clip, id: "a", clip_order: 1, hook_title: "He did NOT see that coming", hashtags: ["valorant"] },
+    { ...clip, id: "b", clip_order: 2, hook_title: "1v4 clutch" },
+    { ...clip, id: "c", clip_order: 3, hook_title: "Chat lost it" },
+  ];
+  await page.route("**/api/tasks/one/clips", (route) => route.fulfill({ json: { clips } }));
+  const exported: string[] = [];
+  await page.route("**/api/tasks/one/clips/*/export-to-folder**", (route) => {
+    const url = new URL(route.request().url());
+    exported.push(`${url.pathname.split("/")[5]}:${url.searchParams.get("preset")}`);
+    return url.pathname.includes("/b/")
+      ? route.fulfill({ status: 409, json: { detail: "Could not write 02 1v4 clutch.mp4: in use" } })
+      : route.fulfill({ json: { folder: "C:\\Users\\me\\Videos\\LocalClip\\Ranked", path: "x" } });
+  });
+  let opened = 0;
+  await page.route("**/api/tasks/one/export-folder/open", (route) => {
+    opened++;
+    return route.fulfill({ json: { opened: true, folder: "C:\\Users\\me\\Videos\\LocalClip\\Ranked" } });
+  });
+  await page.goto("/tasks/one");
+  await page.getByRole("checkbox", { name: "Select 1v4 clutch" }).click();
+  await expect(page.getByRole("region", { name: "Selected clips" })).toContainText("1 selected");
+  await page.getByRole("button", { name: "Select all" }).click();
+  if (process.env.SHOT) await page.screenshot({ path: process.env.SHOT });
+  await page.getByRole("button", { name: "Export all 3" }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByRole("heading")).toHaveText("2 clips exported");
+  await expect(dialog.getByRole("alert")).toContainText("1v4 clutch: Could not write");
+  await expect(dialog.getByText("He did NOT see that coming #valorant")).toBeVisible();
+  await expect(dialog.getByRole("link", { name: "Open TikTok" })).toHaveAttribute("href", "https://www.tiktok.com/tiktokstudio/upload");
+  expect(exported).toEqual(["a:original", "b:original", "c:original"]);
+  expect(opened).toBe(1);
+  if (process.env.SHOT) await page.screenshot({ path: process.env.SHOT.replace(".png", "-done.png") });
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("region", { name: "Selected clips" })).toBeHidden();
+});

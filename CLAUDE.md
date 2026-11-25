@@ -130,6 +130,8 @@ clip from the source with extra time (the UI's "+30s" buttons; max 600s each sid
 "Post" on a finished clip (`components/post-clip.tsx`, `api/routes/post.py`): a button each for YouTube, TikTok and Instagram copies the
 caption, shows the file in Explorer and opens the upload page. LocalClip uploads nothing itself (a YouTube login was built and removed at
 Marky's request). See `docs/posting.md`.
+Tick boxes on the results page plus "Export all" (`components/batch-export.tsx`) copy the ticked clips to
+`Videos\LocalClip\<stream title>\` (`POST /tasks/{id}/clips/{clip_id}/export-to-folder`) and open that folder.
 
 ### Video editor
 

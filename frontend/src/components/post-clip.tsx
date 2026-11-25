@@ -17,11 +17,16 @@ export interface PostableClip {
 }
 
 // No ?query in these links: desktop apps before 1.6.1 open File Explorer for a link that has one.
-const UPLOAD_PAGES = [
+export const UPLOAD_PAGES = [
   { name: "YouTube", url: "https://www.youtube.com/upload" },
   { name: "TikTok", url: "https://www.tiktok.com/tiktokstudio/upload" },
   { name: "Instagram", url: "https://www.instagram.com/" },
 ];
+
+export function clipCaption(clip: PostableClip) {
+  const name = clip.hook_title || `Clip ${clip.clip_order}`;
+  return [name, (clip.hashtags ?? []).map((tag) => `#${tag}`).join(" ")].filter(Boolean).join(" ");
+}
 
 /** Post one finished clip: caption on the clipboard, the file selected in File Explorer, the site's upload page open. */
 export function PostClipDialog({ clip, taskId, onClose }: { clip: PostableClip | null; taskId: string; onClose: () => void }) {
@@ -33,8 +38,7 @@ export function PostClipDialog({ clip, taskId, onClose }: { clip: PostableClip |
 
   useEffect(() => {
     if (!clip) return;
-    const name = clip.hook_title || `Clip ${clip.clip_order}`;
-    setCaption([name, (clip.hashtags ?? []).map((tag) => `#${tag}`).join(" ")].filter(Boolean).join(" "));
+    setCaption(clipCaption(clip));
     setFilePath(null);
     setError(null);
     // Only when another clip is opened: typing must not be overwritten.

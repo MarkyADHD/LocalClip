@@ -11,6 +11,7 @@ import { ClipCover, ScoreRing } from "@/components/app/clip-cover";
 import DynamicVideoPlayer from "@/components/dynamic-video-player";
 import { TranscriptPreview } from "@/components/transcript-preview";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { getClipUrl } from "@/lib/clip-actions";
 import { formatClipDuration } from "@/lib/generations";
@@ -40,12 +41,14 @@ function clipTitle(clip: WallClip) {
   return clip.hook_title || `Clip ${clip.clip_order}`;
 }
 
-export function ClipTile({ clip, taskId, busy, best, editable, onOpen, onDownload, onPost, onDelete }: {
+export function ClipTile({ clip, taskId, busy, best, editable, selected, onSelect, onOpen, onDownload, onPost, onDelete }: {
   clip: WallClip;
   taskId: string;
   busy: boolean;
   best: boolean;
   editable: boolean;
+  selected?: boolean;
+  onSelect?: (selected: boolean) => void;
   onOpen: () => void;
   onDownload: () => void;
   onPost?: () => void;
@@ -53,6 +56,19 @@ export function ClipTile({ clip, taskId, busy, best, editable, onOpen, onDownloa
 }) {
   return (
     <article className="group @container animate-rise">
+      <div className="relative">
+        {onSelect && (
+          <Checkbox
+            checked={Boolean(selected)}
+            onCheckedChange={(value) => onSelect(value === true)}
+            aria-label={`Select ${clipTitle(clip)}`}
+            className={cn(
+              "absolute bottom-2 left-2 z-10 size-6 border-white/80 bg-black/50 transition-opacity [&_svg]:size-4",
+              "data-[state=checked]:border-brand data-[state=checked]:bg-brand data-[state=checked]:text-brand-foreground dark:bg-black/50 dark:data-[state=checked]:bg-brand",
+              !selected && "md:opacity-0 md:focus-visible:opacity-100 md:group-hover:opacity-100",
+            )}
+          />
+        )}
       <button
         type="button"
         onClick={onOpen}
@@ -80,6 +96,7 @@ export function ClipTile({ clip, taskId, busy, best, editable, onOpen, onDownloa
           <span className="absolute bottom-2 right-2 rounded bg-black/60 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-white">{formatClipDuration(clip.duration)}</span>
         </ClipCover>
       </button>
+      </div>
       <div className="mt-2.5 px-0.5">
         <h3 className="line-clamp-2 text-sm font-semibold leading-snug">{clipTitle(clip)}</h3>
         <p className="mt-0.5 text-xs tabular-nums text-muted-foreground">{clip.start_time} – {clip.end_time}</p>
