@@ -57,6 +57,7 @@ import {
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
 import Link from "next/link";
 import { ClipTile, ClipFocus, ProcessingPanel, EmptyState } from "@/components/app/clip-wall";
+import { PostClipDialog } from "@/components/post-clip";
 import { timeAgo } from "@/lib/generations";
 import { cn } from "@/lib/utils";
 import { FontSelectOption, type FontOption } from "@/components/font-select-option";
@@ -126,6 +127,7 @@ export default function TaskPage() {
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [showDeleteSourceDialog, setShowDeleteSourceDialog] = useState(false);
   const [deletingClipId, setDeletingClipId] = useState<string | null>(null);
+  const [postingClip, setPostingClip] = useState<Clip | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [exportPreset, setExportPreset] = useState("original");
 
@@ -543,6 +545,7 @@ export default function TaskPage() {
       best={bestScore > 0 && clip.virality_score === bestScore}
       onOpen={() => setFocusIndex(index)}
       onDownload={() => handleDownloadClip(clip)}
+      onPost={() => setPostingClip(clip)}
       onDelete={() => setDeletingClipId(clip.id)}
       editable={task?.status === "completed"}
     />
@@ -749,10 +752,12 @@ export default function TaskPage() {
         onNavigate={(delta) => setFocusIndex((i) => (i === null ? i : (i + delta + sortedClips.length) % sortedClips.length))}
         onClose={() => setFocusIndex(null)}
         onDownload={() => focusedClip && handleDownloadClip(focusedClip)}
+        onPost={() => { if (focusedClip) { setPostingClip(focusedClip); setFocusIndex(null); } }}
         onDelete={() => { if (focusedClip) { setDeletingClipId(focusedClip.id); setFocusIndex(null); } }}
         onExtend={(before, after) => focusedClip && handleExtendClip(focusedClip.id, before, after)}
         hookTypeLabel={getHookTypeLabel}
       />
+      <PostClipDialog clip={postingClip} taskId={task?.id ?? String(params.id)} onClose={() => setPostingClip(null)} />
 
       <Sheet open={settingsSheetOpen} onOpenChange={setSettingsSheetOpen}>
         <SheetContent side="right" className="overflow-y-auto sm:max-w-md">

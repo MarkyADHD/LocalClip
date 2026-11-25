@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect } from "react";
 import {
   AudioLines, Check, ChevronLeft, ChevronRight, Clapperboard, Copy, Download, Flame, Loader2, MessageSquare,
-  Play, Scissors, Share2, Sparkles, Star, Trash2, TrendingUp,
+  Play, Scissors, Send, Share2, Sparkles, Star, Trash2, TrendingUp,
 } from "lucide-react";
 import { toast } from "sonner";
 import { ClipCover, ScoreRing } from "@/components/app/clip-cover";
@@ -40,7 +40,7 @@ function clipTitle(clip: WallClip) {
   return clip.hook_title || `Clip ${clip.clip_order}`;
 }
 
-export function ClipTile({ clip, taskId, busy, best, editable, onOpen, onDownload, onDelete }: {
+export function ClipTile({ clip, taskId, busy, best, editable, onOpen, onDownload, onPost, onDelete }: {
   clip: WallClip;
   taskId: string;
   busy: boolean;
@@ -48,6 +48,7 @@ export function ClipTile({ clip, taskId, busy, best, editable, onOpen, onDownloa
   editable: boolean;
   onOpen: () => void;
   onDownload: () => void;
+  onPost?: () => void;
   onDelete?: () => void;
 }) {
   return (
@@ -91,6 +92,11 @@ export function ClipTile({ clip, taskId, busy, best, editable, onOpen, onDownloa
               <Link href={`/tasks/${taskId}/edit?clip=${clip.id}`}><Scissors className="size-3.5" />Edit</Link>
             </Button>
           )}
+          {onPost && (
+            <Button size="icon-sm" variant="outline" className="size-7" onClick={onPost} aria-label={`Post ${clipTitle(clip)}`} title="Post to YouTube, TikTok or Instagram">
+              <Send className="size-3.5" />
+            </Button>
+          )}
           {onDelete && (
             <Button size="icon-sm" variant="ghost" className="size-7 text-muted-foreground hover:bg-destructive/10 hover:text-destructive" onClick={onDelete} aria-label="Delete clip">
               <Trash2 className="size-3.5" />
@@ -109,7 +115,7 @@ const BREAKDOWN = [
   { key: "shareability_score", label: "Shareability", icon: Share2 },
 ] as const;
 
-export function ClipFocus({ clip, taskId, index, total, busy, editable, onNavigate, onClose, onDownload, onDelete, onExtend, hookTypeLabel }: {
+export function ClipFocus({ clip, taskId, index, total, busy, editable, onNavigate, onClose, onDownload, onPost, onDelete, onExtend, hookTypeLabel }: {
   clip: WallClip | null;
   taskId: string;
   index: number;
@@ -119,6 +125,7 @@ export function ClipFocus({ clip, taskId, index, total, busy, editable, onNaviga
   onNavigate: (delta: number) => void;
   onClose: () => void;
   onDownload: () => void;
+  onPost?: () => void;
   onDelete?: () => void;
   onExtend?: (before: number, after: number) => void;
   hookTypeLabel: (hookType: string | null) => string;
@@ -209,6 +216,9 @@ export function ClipFocus({ clip, taskId, index, total, busy, editable, onNaviga
                 <Button size="sm" onClick={onDownload} disabled={busy}>
                   {busy ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}Download
                 </Button>
+                {onPost && (
+                  <Button size="sm" variant="outline" onClick={onPost}><Send className="size-4" />Post</Button>
+                )}
                 {editable && (
                   <Button size="sm" variant="outline" asChild>
                     <Link href={`/tasks/${taskId}/edit?clip=${clip.id}`}><Scissors className="size-4" />Open in editor</Link>

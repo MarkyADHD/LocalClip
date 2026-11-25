@@ -265,6 +265,7 @@ What LocalClip does contact, because you asked it to:
 
 - **GitHub**, to download LocalClip and check for updates when it starts.
 - **Twitch, Kick or YouTube**, to download the video (and Twitch chat replay) for a link you paste.
+- **YouTube, when you press Post to YouTube** on a clip: that clip, its title and caption are uploaded to your own channel with the Google login you gave. The TikTok and Instagram buttons only open their upload page in your browser.
 - **Your AI model.** With Claude Code, the transcript text of your video is sent to Anthropic under [their privacy policy](https://www.anthropic.com/legal/privacy). With a local model nothing is sent anywhere.
 - **Download servers for its tools** on first start (Python packages, Node, ffmpeg, PostgreSQL, Redis, the Whisper model).
 

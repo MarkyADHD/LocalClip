@@ -108,6 +108,9 @@ class Config:
         self.source_keep_days = float(os.getenv("SOURCE_KEEP_DAYS", "3"))
         # Client ID of LocalClip's *public* Twitch app (not a secret) for "Log in with Twitch".
         self.twitch_client_id = (os.getenv("TWITCH_CLIENT_ID") or "82sp3ex3o7hu8n7zhb2wdxtcosyi5f").strip()
+        # Google OAuth client of type "TVs and Limited Input devices" for "Post to YouTube" (docs/posting.md).
+        self.youtube_client_id = (os.getenv("YOUTUBE_CLIENT_ID") or "").strip()
+        self.youtube_client_secret = (os.getenv("YOUTUBE_CLIENT_SECRET") or "").strip()
 
         # Redis configuration
         self.redis_host = os.getenv("REDIS_HOST", "localhost")
