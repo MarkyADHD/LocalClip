@@ -121,6 +121,9 @@ AI search again with the ranges already clipped excluded (`exclude_ranges`; kept
 `source_metadata.excluded_ranges` so deleted clips stay excluded) and appends the new clips. A deleted Twitch/Kick/YouTube
 source is downloaded again; a failed search leaves the task completed with the reason as its progress message.
 
+"What clips do you want?" (home screen and the Find more popover) saves `source_metadata.clip_request`; the window prompts and
+the rerank get it (`_clip_request_note` in `ai.py`), and a run with a request never reads or writes the cached analysis.
+
 "Search the stream" on a finished generation (`components/transcript-search.tsx`): `GET /tasks/{id}/transcript/search?q=` finds a
 phrase in the transcript kept in the cache (`search_transcript` in `ai.py`), and `POST /tasks/{id}/clips/from-range` with
 `{"start": s, "end": s}` runs the Find more path with `source_metadata.manual_range` set, which clips that range and skips the AI.
