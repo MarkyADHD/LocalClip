@@ -23,11 +23,10 @@ jobs:
         with:
           python-version: "3.11"
       - run: pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
-      - run: pip install ultralytics onnx onnxslim onnxruntime "git+https://github.com/ultralytics/CLIP.git"
-      - run: python export.py s m l
-      - run: python check.py
-      - run: ls -l *.onnx && sha256sum *.onnx
+      - run: pip install ultralytics onnx onnxslim onnxruntime transformers "git+https://github.com/ultralytics/CLIP.git"
+      - run: python compare.py
       - name: Publish the models
+        if: false
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
