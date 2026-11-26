@@ -139,6 +139,13 @@ async def test_a_picked_range_becomes_the_only_clip_without_asking_the_ai(monkey
     monkeypatch.setattr(VideoService, "generate_transcript", staticmethod(fake_generate_transcript))
     monkeypatch.setattr(VideoService, "analyze_transcript", staticmethod(no_ai))
     monkeypatch.setattr(video_service_module, "run_in_thread", fake_run_in_thread)
+    monkeypatch.setattr(VideoService, "_ground_segment_text", staticmethod(lambda *_args: "no way"))
+
+    async def fake_title(text):
+        assert text == "no way"
+        return "He Did Not Just Do That", ["gta", "fail"]
+
+    monkeypatch.setattr(video_service_module, "title_clip", fake_title)
 
     result = await VideoService.process_video_complete(
         url="upload://source.mp4", source_type="video_url", processing_mode="fast",
@@ -147,4 +154,15 @@ async def test_a_picked_range_becomes_the_only_clip_without_asking_the_ai(monkey
 
     (segment,) = result["segments_to_render"]
     assert (segment["start_time"], segment["end_time"]) == ("99:45", "100:21")
-    assert segment["relevance_score"] == 1.0 and segment["hook_title"] is None
+    assert segment["relevance_score"] == 1.0
+    assert (segment["hook_title"], segment["hashtags"]) == ("He Did Not Just Do That", ["gta", "fail"])
+
+    async def broken_title(_text):
+        raise RuntimeError("Claude Code is signed out")
+
+    monkeypatch.setattr(video_service_module, "title_clip", broken_title)
+    result = await VideoService.process_video_complete(
+        url="upload://source.mp4", source_type="video_url", processing_mode="fast",
+        exclude_ranges=[(0, 30)], manual_range=(5985, 6021),
+    )
+    assert result["segments_to_render"][0]["hook_title"] is None  # still clipped, just untitled
