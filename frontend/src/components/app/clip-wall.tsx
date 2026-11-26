@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { ClipCover, ScoreRing } from "@/components/app/clip-cover";
+import { ClipOnTwitch } from "@/components/clip-on-twitch";
 import DynamicVideoPlayer from "@/components/dynamic-video-player";
 import { TranscriptPreview } from "@/components/transcript-preview";
 import { Button } from "@/components/ui/button";
@@ -132,9 +133,11 @@ const BREAKDOWN = [
   { key: "shareability_score", label: "Shareability", icon: Share2 },
 ] as const;
 
-export function ClipFocus({ clip, taskId, index, total, busy, editable, onNavigate, onClose, onDownload, onPost, onDelete, onExtend, hookTypeLabel }: {
+export function ClipFocus({ clip, taskId, twitchVod = false, index, total, busy, editable, onNavigate, onClose, onDownload, onPost, onDelete, onExtend, hookTypeLabel }: {
   clip: WallClip | null;
   taskId: string;
+  /** The generation's source is a Twitch VOD, so a clip can also be made a Twitch clip. */
+  twitchVod?: boolean;
   index: number;
   total: number;
   busy: boolean;
@@ -168,7 +171,10 @@ export function ClipFocus({ clip, taskId, index, total, busy, editable, onNaviga
             </div>
             <div className="flex min-h-0 flex-col overflow-y-auto">
               <div className="flex items-center justify-between gap-2 border-b px-5 py-3 pr-12 text-xs text-muted-foreground">
-                <span className="tabular-nums">Clip {index + 1} of {total}</span>
+                <div className="flex items-center gap-3">
+                  <span className="tabular-nums">Clip {index + 1} of {total}</span>
+                  {twitchVod && <ClipOnTwitch key={clip.id} taskId={taskId} clipId={clip.id} />}
+                </div>
                 <div className="flex items-center gap-1">
                   <Button size="icon-sm" variant="ghost" onClick={() => onNavigate(-1)} aria-label="Previous clip"><ChevronLeft className="size-4" /></Button>
                   <Button size="icon-sm" variant="ghost" onClick={() => onNavigate(1)} aria-label="Next clip"><ChevronRight className="size-4" /></Button>

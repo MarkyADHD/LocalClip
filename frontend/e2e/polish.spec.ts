@@ -309,14 +309,14 @@ test("a clip from a Twitch VOD can be clipped on Twitch, logging in first", asyn
   await page.route("**/api/tasks/twitch/login/poll", (route) => route.fulfill({ json: { logged_in: ++polls >= 2 } }));
   await page.addInitScript(() => { window.open = () => null; });
   await page.goto("/tasks/one");
-  await page.getByRole("button", { name: "Post He did NOT see that coming" }).click();
+  await page.getByRole("button", { name: "Preview He did NOT see that coming" }).click();
   await page.getByRole("button", { name: "Clip on Twitch" }).click();
   await expect(page.getByText("WXYZ1234")).toBeVisible();
   if (process.env.SHOT) await page.screenshot({ path: `${process.env.SHOT}-login.png` });
   // Approved on Twitch: the clip is made without another click.
-  await expect(page.getByRole("link", { name: "Your Twitch clip" })).toHaveAttribute("href", "https://clips.twitch.tv/FunnyClip");
+  await expect(page.getByRole("link", { name: "Twitch clip" })).toHaveAttribute("href", "https://clips.twitch.tv/FunnyClip");
   expect(asks).toBe(2);
-  await expect(page.getByRole("button", { name: "Clip on Twitch" })).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Post", exact: true })).toBeVisible(); // not in the Post window any more
   await page.waitForTimeout(400);
   if (process.env.SHOT) await page.screenshot({ path: `${process.env.SHOT}-done.png` });
 });
@@ -324,7 +324,7 @@ test("a clip from a Twitch VOD can be clipped on Twitch, logging in first", asyn
 test("clips from a YouTube video have no Clip on Twitch button", async ({ page }) => {
   await page.route("**/api/tasks/one/clips", (route) => route.fulfill({ json: { clips: [{ ...clip, hook_title: "He did NOT see that coming" }] } }));
   await page.goto("/tasks/one");
-  await page.getByRole("button", { name: "Post He did NOT see that coming" }).click();
-  await expect(page.getByRole("button", { name: "Open YouTube" })).toBeVisible();
+  await page.getByRole("button", { name: "Preview He did NOT see that coming" }).click();
+  await expect(page.getByText("Clip 1 of 1")).toBeVisible();
   await expect(page.getByRole("button", { name: "Clip on Twitch" })).toHaveCount(0);
 });

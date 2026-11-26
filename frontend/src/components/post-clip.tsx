@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ExternalLink, FolderOpen, Loader2, Send, Sparkles, Twitch } from "lucide-react";
+import { FolderOpen, Loader2, Send, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -9,7 +9,6 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import { TwitchCode, useTwitchLogin } from "@/components/twitch-vod-picker";
 
 export interface PostableClip {
   id: string;
@@ -40,37 +39,19 @@ function readStored(clipId: string): Captions | null {
   }
 }
 
-// The Twitch clip made from a clip, so reopening the window shows its link instead of making another.
-const twitchStored = (clipId: string) => `localclip-twitch-clip:${clipId}`;
-
-function readTwitchClip(clipId: string): string | null {
-  try {
-    return localStorage.getItem(twitchStored(clipId));
-  } catch {
-    return null;
-  }
-}
-
 export function clipCaption(clip: PostableClip) {
   const name = clip.hook_title || `Clip ${clip.clip_order}`;
   return [name, (clip.hashtags ?? []).map((tag) => `#${tag}`).join(" ")].filter(Boolean).join(" ");
 }
 
 /** Post one finished clip: caption on the clipboard, the file selected in File Explorer, the site's upload page open. */
-export function PostClipDialog({ clip, taskId, twitchVod = false, onClose }: {
-  clip: PostableClip | null;
-  taskId: string;
-  /** The generation's source is a Twitch VOD, so the clip can also be made a Twitch clip. */
-  twitchVod?: boolean;
-  onClose: () => void;
-}) {
+export function PostClipDialog({ clip, taskId, onClose }: { clip: PostableClip | null; taskId: string; onClose: () => void }) {
   const [captions, setCaptions] = useState<Captions>({ youtube: "", tiktok: "", instagram: "" });
   const [tab, setTab] = useState<SiteKey>("youtube");
   const [writing, setWriting] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [filePath, setFilePath] = useState<string | null>(null);
-  const [twitchClip, setTwitchClip] = useState<string | null>(null);
   const clipId = clip?.id;
 
   useEffect(() => {
@@ -80,7 +61,6 @@ export function PostClipDialog({ clip, taskId, twitchVod = false, onClose }: {
     setTab("youtube");
     setFilePath(null);
     setError(null);
-    setTwitchClip(readTwitchClip(clip.id));
     // Only when another clip is opened: typing must not be overwritten.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clipId]);
@@ -128,34 +108,6 @@ export function PostClipDialog({ clip, taskId, twitchVod = false, onClose }: {
     }
   };
 
-  const clipOnTwitch = async () => {
-    setBusy("Twitch");
-    setError(null);
-    try {
-      const response = await fetch(`/api/tasks/${taskId}/clips/${clipId}/twitch-clip`, { method: "POST" });
-      const made = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(made.detail || made.error || "Twitch did not make the clip");
-      if (made.need_login) {
-        await twitch.start(); // once approved, clipOnTwitch runs again
-        return;
-      }
-      setTwitchClip(made.url);
-      try {
-        if (clipId) localStorage.setItem(twitchStored(clipId), made.url);
-      } catch {
-        // Storage blocked: the link still shows until the window closes.
-      }
-      toast.success(made.duration < 60 ? "Clipped on Twitch" : "Clipped on Twitch: its first minute, Twitch's longest clip");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Request failed");
-    } finally {
-      setBusy(null);
-    }
-  };
-  const twitch = useTwitchLogin(() => void clipOnTwitch(), setError);
-  const { cancel: cancelTwitchLogin } = twitch;
-  useEffect(() => cancelTwitchLogin, [clipId, cancelTwitchLogin]); // another clip, or the window closed
-
   const site = UPLOAD_PAGES.find((page) => page.key === tab) ?? UPLOAD_PAGES[0];
 
   return (
@@ -201,26 +153,6 @@ export function PostClipDialog({ clip, taskId, twitchVod = false, onClose }: {
           ))}
         </div>
         {filePath && <p className="break-all text-xs text-muted-foreground">File: {filePath}</p>}
-        {twitchVod && (
-          <div className="space-y-2 border-t pt-3">
-            {twitch.login ? (
-              <TwitchCode login={twitch.login} />
-            ) : (
-              <div className="flex flex-wrap items-center gap-3">
-                <Button onClick={() => void clipOnTwitch()} disabled={busy !== null} className="bg-[#9146FF] text-white hover:bg-[#7d2ff7]">
-                  {busy === "Twitch" ? <Loader2 className="size-4 animate-spin" /> : <Twitch className="size-4" />}Clip on Twitch
-                </Button>
-                {twitchClip ? (
-                  <a href={twitchClip} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-sm underline underline-offset-4">
-                    Your Twitch clip<ExternalLink className="size-3.5" />
-                  </a>
-                ) : (
-                  <span className="text-xs text-muted-foreground">Makes the same moment a clip on your Twitch channel (up to 60 s).</span>
-                )}
-              </div>
-            )}
-          </div>
-        )}
       </DialogContent>
     </Dialog>
   );

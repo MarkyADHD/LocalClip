@@ -771,6 +771,7 @@ export default function TaskPage() {
       <ClipFocus
         clip={focusedClip}
         taskId={task?.id ?? String(params.id)}
+        twitchVod={/twitch\.tv\/(?:[^/]+\/)?videos?\/\d+/i.test(task?.source_url ?? "")}
         index={focusIndex ?? 0}
         total={sortedClips.length}
         busy={focusedClip ? pendingAction === focusedClip.id : false}
@@ -784,12 +785,7 @@ export default function TaskPage() {
         hookTypeLabel={getHookTypeLabel}
       />
       <BatchExportBar clips={selectedClips} taskId={task?.id ?? String(params.id)} preset={exportPreset} onClear={() => setSelectedIds(new Set())} />
-      <PostClipDialog
-        clip={postingClip}
-        taskId={task?.id ?? String(params.id)}
-        twitchVod={/twitch\.tv\/(?:[^/]+\/)?videos?\/\d+/i.test(task?.source_url ?? "")}
-        onClose={() => setPostingClip(null)}
-      />
+      <PostClipDialog clip={postingClip} taskId={task?.id ?? String(params.id)} onClose={() => setPostingClip(null)} />
 
       <Sheet open={settingsSheetOpen} onOpenChange={setSettingsSheetOpen}>
         <SheetContent side="right" className="overflow-y-auto sm:max-w-md">
