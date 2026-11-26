@@ -674,7 +674,7 @@ Judge each candidate on its transcript text and its stream signals:
 1. Something happens: a fail, clutch, death, betrayal, scare, win, or a story with a punchline. Calm talk, tutorials, strategy, menus and stream housekeeping rank low. So does scripted game dialogue (cutscenes, NPC lines, narration) with no streamer reaction: the clip must be about the streamer, not the game's script.
 2. Reaction and energy: screaming, laughing, rage, disbelief, hype. Chat spikes, loud spikes and "clip that" are strong evidence of a real moment, especially when the text looks quiet.
 3. Hook: would the first 3 seconds stop a scrolling viewer?
-4. Standalone: would someone who never watched this streamer get it and care?
+4. Standalone: would someone who never watched this streamer get it and care? A reaction whose cause is not in the text (what is "that"? why "I'm going to hell"?) ranks below 40.
 5. Payoff: does it land before it ends?
 
 Rules:
@@ -858,7 +858,8 @@ Selection target:
 - Only choose a 15-24 second clip when it already contains a full setup and payoff.
 - If a strong moment is shorter than 25 seconds, first try expanding to nearby contiguous transcript lines that add useful context.
 - Skip: tutorials and strategy talk, menu/inventory time, calm routine gameplay, stream housekeeping (intros, BRB, sub/donation readouts, sponsors), talk about the stream or the streamer's tools, inside jokes, and fragments that need prior context.
-- Dead air: a gap of {DEAD_AIR_SECONDS}+ seconds between timestamps is silence. Do not stretch a clip across one to reach a later line; silent stretches are cut out afterwards.
+- Start at the setup. The first lines must show what happens or what the streamer is reacting to. A reaction that points at something earlier ("that", "I'm going to hell", "did you see that?") needs its cause inside the clip; if the cause is too far back to fit, clip the cause itself or skip the moment.
+- Dead air: a gap of {DEAD_AIR_SECONDS}+ seconds between timestamps is silence (long pauses are cut out of the finished clip). Never stretch a clip across one just to reach a stray later line.
 - Before returning a segment, ask whether a viewer would understand and care without seeing the rest of the source video.
 - Where lines are marked "Speaker Streamer:" / "Speaker Other:", every clip needs the streamer in it: start on or just before a streamer line and end on the streamer's reaction, not on game dialogue.
 
@@ -1594,15 +1595,17 @@ def _snap_segment_bounds(
 
 # ponytail: gaps are measured between transcript lines; silence inside one short line is not seen.
 DEAD_AIR_SECONDS = 8
+STRAY_TALK_SECONDS = 6
 
 
 def _trim_dead_air(
     transcript_lines: List[Dict[str, Any]], start_seconds: int, end_seconds: int
 ) -> Optional[tuple[Dict[str, Any], Dict[str, Any]]]:
-    """Cut a clip down to its stretch with the most talking and no 8 s silence in it.
+    """Drop a stray line left at either end of a clip after 8 s of silence.
 
     A clip can end on a line said half a minute after the moment ("For you." after
-    28 s of nothing); that wait is dead air on a phone.
+    28 s of nothing). Only short edge stretches go: a setup, then a quiet drive, then
+    the punchline keeps all three (the render cuts long pauses out).
     """
     inside = [
         line for line in transcript_lines
@@ -1615,8 +1618,16 @@ def _trim_dead_air(
         if line["start_seconds"] - previous["end_seconds"] >= DEAD_AIR_SECONDS:
             runs.append([])
         runs[-1].append(line)
-    best = max(runs, key=lambda run: sum(line["end_seconds"] - line["start_seconds"] for line in run))
-    return best[0], best[-1]
+
+    def talking(run: List[Dict[str, Any]]) -> int:
+        return sum(line["end_seconds"] - line["start_seconds"] for line in run)
+
+    # ponytail: "stray" is under 6 s of talking; raise it if lone tails still get through.
+    while len(runs) > 1 and talking(runs[-1]) < STRAY_TALK_SECONDS:
+        runs.pop()
+    while len(runs) > 1 and talking(runs[0]) < STRAY_TALK_SECONDS:
+        runs.pop(0)
+    return runs[0][0], runs[-1][-1]
 
 
 def _validate_segments(
