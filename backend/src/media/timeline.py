@@ -568,6 +568,17 @@ def build_clip_signal_summary(
         "laughing or something loud on screen"
         for a, b in loud_spans
     ]
+    try:
+        from .reactions import detect_reactions
+
+        reactions = detect_reactions(video_path)
+    except Exception as exc:  # a missing model download must not stop the clip picking
+        logger.warning("Reaction detection skipped: %s", exc)
+        reactions = []
+    heard = [
+        f"- [{timestamp_label(a)} - {timestamp_label(b)}] score=4.0: {kind} heard in the audio"
+        for a, b, kind in reactions
+    ]
 
     # Reaction words, not argument words: streams clip on reactions.
     trigger_pattern = re.compile(
@@ -611,6 +622,12 @@ def build_clip_signal_summary(
             score += 1.25
             reasons.append("audio energy peak")
 
+        for a, b, kind in reactions:
+            if a <= line["end"] + 3 and line["start"] <= b:
+                score += 1.5
+                reasons.append(kind)
+                break
+
         if score > 0:
             candidates.append((score, line, ", ".join(reasons)))
 
@@ -628,6 +645,7 @@ def build_clip_signal_summary(
         "Deterministic clip-worthiness signals to consider before ranking:",
         *requested,
         *(extra_lines or []),
+        *heard,
         *loud,
     ]
     for score, line, reason in picked:

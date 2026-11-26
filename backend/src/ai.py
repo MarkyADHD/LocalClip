@@ -73,7 +73,7 @@ TRANSCRIPT_LINE_PATTERN = re.compile(
 SIGNAL_LINE_PATTERN = re.compile(r"^- \[(?P<start>\d{1,3}:\d{2}(?::\d{2})?)\s*-")
 CROWD_SIGNAL_PATTERN = re.compile(
     r"^- \[(?P<start>\d{1,3}:\d{2}(?::\d{2})?)\s*-\s*(?P<end>\d{1,3}:\d{2}(?::\d{2})?)\]"
-    r"\s*score=[\d.]+:\s*(?P<reason>.*(?:chat|CLIP THAT|loud).*)$"
+    r"\s*score=[\d.]+:\s*(?P<reason>.*(?:chat|CLIP THAT|loud|heard in the audio).*)$"
 )
 SPEAKER_PREFIX_PATTERN = re.compile(r"^Speaker [^:]+:\s*")
 
