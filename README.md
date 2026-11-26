@@ -72,7 +72,7 @@ You don't need a subscription, you don't upload your VODs to someone else's serv
 
 - **Twitch and Kick VODs and clips, and YouTube links**, or upload any video file. Streams of any length work, 24-hour ones included.
 - **Log in with Twitch** and pick a stream from your own VOD list instead of hunting for the link.
-- **AI clip finding, tuned for streams.** The AI reads the whole transcript and picks 15–60 second stream moments (fails, clutches, reactions, chat going wild) with a strong hook, scoring each one for virality.
+- **AI clip finding, tuned for streams.** The AI reads the whole transcript and picks 15–90 second stream moments (fails, clutches, reactions, chat going wild) with a strong hook, scoring each one for virality.
 - **Twitch chat signals.** LocalClip pulls the chat replay and finds the spikes where chat exploded (KEKW, LUL, Pog, "clip it"). The AI gets those as hints.
 - **"Clip that" detection.** Say "clip that" (or "clip it" / "clip this") on stream and LocalClip always makes a clip of the 45 seconds or so before it, on top of the moments the AI picks.
 - **Find more clips.** Not enough? One button searches the same VOD again and adds new clips without repeating the ones you have.
@@ -157,7 +157,7 @@ Already installed from an earlier version? Run `LocalClip-Setup.exe` to get the 
               ─ "clip that" moments in the transcript
                 │
                 ▼
-   4. The AI model picks the clips          ── transcript + signals → 15–60 s moments,
+   4. The AI model picks the clips          ── transcript + signals → 15–90 s moments,
                 │                               scores, hook titles (structured JSON)
                 ▼
    5. Render each clip (ffmpeg)             ── facecam detection → template layout,

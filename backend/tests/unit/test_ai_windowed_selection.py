@@ -114,14 +114,14 @@ def test_repaired_bounds_past_an_hour_snap_back_to_transcript_labels():
     transcript = _transcript(70 * 60)
     lines = ai._parse_transcript_lines(transcript)
     spans = ai._parse_transcript_spans(transcript)
-    # 90 seconds is too long; repair trims it and must keep MM:SS labels.
-    segment = _segment("65:00", "66:30")
+    # 2 minutes is too long; repair trims it and must keep MM:SS labels.
+    segment = _segment("65:00", "67:00")
 
     validated = ai._validate_segments([segment], lines, spans)
 
     assert len(validated) == 1
     assert validated[0].start_time == "65:00"
-    assert ai._parse_transcript_timestamp_seconds(validated[0].end_time) <= 65 * 60 + 60
+    assert ai._parse_transcript_timestamp_seconds(validated[0].end_time) <= 65 * 60 + 90
     assert ":" in validated[0].end_time and validated[0].end_time.count(":") == 1
 
 

@@ -30,11 +30,10 @@ from .taste import taste_note
 
 logger = logging.getLogger(__name__)
 
-IDEAL_CLIP_MIN_SECONDS = 25
-IDEAL_CLIP_MAX_SECONDS = 50
+# No target length (Marky: "the ai should know best"), only the limits.
 MIN_ACCEPTED_CLIP_SECONDS = 15
-MAX_ACCEPTED_CLIP_SECONDS = 60
-TRANSCRIPT_ANALYSIS_CACHE_VERSION = "stream-picks-v12"
+MAX_ACCEPTED_CLIP_SECONDS = 90
+TRANSCRIPT_ANALYSIS_CACHE_VERSION = "stream-picks-v13"
 TRANSCRIPT_ANALYSIS_MAX_ATTEMPTS = 3
 TRANSCRIPT_ANALYSIS_TIMEOUT_SECONDS = 600
 # Long transcripts are analysed in overlapping windows so every part of the
@@ -352,7 +351,7 @@ OUTPUT CONTRACT:
 - Each item in "most_relevant_segments" must include: "start_time", "end_time", "text", "relevance_score", "reasoning", "virality", and "hook_title".
 - Do not use "segment" as an output field. Use "text".
 - "virality" must include: "hook_score", "engagement_score", "value_score", "shareability_score", "total_score", "hook_type", and "virality_reasoning".
-- Every returned segment must be 15-60 seconds long. Prefer 25-50 seconds.
+- Every returned segment must be 15-90 seconds long.
 - "most_relevant_segments" may be an empty list when nothing in the transcript is clip-worthy.
 
 GROUNDING RULES:
@@ -425,12 +424,10 @@ Identify 2-4 moments in each segment where B-roll footage could enhance the vide
 - Use simple, searchable keywords (e.g., "coffee shop", "laptop coding", "money stack")
 
 TIMING GUIDELINES:
-- Target 25-50 seconds for most clips
-- Use 15-24 seconds only when the moment is exceptionally dense, self-contained, and complete
+- Make each clip as long as the moment needs: no length is better than another
 - CRITICAL: start_time MUST be different from end_time (minimum 15 seconds apart)
 - Focus on natural content boundaries rather than arbitrary time limits
 - Include enough context for the segment to be understandable
-- Prefer roughly 30-50 seconds when possible
 - Start at the hook or the minimum setup needed to make the hook land, and end after the payoff
 - If a highlight is only one good line, expand to include the surrounding setup and payoff rather than returning a tiny fragment
 - Stop expanding when the topic drifts, the speaker repeats the same point, or the clip loses momentum
@@ -440,7 +437,7 @@ TIMESTAMP REQUIREMENTS - EXTREMELY IMPORTANT:
 - Never modify timestamp format (keep MM:SS structure)
 - start_time MUST be LESS THAN end_time (start_time < end_time)
 - MINIMUM segment duration: 15 seconds (end_time - start_time >= 15 seconds)
-- IDEAL segment duration: 25-50 seconds
+- MAXIMUM segment duration: 90 seconds
 - Look at transcript ranges like [02:25 - 02:35] and use different start/end times
 - NEVER use the same timestamp for both start_time and end_time
 - Example: start_time: "02:25", end_time: "02:35" (NOT "02:25" and "02:25")
@@ -858,9 +855,7 @@ Follow this workflow:
 
 Selection target:
 - Choose {segment_target} segments total. Fewer is fine; never pad with weak picks.
-- Most selected clips should be 25-50 seconds.
-- Only choose a 15-24 second clip when it already contains a full setup and payoff.
-- If a strong moment is shorter than 25 seconds, first try expanding to nearby contiguous transcript lines that add useful context.
+- Each clip is as long as its moment needs, from 15 to 90 seconds: setup, moment, payoff, nothing more.
 - Skip: tutorials and strategy talk, menu/inventory time, calm routine gameplay, stream housekeeping (intros, BRB, sub/donation readouts, sponsors), talk about the stream or the streamer's tools, inside jokes, and fragments that need prior context.
 - Start at the setup. The first lines must show what happens or what the streamer is reacting to. A reaction that points at something earlier ("that", "I'm going to hell", "did you see that?") needs its cause inside the clip; if the cause is too far back to fit, clip the cause itself or skip the moment.
 - Dead air: a gap of {DEAD_AIR_SECONDS}+ seconds between timestamps is silence (long pauses are cut out of the finished clip). Never stretch a clip across one just to reach a stray later line.
@@ -1082,7 +1077,7 @@ def _choose_repaired_bounds(
     current_duration = end_seconds - start_seconds
 
     if current_duration > MAX_ACCEPTED_CLIP_SECONDS:
-        target_end = start_seconds + IDEAL_CLIP_MAX_SECONDS
+        target_end = start_seconds + MAX_ACCEPTED_CLIP_SECONDS
         candidate_ends = [
             candidate
             for candidate in ends
@@ -1109,14 +1104,7 @@ def _choose_repaired_bounds(
                     extra_context = (start_seconds - candidate_start) + (
                         candidate_end - end_seconds
                     )
-                    ideal_penalty = 0
-                    if duration < IDEAL_CLIP_MIN_SECONDS:
-                        ideal_penalty = IDEAL_CLIP_MIN_SECONDS - duration
-                    elif duration > IDEAL_CLIP_MAX_SECONDS:
-                        ideal_penalty = duration - IDEAL_CLIP_MAX_SECONDS
-                    candidate_ranges.append(
-                        (ideal_penalty * 1000 + extra_context, candidate_start, candidate_end)
-                    )
+                    candidate_ranges.append((extra_context, candidate_start, candidate_end))
         if candidate_ranges:
             _, repaired_start, repaired_end = min(candidate_ranges)
             return repaired_start, repaired_end
@@ -1863,8 +1851,8 @@ def add_signal_candidates(
         # The lead-up first: start on a line 15-45 s before the signal, end on the line after it.
         starts = [line["start_seconds"] for line in transcript_lines if a - 45 <= line["start_seconds"] <= a - 15]
         start = min(starts, key=lambda s: abs(s - (a - 25))) if starts else max(0, a - 25)
-        ends = [line["end_seconds"] for line in transcript_lines if b <= line["end_seconds"] <= start + 60]
-        end = min(ends) if ends else min(b + 5, start + 60)
+        ends = [line["end_seconds"] for line in transcript_lines if b <= line["end_seconds"] <= start + MAX_ACCEPTED_CLIP_SECONDS]
+        end = min(ends) if ends else min(b + 5, start + MAX_ACCEPTED_CLIP_SECONDS)
         text = " ".join(
             line["text"] for line in transcript_lines if line["start_seconds"] >= start and line["end_seconds"] <= end
         )

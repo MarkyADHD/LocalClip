@@ -37,7 +37,7 @@ def build_prompt(clip: dict, source_title: str | None = None) -> str:
         f"Stream title: {source_title}" if source_title else "",
         f"On-screen title: {clip['hook_title']}" if clip.get("hook_title") else "",
         f"Suggested hashtags: {' '.join('#' + tag for tag in tags)}" if tags else "",
-        # ponytail: clips are under 60 s (10 minutes after "+30s"), so 6000 characters is the whole transcript.
+        # ponytail: clips are under 90 s (about 20 minutes after "+30s"), so 6000 characters is the whole transcript.
         f"Transcript:\n{(clip.get('text') or '').strip()[:6000]}",
     ]
     return "\n".join(line for line in lines if line)

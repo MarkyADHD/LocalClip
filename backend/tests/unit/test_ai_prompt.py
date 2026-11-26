@@ -3,8 +3,6 @@ from types import SimpleNamespace
 from pydantic_ai.models.ollama import OllamaModel
 
 from src.ai import (
-    IDEAL_CLIP_MAX_SECONDS,
-    IDEAL_CLIP_MIN_SECONDS,
     MIN_ACCEPTED_CLIP_SECONDS,
     TranscriptSegment,
     _build_transcript_model,
@@ -32,9 +30,8 @@ def test_system_prompt_enforces_grounding_rules():
     assert "Do not judge, moralize, or downgrade a segment" in (
         transcript_analysis_system_prompt
     )
-    assert f"{IDEAL_CLIP_MIN_SECONDS}-{IDEAL_CLIP_MAX_SECONDS} seconds" in (
-        transcript_analysis_system_prompt
-    )
+    assert "15-90 seconds long." in transcript_analysis_system_prompt
+    assert "Prefer" not in transcript_analysis_system_prompt.split("15-90 seconds long.")[1][:40]
     assert "WHAT IS NOT A CLIP" in transcript_analysis_system_prompt
     assert "Tutorials, strategy" in transcript_analysis_system_prompt
     assert "Return valid JSON only" in transcript_analysis_system_prompt
@@ -52,7 +49,8 @@ def test_build_transcript_analysis_prompt_requires_transcript_fidelity():
     assert "Do not merge separate non-contiguous moments into one segment." in prompt
     assert "If there is a tradeoff between \"viral\" and \"accurate\", choose accuracy." in prompt
     assert "Do not reject or penalize a segment simply because of the subject matter" in prompt
-    assert f"Most selected clips should be {IDEAL_CLIP_MIN_SECONDS}-{IDEAL_CLIP_MAX_SECONDS} seconds." in prompt
+    assert "as long as its moment needs, from 15 to 90 seconds" in prompt
+    assert "25-50" not in prompt
     assert "viewer would understand and care without seeing the rest" in prompt
     assert "Return one valid JSON object and nothing else." in prompt
     assert "No Markdown, headings, bullets, code fences" in prompt
@@ -101,14 +99,14 @@ def test_transcript_span_helpers_repair_near_miss_durations():
                 "[00:00 - 00:10] Setup",
                 "[00:10 - 00:24] Short highlight",
                 "[00:24 - 00:36] Payoff",
-                "[00:36 - 01:20] Too much background",
+                "[00:36 - 01:50] Too much background",
             ]
         )
     )
 
     assert _extract_transcript_text(spans, 10, 36) == "Short highlight Payoff"
-    assert _choose_repaired_bounds(spans, 10, 24) == (10, 36)
-    assert _choose_repaired_bounds(spans, 0, 80) == (0, 36)
+    assert _choose_repaired_bounds(spans, 10, 24) == (0, 24)  # least extra time, no target length
+    assert _choose_repaired_bounds(spans, 0, 110) == (0, 36)  # over 90 s: back to the last line end that fits
 
 
 def test_transcript_segment_normalizes_percent_relevance_score():
