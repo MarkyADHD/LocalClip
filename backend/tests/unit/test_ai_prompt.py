@@ -174,3 +174,20 @@ def test_a_clip_keeps_its_talking_stretch_and_loses_the_dead_air():
     # Mostly silence around one line: too little left to be a clip.
     lonely = TranscriptSegment(start_time="04:37", end_time="05:09", text="He'll never make it", relevance_score=0.9)
     assert _validate_segments([lonely], lines, []) == []
+
+
+def test_a_setup_before_a_quiet_stretch_stays_in_the_clip():
+    from src.ai import _parse_transcript_lines, _validate_segments
+
+    # Marky's stream: the setup, a quiet drive, then the punchline about it.
+    lines = _parse_transcript_lines("\n".join([
+        "[00:10 - 00:15] Okay, there is a lady and she is dancing and",
+        "[00:15 - 00:22] she got them out. Now, I did not expect her to do that.",
+        "[00:22 - 00:30] Yeah, snap that for later, boys. You can't see it.",
+        "[00:41 - 00:42] That is not my car.",
+        "[00:50 - 00:57] Someone said I need to go to a payday loan place. That goes against my Christian values.",
+        "[00:57 - 01:05] I'm going to hell. I'm going to hell. And I took a picture as well.",
+    ]))
+    segment = TranscriptSegment(start_time="00:10", end_time="01:05", text="Okay, there is a lady", relevance_score=0.9)
+    [kept] = _validate_segments([segment], lines, [])
+    assert (kept.start_time, kept.end_time) == ("00:10", "01:05")
