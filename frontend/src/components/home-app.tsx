@@ -4,7 +4,7 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import Link from "next/link";
 import {
   AlertCircle, ArrowRight, Captions, CaptionsOff, Check, ChevronDown, Crop, FileVideo,
-  Link2, Loader2, Paintbrush, Paperclip, Sparkles, Twitch, Upload, Wand2, X,
+  Link2, Loader2, Paintbrush, Paperclip, Sparkles, Target, Twitch, Upload, Wand2, X,
 } from "lucide-react";
 import { CaptionSizeControl } from "@/components/caption-size-control";
 import { FONT_SEARCH_THRESHOLD, getYouTubeThumbnailUrl, uploadVideoFile } from "@/lib/video-upload";
@@ -97,6 +97,7 @@ export default function HomeApp() {
   const [pauseThresholdMs, setPauseThresholdMs] = useState("700");
   const [removeFillerWords, setRemoveFillerWords] = useState(true);
   const [filteredWords, setFilteredWords] = useState("");
+  const [clipRequest, setClipRequest] = useState("");
 
   const [recent, setRecent] = useState<GenerationSummary[] | null>(null);
   const [billingSummary, updateBillingSummary] = useBillingSummary(Boolean(session?.user?.id));
@@ -256,6 +257,7 @@ export default function HomeApp() {
           pause_threshold_ms: normalizedPauseThreshold,
           remove_filler_words: removeFillerWords,
           filtered_words: normalizedFilteredWords,
+          clip_request: clipRequest.trim(),
         }),
       });
 
@@ -395,6 +397,22 @@ export default function HomeApp() {
                   </div>
                 </>
               )}
+            </div>
+
+            <div className="mx-3 mb-2 flex items-center gap-2 rounded-lg bg-muted/50 px-2.5 sm:mx-4">
+              <Target className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+              <label htmlFor="clip-request" className="sr-only">What clips do you want?</label>
+              <input
+                id="clip-request"
+                type="text"
+                maxLength={200}
+                autoComplete="off"
+                placeholder="What clips do you want? Optional, like: only the funny deaths"
+                value={clipRequest}
+                onChange={(e) => setClipRequest(e.target.value)}
+                disabled={controlsDisabled}
+                className="h-9 w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground/80 disabled:cursor-not-allowed"
+              />
             </div>
 
             <div className="flex flex-wrap items-center gap-1.5 px-3 pb-3 sm:px-4">

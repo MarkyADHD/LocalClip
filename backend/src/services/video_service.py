@@ -197,6 +197,7 @@ class VideoService:
         transcript: str,
         clip_signals: Optional[str] = None,
         exclude_ranges: Optional[List[tuple[int, int]]] = None,
+        clip_request: Optional[str] = None,
     ) -> Any:
         """
         Analyze transcript with AI to find relevant segments.
@@ -207,6 +208,7 @@ class VideoService:
             transcript,
             clip_signals=clip_signals,
             exclude_ranges=exclude_ranges,
+            clip_request=clip_request,
         )
         logger.info(
             f"AI analysis complete: {len(relevant_parts.most_relevant_segments)} segments found"
@@ -418,11 +420,13 @@ class VideoService:
         should_cancel: Optional[Callable[[], Awaitable[bool]]] = None,
         exclude_ranges: Optional[List[tuple[int, int]]] = None,
         manual_range: Optional[tuple[int, int]] = None,
+        clip_request: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Complete video processing pipeline.
 
         manual_range: (start, end) seconds the user picked; clips exactly that and skips the AI search.
+        clip_request: the user's words on what to clip ("only the funny deaths"); never uses the cached picks.
         Returns dict with segments and clips info.
 
         exclude_ranges: (start, end) seconds already clipped; set (even empty) to search
@@ -535,7 +539,7 @@ class VideoService:
                         "reasoning": "Picked by you from the transcript.",
                     }],
                 )
-            elif cached_analysis_json and exclude_ranges is None:
+            elif cached_analysis_json and exclude_ranges is None and not clip_request:
                 try:
                     cached_analysis = json.loads(cached_analysis_json)
                     segments = cached_analysis.get("most_relevant_segments", [])
@@ -583,6 +587,7 @@ class VideoService:
                     transcript,
                     clip_signals=clip_signals,
                     exclude_ranges=exclude_ranges,
+                    clip_request=clip_request,
                 )
 
             # Step 4: Create clips

@@ -276,3 +276,23 @@ test("ticked clips are exported to one folder with their captions ready", async 
   await page.keyboard.press("Escape");
   await expect(page.getByRole("region", { name: "Selected clips" })).toBeHidden();
 });
+
+test("the clip request box goes with a new generation and with Find more clips", async ({ page }) => {
+  const sent: Record<string, unknown>[] = [];
+  await page.route("**/api/tasks/billing-summary", route => route.fulfill({ json: { monetization_enabled: false } }));
+  await page.route("**/api/tasks/create", route => { sent.push(route.request().postDataJSON()); return route.fulfill({ status: 500, json: { detail: "stop here" } }); });
+  await page.route("**/api/tasks/one/find-more", route => { sent.push(route.request().postDataJSON()); return route.fulfill({ json: { message: "queued" } }); });
+  await page.goto("/");
+  await page.getByLabel("Video link").fill("https://www.twitch.tv/videos/123");
+  await page.getByLabel("What clips do you want?").fill("only the funny deaths");
+  await page.screenshot({ path: "test-results/clip-request-home.png" });
+  await page.getByRole("button", { name: /get clips/i }).click();
+  await expect.poll(() => sent[0]?.clip_request).toBe("only the funny deaths");
+
+  await page.goto("/tasks/one");
+  await page.getByRole("button", { name: /find more clips/i }).click();
+  await page.getByLabel("What clips do you want?").fill("rage moments");
+  await page.screenshot({ path: "test-results/clip-request-find-more.png" });
+  await page.getByRole("button", { name: /find more clips/i }).last().click();
+  await expect.poll(() => sent[1]?.clip_request).toBe("rage moments");
+});

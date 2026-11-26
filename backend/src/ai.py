@@ -745,8 +745,26 @@ def _crowd_signals(clip_signals: Optional[str]) -> List[tuple[int, int, str]]:
     return spans
 
 
+def _clip_request_note(clip_request: Optional[str], rerank: bool = False) -> str:
+    """The user's own words on what to clip ("only the funny deaths"), or ""."""
+    if not clip_request:
+        return ""
+    if rerank:
+        return (
+            f'\nThe user asked for these clips only: "{clip_request}". A candidate that does not '
+            "match the request scores below 40, however good it is.\n"
+        )
+    return (
+        f'\nThe user asked for these clips only: "{clip_request}". Pick only moments that match '
+        "this request and return none if nothing here matches. Every other rule below still "
+        "applies.\n"
+    )
+
+
 def build_candidate_rerank_prompt(
-    candidates: List[TranscriptSegment], clip_signals: Optional[str] = None
+    candidates: List[TranscriptSegment],
+    clip_signals: Optional[str] = None,
+    clip_request: Optional[str] = None,
 ) -> str:
     """Describe every candidate in full, with the stream signals it covers."""
     crowd = _crowd_signals(clip_signals)
@@ -762,7 +780,9 @@ def build_candidate_rerank_prompt(
             f"text: {segment.text}"
         )
     return (
-        f"Rank these {len(candidates)} clip candidates from the same video, best first.\n\n"
+        f"Rank these {len(candidates)} clip candidates from the same video, best first.\n"
+        + _clip_request_note(clip_request, rerank=True)
+        + "\n"
         + "\n\n".join(blocks)
     )
 
@@ -773,6 +793,7 @@ def build_transcript_analysis_prompt(
     clip_signals: str | None = None,
     window: tuple[int, int] | None = None,
     exclude_ranges: List[tuple[int, int]] | None = None,
+    clip_request: str | None = None,
 ) -> str:
     """Build the grounded task prompt for transcript analysis.
 
@@ -820,7 +841,7 @@ def build_transcript_analysis_prompt(
         )
 
     return f"""Find the moments in this stream transcript that would make great standalone short clips.
-{window_note}{exclude_note}
+{window_note}{exclude_note}{_clip_request_note(clip_request)}
 The transcript is formatted as one line per timestamped span, for example:
 [00:12 - 00:21] Spoken text here
 [00:21 - 00:35] More spoken text here
@@ -1422,7 +1443,9 @@ def drop_weak_candidates(
 
 
 async def rerank_candidates(
-    candidates: List[TranscriptSegment], clip_signals: Optional[str] = None
+    candidates: List[TranscriptSegment],
+    clip_signals: Optional[str] = None,
+    clip_request: Optional[str] = None,
 ) -> List[TranscriptSegment]:
     """Compare all candidates in one call and drop weak ones; keep first-pass order if that fails."""
     if len(candidates) < 2:
@@ -1431,7 +1454,7 @@ async def rerank_candidates(
         agent = get_rerank_agent()
         result = await _run_transcript_analysis(
             agent,
-            build_candidate_rerank_prompt(candidates, clip_signals),
+            build_candidate_rerank_prompt(candidates, clip_signals, clip_request),
             timeout_seconds=RERANK_TIMEOUT_SECONDS + 5 * len(candidates),  # long streams: hundreds
         )
         reranked = drop_weak_candidates(apply_candidate_ranking(candidates, result.output))
@@ -1451,6 +1474,7 @@ async def _analyze_transcript_windows(
     include_broll: bool,
     clip_signals: Optional[str],
     exclude_ranges: List[tuple[int, int]] | None = None,
+    clip_request: Optional[str] = None,
 ) -> List[TranscriptAnalysis]:
     """Analyse windows with bounded concurrency, tolerating some failures.
 
@@ -1468,6 +1492,7 @@ async def _analyze_transcript_windows(
                 ),
                 window=(window["start"], window["end"]),
                 exclude_ranges=exclude_ranges,
+                clip_request=clip_request,
             )
             result = await _run_transcript_analysis(agent, prompt)
             return result.output
@@ -1742,6 +1767,7 @@ def _merge_key_topics(analyses: List[TranscriptAnalysis], limit: int = 12) -> Li
 async def get_most_relevant_parts_by_transcript(
     transcript: str, include_broll: bool = False, clip_signals: str | None = None,
     exclude_ranges: List[tuple[int, int]] | None = None,
+    clip_request: str | None = None,
 ) -> TranscriptAnalysis:
     """Get the most relevant parts of a transcript with virality scoring and optional B-roll detection.
 
@@ -1776,13 +1802,14 @@ async def get_most_relevant_parts_by_transcript(
                     include_broll=include_broll,
                     clip_signals=clip_signals,
                     exclude_ranges=exclude_ranges,
+                    clip_request=clip_request,
                 )
             )
             analyses = [result.output]
         else:
             logger.info("Analysing transcript in %d overlapping windows", len(windows))
             analyses = await _analyze_transcript_windows(
-                agent, windows, include_broll, clip_signals, exclude_ranges
+                agent, windows, include_broll, clip_signals, exclude_ranges, clip_request
             )
 
         candidates: List[TranscriptSegment] = []
@@ -1802,6 +1829,7 @@ async def get_most_relevant_parts_by_transcript(
         candidates = await rerank_candidates(
             drop_excluded_segments(dedupe_overlapping_segments(candidates), exclude_ranges),
             clip_signals,
+            clip_request,
         )
 
         # No clip-count cap: every candidate that survives the rerank is rendered.

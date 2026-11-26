@@ -141,6 +141,11 @@ async def test_find_more_requeues_a_finished_task_as_a_search(resume_context):
     await tasks.find_more_clips("task-1", SimpleNamespace(), db=None)
     assert queue.await_args.kwargs["find_more"] is True
     assert tasks._save_task_source_metadata.await_args.args[1]["find_more"] is True
+    assert "clip_request" not in tasks._save_task_source_metadata.await_args.args[1]
+
+    request = tasks.FindMoreRequest(clip_request="  only   the funny deaths ")
+    await tasks.find_more_clips("task-1", SimpleNamespace(), request, db=None)
+    assert tasks._save_task_source_metadata.await_args.args[1]["clip_request"] == "only the funny deaths"
 
 
 @pytest.mark.asyncio
