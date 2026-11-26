@@ -55,6 +55,8 @@ Browser → Next.js 15 frontend (:3107) → FastAPI backend (:8000) → Redis qu
 
 Task creation returns immediately; processing runs in the worker; progress goes Redis pub/sub → SSE.
 Task status flow: `queued → processing → completed/error/cancelled`.
+A task still `processing` when the worker starts was cut off by closing LocalClip (`mark_interrupted_tasks`): a generation
+becomes `error` (Resume carries on), a Find more search goes back to `completed`.
 
 ### Backend layout (`backend/src/`)
 

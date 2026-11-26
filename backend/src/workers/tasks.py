@@ -140,6 +140,34 @@ async def cleanup_old_sources(ctx: Dict[str, Any]) -> int:
         return await delete_old_stream_downloads(db, get_config())
 
 
+INTERRUPTED_MESSAGE = "LocalClip was closed before this finished."
+
+
+async def mark_interrupted_tasks(ctx: Dict[str, Any]) -> None:
+    """A task still "processing" when the worker starts was cut off when LocalClip closed: its job is gone, so
+    without this it would say "processing" for two days. A generation becomes resumable; a search keeps its clips.
+
+    ponytail: assumes one worker per database (the app's own setup); a second worker would flag the first's runs.
+    """
+    from sqlalchemy import text
+
+    from ..database import AsyncSessionLocal
+
+    async with AsyncSessionLocal() as db:
+        result = await db.execute(text(
+            "UPDATE tasks SET updated_at = NOW(),"
+            " status = CASE WHEN (source_metadata->>'find_more')::boolean THEN 'completed' ELSE 'error' END,"
+            " progress = CASE WHEN (source_metadata->>'find_more')::boolean THEN 100 ELSE 0 END,"
+            " progress_message = CASE WHEN (source_metadata->>'find_more')::boolean"
+            "   THEN :message || ' Press Find more clips to search again.' ELSE :message END,"
+            " source_metadata = COALESCE(source_metadata, '{}'::jsonb) || '{\"find_more\": false, \"manual_range\": null}'::jsonb"
+            " WHERE status = 'processing'"
+        ), {"message": INTERRUPTED_MESSAGE})
+        await db.commit()
+        if result.rowcount:
+            logger.warning("Marked %d interrupted task(s)", result.rowcount)
+
+
 # Worker configuration for arq
 class WorkerSettings:
     """Configuration for arq worker."""
@@ -155,6 +183,7 @@ class WorkerSettings:
         prepare_asset, transcribe_asset, export_project, remove_music,
     ]
     queue_name = "localclip_tasks"
+    on_startup = mark_interrupted_tasks
     health_check_interval = 30
 
     # Redis settings from environment
