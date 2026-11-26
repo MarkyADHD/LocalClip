@@ -173,3 +173,41 @@ def test_laughs_heard_in_the_audio_become_hints(monkeypatch):
 def test_reaction_chunks_merge_into_spans():
     hits = [(10.0, "laughing"), (12.0, "laughing"), (16.0, "laughing"), (30.0, "laughing"), (32.0, "screaming")]
     assert reactions.merge_hits(hits) == [(10.0, 18.0, "laughing"), (30.0, 32.0, "laughing"), (32.0, 34.0, "screaming")]
+
+
+def test_clip_on_twitch(monkeypatch, tmp_path):
+    import asyncio
+    from types import SimpleNamespace
+
+    from src import twitch
+
+    assert twitch.vod_clip_window(100.4, 130.0) == (130, 29.6)  # Twitch's vod_offset is the clip's END
+    assert twitch.vod_clip_window(100.4, 400.0) == (160, 59.6)  # longer clips: their first minute
+    assert twitch.vod_clip_window(0.0, 2.0) == (5, 5.0)  # Twitch's 5 s minimum, never before the VOD starts
+
+    monkeypatch.setattr(twitch, "get_config", lambda: SimpleNamespace(temp_dir=str(tmp_path), twitch_client_id="cid"))
+    calls = []
+
+    class Reply:
+        def __init__(self, status, body):
+            self.status_code, self._body, self.content = status, body, b"x"
+
+        def json(self):
+            return self._body
+
+    async def helix(auth, path, method="GET", **params):
+        calls.append((method, path, params))
+        if path == "videos":
+            return Reply(200, {"data": [{"id": "42", "user_id": "99"}]})
+        return Reply(202, {"data": [{"id": "FunnyClipAbc", "edit_url": "https://x"}]})
+
+    monkeypatch.setattr(twitch, "_helix", helix)
+    run = lambda: asyncio.run(twitch.create_vod_clip("42", 100.4, 130.0, "he really did that"))
+
+    assert run() == {"need_login": True}  # not logged in
+    twitch._save_auth({"access_token": "a", "user_id": "7"})
+    assert run() == {"need_login": True}  # logged in before LocalClip asked for clip permission
+    twitch._save_auth({"access_token": "a", "user_id": "7", "scopes": ["editor:manage:clips"]})
+    assert run() == {"id": "FunnyClipAbc", "url": "https://clips.twitch.tv/FunnyClipAbc", "duration": 29.6}
+    assert calls[-1] == ("POST", "videos/clips", {"broadcaster_id": "99", "editor_id": "7", "vod_id": "42",
+                                                  "vod_offset": 130, "duration": 29.6, "title": "he really did that"})

@@ -144,6 +144,10 @@ clip from the source with extra time (the UI's "+30s" buttons; max 600s each sid
 "Post" on a finished clip (`components/post-clip.tsx`, `api/routes/post.py`): a button each for YouTube, TikTok and Instagram copies the
 caption, shows the file in Explorer and opens the upload page. "Write with AI" (`post_captions.py`, `POST /tasks/{id}/clips/{clip_id}/captions`) writes a caption with hashtags per site from the clip's transcript with the Settings > AI model. LocalClip uploads nothing itself (a YouTube login was built and removed at
 Marky's request). See `docs/posting.md`.
+For a Twitch VOD's clips, "Clip on Twitch" (`POST /tasks/{id}/clips/{clip_id}/twitch-clip`, `create_vod_clip` in `twitch.py`) makes
+the same moment a real Twitch clip with Helix "Create Clip From VOD" (open beta; at most 60 s, so a longer clip becomes its
+first minute). It uses the "Log in with Twitch" login, which asks for `channel:manage:clips editor:manage:clips`; a login from
+before that is asked to log in again.
 Tick boxes on the results page plus "Export all" (`components/batch-export.tsx`) copy the ticked clips to
 `Videos\LocalClip\<stream title>\` (`POST /tasks/{id}/clips/{clip_id}/export-to-folder`) and open that folder.
 
