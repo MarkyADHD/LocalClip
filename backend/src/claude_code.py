@@ -35,6 +35,28 @@ def find_claude() -> Optional[str]:
     return None
 
 
+class ClaudeSignedOut(RuntimeError):
+    pass
+
+
+class _Ping(BaseModel):
+    ok: bool
+
+
+async def check_signed_in() -> None:
+    """Raise ClaudeSignedOut now, not after an hour of download and transcription.
+
+    A real one-line request on the cheapest model: the sign-in file can exist while the
+    session behind it has expired. Any other failure is left for the clip search to report.
+    """
+    try:
+        await ClaudeCodeAgent("haiku", _Ping, 'Reply with {"ok": true}.', output_retries=0).run("ping")
+    except ClaudeSignedOut:
+        raise
+    except Exception as error:
+        logger.warning("Claude Code sign-in check failed (%s); carrying on", error)
+
+
 class ClaudeCodeAgent(Generic[T]):
     """Drop-in for the two pydantic-ai Agents in ai.py: `await agent.run(prompt)` -> `.output`."""
 
@@ -86,7 +108,7 @@ class ClaudeCodeAgent(Generic[T]):
             detail = out.get("result") or stderr.decode("utf-8", "replace").strip()[-300:] or f"exit {proc.returncode}"
             if re.search(r"authenticat|oauth|log(ged)? ?in|api key", detail, re.I):
                 logger.error("Claude Code sign-in error: %s", detail)
-                raise RuntimeError("Claude Code is signed out. Open a terminal, run claude, type /login and sign in, then press Resume.")
+                raise ClaudeSignedOut("Claude Code is signed out. Open a terminal, run claude, type /login and sign in, then press Resume.")
             raise RuntimeError(f"Claude Code failed: {detail}")
         logger.info("Claude Code (%s) answered, cost $%s", self.model, out.get("total_cost_usd"))
         return out.get("structured_output") or {}
