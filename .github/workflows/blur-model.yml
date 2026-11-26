@@ -1,0 +1,35 @@
+# Builds and checks the vape detector for auto-blur (.github/blur-model/), then puts vape-*.onnx on
+# the "blur-models-1" pre-release, where the app downloads it. Pre-releases never count as an app update.
+name: Blur model
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [claude/project-thread-ymshoc]
+    paths: [.github/blur-model/**, .github/workflows/blur-model.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: .github/blur-model
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+      - run: pip install ultralytics onnx onnxslim onnxruntime "git+https://github.com/ultralytics/CLIP.git"
+      - run: python export.py s m l
+      - run: python check.py
+      - run: ls -l *.onnx && sha256sum *.onnx
+      - name: Publish the models
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view blur-models-1 >/dev/null 2>&1 || gh release create blur-models-1 --prerelease --title "Auto-blur models" --notes "Vape detector for LocalClip's auto-blur, built by .github/workflows/blur-model.yml from YOLO-World (GPL-3.0, Ultralytics)."
+          gh release upload blur-models-1 vape-*.onnx --clobber
