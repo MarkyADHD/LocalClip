@@ -153,3 +153,24 @@ def test_clip_request_steers_the_search_and_the_rerank():
     rerank = build_candidate_rerank_prompt([segment, segment], clip_request="only the funny deaths")
     assert "does not match the request scores below 40" in rerank
     assert "asked for" not in build_candidate_rerank_prompt([segment, segment])
+
+
+def test_a_clip_keeps_its_talking_stretch_and_loses_the_dead_air():
+    from src.ai import _parse_transcript_lines, _validate_segments
+
+    transcript = "\n".join([
+        "[04:16 - 04:21] He does his rave on his streams. He's not even a real streamer.",
+        "[04:22 - 04:27] He's been streaming for years and still hasn't made it.",
+        "[04:33 - 04:37] Nobody cares about your intro, mate. How is this even content?",
+        "[04:37 - 04:41] He'll never make it on Twitch. All that setup is for 10 views.",
+        "[05:08 - 05:09] For you.",
+    ])
+    lines = _parse_transcript_lines(transcript)
+    segment = TranscriptSegment(start_time="04:16", end_time="05:09", text="He does his rave", relevance_score=0.9)
+    [kept] = _validate_segments([segment], lines, [])
+    assert (kept.start_time, kept.end_time) == ("04:16", "04:41")
+    assert kept.text.endswith("10 views.")
+
+    # Mostly silence around one line: too little left to be a clip.
+    lonely = TranscriptSegment(start_time="04:37", end_time="05:09", text="He'll never make it", relevance_score=0.9)
+    assert _validate_segments([lonely], lines, []) == []

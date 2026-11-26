@@ -858,6 +858,7 @@ Selection target:
 - Only choose a 15-24 second clip when it already contains a full setup and payoff.
 - If a strong moment is shorter than 25 seconds, first try expanding to nearby contiguous transcript lines that add useful context.
 - Skip: tutorials and strategy talk, menu/inventory time, calm routine gameplay, stream housekeeping (intros, BRB, sub/donation readouts, sponsors), talk about the stream or the streamer's tools, inside jokes, and fragments that need prior context.
+- Dead air: a gap of {DEAD_AIR_SECONDS}+ seconds between timestamps is silence. Do not stretch a clip across one to reach a later line; silent stretches are cut out afterwards.
 - Before returning a segment, ask whether a viewer would understand and care without seeing the rest of the source video.
 - Where lines are marked "Speaker Streamer:" / "Speaker Other:", every clip needs the streamer in it: start on or just before a streamer line and end on the streamer's reaction, not on game dialogue.
 
@@ -1571,6 +1572,33 @@ def _snap_segment_bounds(
     return start_line["start_seconds"], end_line["end_seconds"]
 
 
+# ponytail: gaps are measured between transcript lines; silence inside one short line is not seen.
+DEAD_AIR_SECONDS = 8
+
+
+def _trim_dead_air(
+    transcript_lines: List[Dict[str, Any]], start_seconds: int, end_seconds: int
+) -> Optional[tuple[Dict[str, Any], Dict[str, Any]]]:
+    """Cut a clip down to its stretch with the most talking and no 8 s silence in it.
+
+    A clip can end on a line said half a minute after the moment ("For you." after
+    28 s of nothing); that wait is dead air on a phone.
+    """
+    inside = [
+        line for line in transcript_lines
+        if start_seconds <= line["start_seconds"] and line["end_seconds"] <= end_seconds
+    ]
+    if not inside:
+        return None
+    runs = [[inside[0]]]
+    for previous, line in zip(inside, inside[1:]):
+        if line["start_seconds"] - previous["end_seconds"] >= DEAD_AIR_SECONDS:
+            runs.append([])
+        runs[-1].append(line)
+    best = max(runs, key=lambda run: sum(line["end_seconds"] - line["start_seconds"] for line in run))
+    return best[0], best[-1]
+
+
 def _validate_segments(
     segments: List[TranscriptSegment],
     transcript_lines: List[Dict[str, Any]],
@@ -1615,6 +1643,16 @@ def _validate_segments(
                         segment, transcript_lines, *repaired_bounds
                     )
                     duration = end_seconds - start_seconds
+
+            kept = _trim_dead_air(transcript_lines, start_seconds, end_seconds)
+            if kept and (kept[0]["start_seconds"], kept[1]["end_seconds"]) != (start_seconds, end_seconds):
+                logger.info(
+                    "Trimmed dead air: %s-%s to %s-%s",
+                    segment.start_time, segment.end_time, kept[0]["start_time"], kept[1]["end_time"],
+                )
+                segment.start_time, segment.end_time = kept[0]["start_time"], kept[1]["end_time"]
+                start_seconds, end_seconds = kept[0]["start_seconds"], kept[1]["end_seconds"]
+                duration = end_seconds - start_seconds
 
             if duration <= 0:
                 logger.warning(
