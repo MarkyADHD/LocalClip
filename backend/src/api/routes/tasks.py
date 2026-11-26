@@ -26,6 +26,7 @@ from ...repositories.task_repository import TaskRepository
 from ...database import get_db
 from ...database import AsyncSessionLocal
 from ...services.task_service import TaskService
+from ...taste import remember
 from ...services.billing_service import BillingService, BillingLimitExceeded
 from ...auth_headers import resolve_authenticated_user_id
 from ...workers.job_queue import JobQueue
@@ -756,6 +757,7 @@ async def delete_clip(
             raise HTTPException(status_code=404, detail="Clip not found")
 
         await task_service.delete_clip(task_id, clip_id)
+        remember("deleted", clip)
 
         return {"message": "Clip deleted successfully"}
 
