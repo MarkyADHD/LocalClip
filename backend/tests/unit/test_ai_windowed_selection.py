@@ -394,3 +394,25 @@ def test_search_again_skips_ranges_already_clipped():
     )
     assert "00:55 - 01:40" in prompt and "23:20" not in prompt  # only this window's ranges
     assert "already clipped" not in ai.build_transcript_analysis_prompt("[00:00 - 00:10] hi")
+
+
+def test_strong_signals_the_ai_skipped_become_candidates():
+    transcript = _transcript(20 * 60, line_seconds=5)
+    lines, spans = ai._parse_transcript_lines(transcript), ai._parse_transcript_spans(transcript)
+    signals = "\n".join(
+        [
+            "Deterministic clip-worthiness signals to consider before ranking:",
+            "- [05:00 - 05:10] score=4.0: Twitch chat exploded here (viewers reacted to this moment)",
+            "- [12:00 - 12:04] score=4.0: laughing heard in the audio",
+            "- [15:00 - 15:04] score=3.0: loud spike: shouting, laughing or something loud on screen",
+            "- [18:00 - 18:04] score=4.0: laughing heard in the audio",
+        ]
+    )
+    picked = _segment("17:40", "18:20", total=80)
+    result = ai.add_signal_candidates([picked], signals, lines, spans)
+    # Chat at 05:00 and the laugh at 12:00 get a clip with their lead-up; the loud spike
+    # and the laugh the AI already covered do not.
+    assert [(s.start_time, s.end_time) for s in result] == [
+        ("17:40", "18:20"), ("04:35", "05:10"), ("11:35", "12:05"),
+    ]
+    assert result[2].reasoning == "Stream signal: laughing heard in the audio."
