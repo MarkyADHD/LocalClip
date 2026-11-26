@@ -26,6 +26,7 @@ from .claude_code import ClaudeCodeAgent, find_claude
 from .config import Config, get_config
 from .local_models import ensure_local_server
 from .runtime_settings import apply_settings_to_process_env
+from .taste import taste_note
 
 logger = logging.getLogger(__name__)
 
@@ -784,6 +785,7 @@ def build_candidate_rerank_prompt(
     return (
         f"Rank these {len(candidates)} clip candidates from the same video, best first.\n"
         + _clip_request_note(clip_request, rerank=True)
+        + taste_note()
         + "\n"
         + "\n\n".join(blocks)
     )
