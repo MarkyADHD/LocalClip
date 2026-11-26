@@ -288,6 +288,7 @@ def test_build_clip_signal_summary_surfaces_hook_and_audio_peak(monkeypatch, tmp
         ]
     )
     monkeypatch.setattr(timeline, "detect_loud_spans", lambda _path: [[5.0, 7.0]])
+    monkeypatch.setattr("src.media.reactions.detect_reactions", lambda _path: [])
 
     summary = video_utils.build_clip_signal_summary(tmp_path / "source.mp4", transcript)
 

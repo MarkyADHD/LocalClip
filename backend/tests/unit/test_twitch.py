@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from src.media import timeline
+from src.media import reactions, timeline
 from src.services.video_service import VideoService
 from src.twitch import chat_signal_lines, chat_spikes, get_stream_source, get_twitch_video_id, timestamp_label
 
@@ -39,6 +39,7 @@ def test_quiet_chat_reactions_become_signals(monkeypatch):
 
 def test_clip_that_becomes_top_signal(monkeypatch):
     monkeypatch.setattr(timeline, "detect_loud_spans", lambda _p: [])
+    monkeypatch.setattr(reactions, "detect_reactions", lambda _p: [])
     transcript = "[01:00:10 - 01:00:14] okay we push now\n[01:00:40 - 01:00:44] chat CLIP THAT right now"
     summary = timeline.build_clip_signal_summary(Path("x.mp4"), transcript, ["- [05:00 - 05:10] score=4.0: chat"])
     lines = summary.splitlines()
@@ -71,6 +72,7 @@ def test_quiet_silence_breaks_are_not_loud_spikes(monkeypatch, tmp_path):
 
 def test_signal_hints_reach_every_part_of_a_long_vod(monkeypatch):
     monkeypatch.setattr(timeline, "detect_loud_spans", lambda _p: [])
+    monkeypatch.setattr(reactions, "detect_reactions", lambda _p: [])
     transcript = "\n".join(
         f"[{timestamp_label(t)} - {timestamp_label(t + 4)}] what the hell was that!" for t in range(0, 4 * 3600, 30)
     )
@@ -153,3 +155,18 @@ def test_twitch_login_then_list_vods_with_token_refresh(monkeypatch, tmp_path):
 
     asyncio.run(twitch.twitch_logout())
     assert asyncio.run(twitch.list_my_vods())["logged_in"] is False
+
+
+def test_laughs_heard_in_the_audio_become_hints(monkeypatch):
+    monkeypatch.setattr(timeline, "detect_loud_spans", lambda _p: [])
+    monkeypatch.setattr(reactions, "detect_reactions", lambda _p: [(64.0, 70.0, "laughing")])
+    transcript = "[01:00 - 01:03] he walked straight off the roof\n[05:00 - 05:03] anyway back to it"
+    summary = timeline.build_clip_signal_summary(Path("x.mp4"), transcript)
+    assert "- [01:04 - 01:10] score=4.0: laughing heard in the audio" in summary
+    assert "laughing; he walked straight off the roof" in summary
+    assert "laughing; anyway" not in summary
+
+
+def test_reaction_chunks_merge_into_spans():
+    hits = [(10.0, "laughing"), (12.0, "laughing"), (16.0, "laughing"), (30.0, "laughing"), (32.0, "screaming")]
+    assert reactions.merge_hits(hits) == [(10.0, 18.0, "laughing"), (30.0, 32.0, "laughing"), (32.0, 34.0, "screaming")]

@@ -77,7 +77,9 @@ Blocking work (ffmpeg, downloads, transcription) is wrapped in `run_in_thread()`
    secret; tokens in `TEMP_DIR/twitch_login.json`) and lists the user's videos from Helix (`/tasks/twitch/*`); picking
    one just fills in its link.
 3. **Twitch chat signals**: for Twitch VODs, `twitch.py` downloads the chat replay and scores
-   activity spikes, which feed the clip selection as an extra signal.
+   activity spikes, which feed the clip selection as an extra signal. `media/reactions.py` tags laughing and
+   screaming in the audio (sherpa-onnx CED-tiny, 2 s chunks, ~15 s per stream hour, model downloaded once to
+   `TEMP_DIR/models/reactions`); those hints sit beside the loud spikes in `build_clip_signal_summary`.
 4. **AI analysis**: the LLM picks segments with virality scores; the prompts target stream
    moments (fails, clutches, reactions, chat spikes), not tutorials or talk. Default LLM is the Claude Code
    CLI (`LLM=claude-code:sonnet`, provider `claude-code` in `ai.py`); it uses the user's local
