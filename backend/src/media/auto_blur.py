@@ -221,10 +221,34 @@ def find_blurs(video: Path, cam: Optional[Box] = None) -> List[dict]:
     return sorted(track(nudity) + track(vapes, VAPE_EVERY / SAMPLE_FPS), key=lambda b: b["start"])
 
 
-def find_clip_blurs(video: Path) -> List[dict]:
-    """find_blurs with the vape search around the facecam, or [] when auto-blur is off or fails."""
+def _remembered(source: Path, ranges: Sequence[Tuple[float, float]]) -> Path:
+    """Where the blurs of `source` cut at `ranges` are kept, beside the source (deleted with it).
+
+    The last range's end is left out of the key (it is kept in the file): a cut that only ends sooner is the
+    same picture, shorter.
+    """
+    cut = [[round(s, 2), round(e, 2)] for s, e in ranges]
+    cut[-1] = cut[-1][:1]
+    key = hashlib.sha1(json.dumps([cut, MODELS, THRESHOLD]).encode()).hexdigest()[:16]
+    return source.with_name(f"{source.stem}.blurs-{key}.json")
+
+
+def find_clip_blurs(
+    video: Path, source: Optional[Path] = None, ranges: Optional[Sequence[Tuple[float, float]]] = None
+) -> List[dict]:
+    """find_blurs with the vape search around the facecam, or [] when auto-blur is off or fails.
+
+    With `source` and `ranges` (what `video` was cut from), the result is remembered, so opening the clip
+    in the editor doesn't scan it again (about a minute per clip)."""
     if not enabled():
         return []
+    remembered = _remembered(source, ranges) if source and ranges else None
+    try:
+        kept = json.loads(remembered.read_text(encoding="utf-8"))
+        if ranges[-1][1] <= kept["end"] + 0.05:
+            return kept["blurs"]
+    except (AttributeError, OSError, ValueError, KeyError, TypeError):
+        pass
     try:
         from .stream_layouts import FULLSCREEN_CAM_WIDTH, detect_facecam, pad_face
 
@@ -233,6 +257,13 @@ def find_clip_blurs(video: Path) -> List[dict]:
         blurs = find_blurs(video, cam)
         if blurs:
             logger.info("Auto-blur: %s", ", ".join(f"{b['label']} {b['start']:.1f}-{b['end']:.1f}s" for b in blurs))
+        if remembered:
+            try:
+                partial = remembered.with_name(f".{remembered.name}.{uuid.uuid4().hex}")
+                partial.write_text(json.dumps({"end": ranges[-1][1], "blurs": blurs}), encoding="utf-8")
+                os.replace(partial, remembered)
+            except OSError:
+                pass
         return blurs
     except Exception as exc:  # a missing model or a bad frame must not stop the clip
         logger.warning("Auto-blur skipped: %s", exc)

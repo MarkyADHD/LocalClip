@@ -338,7 +338,7 @@ def create_optimized_clip(
 
             if auto_blur:
                 blurred_path = temp_root / "blurred.mp4"
-                if apply_blurs(source_clip_path, blurred_path, find_clip_blurs(source_clip_path)):
+                if apply_blurs(source_clip_path, blurred_path, find_clip_blurs(source_clip_path, video_path, effective_keep_ranges)):
                     source_clip_path = blurred_path
 
             reframe_format = (

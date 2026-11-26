@@ -79,3 +79,17 @@ def test_only_the_box_is_blurred_and_only_while_it_is_on(tmp_path):
     assert changed[45:135, 80:160].mean() > 0.3  # the box is blurred
     assert changed[:, 170:].mean() < 0.02 and changed[150:, :].mean() < 0.02  # the rest is the clip (re-encoded)
     assert (np.abs(_frame(source, 0.5) - _frame(output, 0.5)) > 12).mean() < 0.02  # not before it starts
+
+
+def test_a_clip_is_scanned_once_and_reused_for_a_shorter_cut(tmp_path, monkeypatch):
+    monkeypatch.setattr(auto_blur, "enabled", lambda: True)
+    monkeypatch.setattr("src.media.stream_layouts.detect_facecam", lambda video: None)
+    scans = []
+    monkeypatch.setattr(auto_blur, "find_blurs", lambda video, cam: scans.append(video) or [{"label": "Vape", "start": 1.0, "end": 2.0}])
+    source = tmp_path / "vod.mp4"
+    assert auto_blur.find_clip_blurs(tmp_path / "a.mp4", source, [(10.0, 20.0), (30.0, 45.0)]) == [{"label": "Vape", "start": 1.0, "end": 2.0}]
+    # The editor's cut (ends a little sooner) reuses it; a longer or different cut is scanned.
+    assert auto_blur.find_clip_blurs(tmp_path / "b.mp4", source, [(10.0, 20.0), (30.0, 44.0)]) == [{"label": "Vape", "start": 1.0, "end": 2.0}]
+    auto_blur.find_clip_blurs(tmp_path / "c.mp4", source, [(10.0, 20.0), (30.0, 75.0)])
+    auto_blur.find_clip_blurs(tmp_path / "d.mp4", source, [(11.0, 20.0), (30.0, 45.0)])
+    assert [p.name for p in scans] == ["a.mp4", "c.mp4", "d.mp4"]
