@@ -18,12 +18,13 @@ jobs:
     steps:
       - name: List the model's files
         run: curl -sfL https://huggingface.co/api/models/audiojs/tiger-dnr | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('sha')); [print(s['rfilename']) for s in d['siblings']]"
-      - run: curl -sfLO https://huggingface.co/audiojs/tiger-dnr/resolve/main/tiger.int8.onnx
-      - run: curl -sfL https://huggingface.co/audiojs/tiger-dnr/resolve/main/README.md | head -150
+      - run: curl -sfLO https://huggingface.co/audiojs/tiger-dnr/resolve/65072a210374cac07ea2ac30a85a4a0b7c71a652/tiger.int8.onnx
+      - run: curl -sfLO https://huggingface.co/audiojs/mrx/resolve/main/mrx.int8.onnx
+      - run: curl -sfL https://huggingface.co/audiojs/mrx/resolve/main/README.md | head -150
       - run: ls -l *.onnx && sha256sum *.onnx
       - name: Publish the model
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release view music-models-1 -R ${{ github.repository }} >/dev/null 2>&1 || gh release create music-models-1 -R ${{ github.repository }} --prerelease --title "Music removal model" --notes "TIGER for Divide and Remaster (Apache-2.0, JusperLee/TIGER-DnR; ONNX export from audiojs/tiger-dnr), used by the video editor's Remove music. Built by .github/workflows/music-model.yml."
-          gh release upload music-models-1 -R ${{ github.repository }} tiger.int8.onnx
+          gh release upload music-models-1 -R ${{ github.repository }} mrx.int8.onnx
