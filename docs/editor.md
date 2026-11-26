@@ -15,7 +15,9 @@ locally for recovery after an interrupted save.
 - **Timeline**: segments sit in playback order. Drag the orange ends of the selected
   segment to trim it, click or drag anywhere to scrub, and use Split, Remove,
   Duplicate and the arrows to cut and reorder. The row underneath shows every caption
-  word where it is spoken. In/Out take exact seconds.
+  word where it is spoken: drag a word to move it, drag its ends to stretch it, hold
+  Shift to move every later word too (`moveWord` in `document.ts`); arrow keys nudge a
+  focused word by 0.05 s. In/Out take exact seconds.
 - **Layout**: 9:16, 1:1 or the original shape, then how the frame is filled. Fill and
   Fit crop one picture (Fit puts a blurred copy behind it). Cam top, Cam bottom and
   Floating cam cut the facecam out of the stream and place it with the gameplay, like

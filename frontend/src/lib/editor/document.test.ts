@@ -12,6 +12,7 @@ import {
   speakerCount,
   splitSegment,
   wordColor,
+  moveWord,
 } from "./document";
 import { draft } from "./document.test-fixture";
 
@@ -164,4 +165,27 @@ it("a popping caption grows past full size and settles on it", () => {
   expect(popScale(0)).toBeCloseTo(0.6);
   expect(popScale(0.6)).toBeCloseTo(1.12);
   expect(popScale(1)).toBeCloseTo(1);
+});
+
+describe("moveWord", () => {
+  const words = [
+    { id: "a", start: 0, end: 1, text: "a", highlight: false },
+    { id: "b", start: 2, end: 3, text: "b", highlight: false },
+    { id: "c", start: 4, end: 5, text: "c", highlight: false },
+  ];
+  const times = (list: typeof words) => list.map((w) => [w.start, w.end]);
+  it("moves one word without passing its neighbours", () => {
+    expect(times(moveWord(words, "b", 0.5, "move", 10))).toEqual([[0, 1], [2.5, 3.5], [4, 5]]);
+    expect(times(moveWord(words, "b", 5, "move", 10))[1]).toEqual([3, 4]);
+    expect(times(moveWord(words, "b", -5, "move", 10))[1]).toEqual([1, 2]);
+  });
+  it("moves later words along, up to the end of the clip", () => {
+    expect(times(moveWord(words, "b", 0.5, "move", 10, true))).toEqual([[0, 1], [2.5, 3.5], [4.5, 5.5]]);
+    expect(times(moveWord(words, "b", 9, "move", 6, true))).toEqual([[0, 1], [3, 4], [5, 6]]);
+  });
+  it("stretches an edge", () => {
+    expect(times(moveWord(words, "b", -0.4, "start", 10))[1]).toEqual([1.6, 3]);
+    expect(times(moveWord(words, "b", 2, "end", 10))[1]).toEqual([2, 4]);
+    expect(times(moveWord(words, "b", -2, "end", 10))[1]).toEqual([2, 2.05]);
+  });
 });

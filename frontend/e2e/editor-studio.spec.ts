@@ -334,6 +334,28 @@ test("regenerate captions asks before replacing fixed words", async ({
     .toEqual(["brand", "new"]);
 });
 
+test("captions drag into place on the timeline", async ({ page }) => {
+  const documents = await setup(page);
+  const word = page.getByRole("slider", { name: "Caption: world" });
+  const box = (await word.boundingBox())!;
+  const track = (await page
+    .getByRole("group", { name: "Captions" })
+    .boundingBox())!;
+  const x = box.x + box.width / 2,
+    y = box.y + box.height / 2;
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await page.mouse.move(x + track.width / 12, y, { steps: 5 }); // 3 s clip: +0.25 s
+  await page.mouse.up();
+  await page.getByRole("slider", { name: "Caption: today" }).press("ArrowLeft");
+  await expect
+    .poll(() => {
+      const words = documents.get("clip1")!.document.words;
+      return words.map((w: { start: number }) => Math.round(w.start * 20) / 20);
+    })
+    .toEqual([0, 1.25, 1.95]);
+});
+
 test("layout, caption look, hook title and safe zone", async ({ page }) => {
   await setup(page);
   let request: { document: Record<string, unknown> } | undefined;
