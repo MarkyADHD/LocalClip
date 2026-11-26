@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { popScale } from "./render";
 import {
+  blurBox,
   captionGroups,
   editDuration,
   frameRect,
@@ -165,6 +166,25 @@ it("a popping caption grows past full size and settles on it", () => {
   expect(popScale(0)).toBeCloseTo(0.6);
   expect(popScale(0.6)).toBeCloseTo(1.12);
   expect(popScale(1)).toBeCloseTo(1);
+});
+
+describe("blurBox", () => {
+  const blur = {
+    id: "v",
+    label: "Vape",
+    start: 0,
+    end: 1,
+    boxes: [
+      { t: 0, x: 0.1, y: 0.1, w: 0.2, h: 0.2 },
+      { t: 0.25, x: 0.3, y: 0.2, w: 0.2, h: 0.2 },
+    ],
+  };
+  it("covers the motion between sightings and stops at the end (box_at in auto_blur.py)", () => {
+    const box = blurBox(blur, 0.1)!;
+    expect([box.x, box.y, box.w, box.h].map((v) => +v.toFixed(3))).toEqual([0.1, 0.1, 0.4, 0.3]);
+    expect(blurBox(blur, 0.9)).toEqual({ x: 0.3, y: 0.2, w: 0.2, h: 0.2 });
+    expect(blurBox(blur, 1)).toBeNull();
+  });
 });
 
 describe("moveWord", () => {

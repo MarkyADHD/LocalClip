@@ -1259,6 +1259,40 @@ export function Inspector({
           </TabsContent>
           <TabsContent value="effects" className="space-y-6 p-4">
             <Section
+              title="Auto-blur"
+              description={
+                doc.blurs.length
+                  ? "Blurred where it was found, until it's gone. Remove a wrong one."
+                  : "Nothing to blur was found in this clip. Settings > Auto-blur turns it on or off for new clips."
+              }
+            >
+              {doc.blurs.map((b) => (
+                <div key={b.id} className="flex items-center gap-2 text-xs">
+                  <button
+                    type="button"
+                    className="tabular-nums underline-offset-2 hover:underline"
+                    onClick={() => seek(b.start)}
+                  >
+                    {timecode(b.start)}
+                  </button>
+                  <span className="min-w-0 flex-1 truncate text-muted-foreground">
+                    {b.label}, {(b.end - b.start).toFixed(1)}s
+                  </span>
+                  <Button
+                    size="icon-sm"
+                    variant="ghost"
+                    aria-label={`Remove ${b.label} blur`}
+                    className="hover:text-destructive"
+                    onClick={() =>
+                      update((d) => ({ ...d, blurs: d.blurs.filter((x) => x.id !== b.id) }))
+                    }
+                  >
+                    <Trash2 />
+                  </Button>
+                </div>
+              ))}
+            </Section>
+            <Section
               title="Punch-in zoom"
               description="A quick zoom on the face for the big moment. Slow motion and instant replay are on the timeline toolbar."
             >

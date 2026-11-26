@@ -297,6 +297,7 @@ def test_slow_motion_punch_in_and_voice_cleanup_render(tmp_path):
             {"id": "replay", "start": 0.25, "end": 1.25, "speed": 0.5},
         ],
         punches=[{"id": "p", "start": 0.75, "end": 1.25}],
+        blurs=[{"id": "v", "label": "Vape", "start": 0.3, "end": 1.0, "boxes": [{"t": 0.3, "x": 0.1, "y": 0.6, "w": 0.1, "h": 0.2}]}],
         cleanVoice=True,
         gameVolume=0.2,
     )
@@ -347,6 +348,7 @@ def test_sharpened_facecam_is_cut_with_the_video(tmp_path, monkeypatch, layout):
     doc = document(
         segments=[{"id": "a", "start": 0.25, "end": 1.25}, {"id": "b", "start": 0.5, "end": 1, "speed": 0.5}],
         framing={"layout": layout, "sharpCam": True},
+        blurs=[{"id": "v", "label": "Vape", "start": 0.3, "end": 1.0, "boxes": [{"t": 0.3, "x": 0.1, "y": 0.6, "w": 0.1, "h": 0.2}]}],  # inside the facecam: blurred in both pictures
         gameVolume=0.5,
     )
     for name in ("voice.wav", "game.wav"):  # stand-ins for the separated stems

@@ -263,7 +263,7 @@ Apart from the anonymous user count described below, this program will not trans
 
 What LocalClip does contact, because you asked it to:
 
-- **GitHub**, to download LocalClip and check for updates when it starts.
+- **GitHub**, to download LocalClip and check for updates when it starts, and once to download the auto-blur models (your frames never leave the PC).
 - **Twitch, Kick or YouTube**, to download the video (and Twitch chat replay) for a link you paste.
 - **Your AI model.** With Claude Code, the transcript text of your video is sent to Anthropic under [their privacy policy](https://www.anthropic.com/legal/privacy). With a local model nothing is sent anywhere.
 - **Download servers for its tools** on first start (Python packages, Node, ffmpeg, PostgreSQL, Redis, the Whisper model).

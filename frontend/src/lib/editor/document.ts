@@ -11,6 +11,25 @@ export interface Punch {
   start: number;
   end: number;
 }
+/** A box blurred while it is on screen (a vape, nudity), found when the clip was opened. Boxes are 0..1 of the frame. */
+export interface Blur {
+  id: string;
+  label: string;
+  start: number;
+  end: number;
+  boxes: { t: number; x: number; y: number; w: number; h: number }[];
+}
+/** The blur's box at source time `t`: the sightings around it joined (box_at in auto_blur.py). */
+export function blurBox(blur: Blur, t: number) {
+  if (t < blur.start || t >= blur.end) return null;
+  const before = blur.boxes.filter((b) => b.t <= t),
+    after = blur.boxes.filter((b) => b.t > t),
+    a = before.at(-1) ?? blur.boxes[0],
+    b = after[0] ?? blur.boxes.at(-1)!,
+    x = Math.min(a.x, b.x),
+    y = Math.min(a.y, b.y);
+  return { x, y, w: Math.max(a.x + a.w, b.x + b.w) - x, h: Math.max(a.y + a.h, b.y + b.h) - y };
+}
 /** How far a punch-in zooms; same in editor_document.py. */
 export const PUNCH_ZOOM = 1.25;
 /** Height of the point a punch-in zooms towards: the face, or the facecam pane. Same in editor_document.py. */
@@ -121,6 +140,7 @@ export interface EditDocument {
   punches: Punch[];
   /** Game and music under the voice (0 to 2); 1 leaves the mix alone (server export). */
   gameVolume: number;
+  blurs: Blur[];
 }
 const DEFAULT_CAM: Region = { x: 0, y: 0.6, w: 0.3, h: 0.4 };
 const normalized = new WeakMap<EditDocument, EditDocument>();
@@ -135,6 +155,7 @@ export function normalize(doc: EditDocument): EditDocument {
       cleanVoice: doc.cleanVoice ?? false,
       punches: doc.punches ?? [],
       gameVolume: doc.gameVolume ?? 1,
+      blurs: doc.blurs ?? [],
       captions: {
         ...doc.captions,
         uppercase: doc.captions.uppercase ?? false,

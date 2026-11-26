@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...admin_auth import require_admin_user
 from ... import problem_report, setup_check, usage_count
+from ...media import auto_blur
 from ...ai import _get_missing_llm_key_error
 from ...auth_headers import get_authenticated_user_id
 from ...config import get_config
@@ -325,4 +326,18 @@ async def set_usage_count(request: Request, payload: UsageCountChoice, db: Async
     usage_count.set_choice(payload.enabled)
     # In the background: ping() retries for up to an hour when the counter can't be reached.
     request.app.state.usage_ping = asyncio.create_task(usage_count.ping())
+    return {"enabled": payload.enabled}
+
+
+@router.get("/auto-blur")
+async def get_auto_blur(request: Request, db: AsyncSession = Depends(get_db)):
+    """Whether new clips blur a vape or nudity they find (on unless turned off)."""
+    await _require_settings_user(request, db)
+    return {"enabled": auto_blur.enabled()}
+
+
+@router.put("/auto-blur")
+async def set_auto_blur(request: Request, payload: UsageCountChoice, db: AsyncSession = Depends(get_db)):
+    await _require_settings_user(request, db)
+    auto_blur.set_enabled(payload.enabled)
     return {"enabled": payload.enabled}

@@ -19,6 +19,7 @@ import uuid
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from .media.auto_blur import blur_filter, crop_blurs
 from .media.common import DENOISE_FILTER
 from .media.diarization import MAX_SPEAKERS, SPEAKER_COLORS
 
@@ -58,6 +59,30 @@ class Punch(Model):
     def ordered(self):
         if self.end <= self.start:
             raise ValueError("A punch-in must end after it starts")
+        return self
+
+
+class BlurBox(Model):
+    t: float = Field(ge=0)
+    x: float = Field(ge=0, le=1)
+    y: float = Field(ge=0, le=1)
+    w: float = Field(gt=0, le=1)
+    h: float = Field(gt=0, le=1)
+
+
+class Blur(Model):
+    """A box blurred while it is on screen (a vape, nudity): found by media/auto_blur.py, removable in the editor."""
+
+    id: str = Field(min_length=1, max_length=100)
+    label: str = Field(default="Blur", max_length=40)
+    start: float = Field(ge=0)
+    end: float = Field(gt=0)
+    boxes: list[BlurBox] = Field(min_length=1, max_length=5000)
+
+    @model_validator(mode="after")
+    def ordered(self):
+        if self.end <= self.start:
+            raise ValueError("A blur must end after it starts")
         return self
 
 
@@ -159,6 +184,7 @@ class EditDocument(Model):
     cleanVoice: bool = False  # take rumble and steady hiss out of the sound
     punches: list[Punch] = Field(default_factory=list, max_length=50)
     gameVolume: float = Field(default=1, ge=0, le=2)  # game and music under the voice; 1 leaves the mix alone
+    blurs: list[Blur] = Field(default_factory=list, max_length=200)
 
     @property
     def duration(self) -> float:
@@ -662,11 +688,22 @@ def render_document(
             f"[{first + 1}:a]volume={document.gameVolume}[game];[{first}:a][game]amix=inputs=2:normalize=0,"
             f"aresample=48000,asplit={len(sound)}" + "".join(sound)
         )
+    picture = ["[0:v]"] * len(document.segments)
+    blurs = [b.model_dump() for b in document.blurs]
+    if blur := blur_filter(blurs, sw, sh):
+        # Blurred before the cut, so the boxes keep the clean video's clock.
+        picture = [f"[src{index}]" for index in range(len(document.segments))]
+        filters.append(f"[0:v]null[bin];{blur};[bout]split={len(picture)}" + "".join(picture))
+    cam_picture = ["[1:v]"] * len(document.segments)
+    if crop and (blur := blur_filter(crop_blurs(blurs, crop, sw, sh), *_ffprobe_size(cam_path), tag="cb")):
+        # The upscaled facecam is a picture of its own: the same blurs, moved into its crop.
+        cam_picture = [f"[csrc{index}]" for index in range(len(document.segments))]
+        filters.append(f"[1:v]null[cbin];{blur};[cbout]split={len(cam_picture)}" + "".join(cam_picture))
     for index, segment in enumerate(document.segments):
         slow = segment.speed < 1
         # Slow motion: stretch the frames in time, then draw the missing ones in between.
         filters.append(
-            f"[0:v]trim=start={segment.start}:end={segment.end},setpts=(PTS-STARTPTS)/{segment.speed}"
+            f"{picture[index]}trim=start={segment.start}:end={segment.end},setpts=(PTS-STARTPTS)/{segment.speed}"
             # minterpolate drops its last few frames: hold the final frame first, then cut to length.
             + (
                 f",tpad=stop_mode=clone:stop_duration=1,minterpolate=fps={fps}:mi_mode={SLOWMO_MODE},"
@@ -678,7 +715,7 @@ def render_document(
         )
         joins.append(f"[v{index}]")
         if crop:
-            filters.append(filters[-1].replace("[0:v]", "[1:v]").replace(f"[v{index}]", f"[c{index}]"))
+            filters.append(filters[-1].replace(picture[index], cam_picture[index], 1).replace(f"[v{index}]", f"[c{index}]"))
             cam_joins.append(f"[c{index}]")
         if audio:
             filters.append(

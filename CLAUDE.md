@@ -102,6 +102,10 @@ Blocking work (ffmpeg, downloads, transcription) is wrapped in `run_in_thread()`
    NVENC when ffmpeg has it (`VIDEO_ENCODER=cpu` forces libx264) and fall back to the CPU on failure.
    Every clip gets one fixed volume to -14 LUFS with a limiter (no noise removal, at Marky's request) and a snap zoom on its loudest
    moment (`AUTO_PUNCH=false`).
+   **Auto-blur** (`media/auto_blur.py`, Settings > Auto-blur, on by default, `AUTO_BLUR=false`): each clip's cut is scanned on the CPU
+   (onnxruntime) by NudeNet 320n for nudity (4 times a second) and OWLv2 for a vape around the facecam (once a second); sightings are linked into
+   tracks and only those boxes are blurred, until the thing is gone. Models download once from the `blur-models-1` pre-release
+   (built by `.github/workflows/blur-model.yml`). The editor gets the blurs in the draft (`blurs`) instead, so a wrong one can be removed.
 
 ### Stream templates
 

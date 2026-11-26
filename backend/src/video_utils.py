@@ -1,5 +1,6 @@
 """Video utils helpers for the video pipeline."""
 
+from .media.auto_blur import apply_blurs, enabled as auto_blur_enabled, find_clip_blurs
 from .media.common import (
     Any,
     Dict,
@@ -261,9 +262,13 @@ def create_optimized_clip(
     keep_ranges: Optional[List[Tuple[float, float]]] = None,
     hook_title: Optional[str] = None,
     extend_to_sentence: bool = True,
+    auto_blur: bool = True,
 ) -> bool:
-    """Create clip with optional subtitles. output_format: 'vertical' (9:16) or 'original' (keep source size)."""
+    """Create clip with optional subtitles. output_format: 'vertical' (9:16) or 'original' (keep source size).
+
+    auto_blur: blur a vape or nudity it finds (media/auto_blur.py), unless turned off in Settings."""
     try:
+        auto_blur = auto_blur and auto_blur_enabled()
         if keep_ranges:
             effective_keep_ranges = normalize_source_ranges(keep_ranges)
         else:
@@ -294,7 +299,7 @@ def create_optimized_clip(
         )
 
         # Fast path: no subtitles + original = ffmpeg stream copy (no re-encoding)
-        if not add_subtitles and not hook_title and keep_original and len(effective_keep_ranges) == 1 and extend_to_sentence:
+        if not add_subtitles and not hook_title and keep_original and len(effective_keep_ranges) == 1 and extend_to_sentence and not auto_blur:
             fast_path_start, fast_path_end = effective_keep_ranges[0]
             result = subprocess.run(
                 [
@@ -330,6 +335,11 @@ def create_optimized_clip(
                 source_clip_path,
             ):
                 raise RuntimeError("ffmpeg source-range render failed")
+
+            if auto_blur:
+                blurred_path = temp_root / "blurred.mp4"
+                if apply_blurs(source_clip_path, blurred_path, find_clip_blurs(source_clip_path)):
+                    source_clip_path = blurred_path
 
             reframe_format = (
                 output_format if output_format in VALID_OUTPUT_FORMATS else "vertical"
