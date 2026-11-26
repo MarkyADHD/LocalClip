@@ -11,6 +11,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ... import twitch
 from ...clip_editor import EXPORT_PRESETS, export_with_preset
 from ...auth_headers import get_authenticated_user_id
 from ...config import get_config
@@ -72,6 +73,28 @@ async def clip_captions(task_id: str, clip_id: str, request: Request,
         raise HTTPException(status_code=400, detail=str(error))
     except Exception as error:
         raise HTTPException(status_code=502, detail=f"The AI model could not answer: {str(error)[:300]}")
+
+
+@router.post("/{task_id}/clips/{clip_id}/twitch-clip")
+async def clip_on_twitch(task_id: str, clip_id: str, request: Request,
+                         db: AsyncSession = Depends(get_db, scope="function")):
+    """Make the same moment a real Twitch clip on the VOD's channel. Returns {"need_login": true} until the
+    Twitch login allows making clips."""
+    task, clip = await owned_clip(task_id, clip_id, request, db)
+    vod_id = twitch.get_twitch_video_id(task.get("source_url") or "")
+    if not vod_id:
+        raise HTTPException(status_code=400, detail="Only clips from a Twitch VOD can be clipped on Twitch")
+    ranges = TaskService._get_clip_source_ranges(clip)  # source seconds, cuts included
+    try:
+        made = await twitch.create_vod_clip(vod_id, ranges[0][0], ranges[-1][1],
+                                            clip.get("hook_title") or task.get("source_title") or "")
+    except twitch.TwitchLoginError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except twitch.httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=f"Could not reach Twitch: {exc}")
+    if not made.get("need_login"):
+        remember("kept", clip)
+    return made
 
 
 @router.post("/{task_id}/clips/{clip_id}/reveal")

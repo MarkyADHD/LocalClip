@@ -184,6 +184,7 @@ def chat_signal_lines(url: str, duration: float) -> List[str]:
 
 TWITCH_ID = "https://id.twitch.tv/oauth2"
 DEVICE_GRANT = "urn:ietf:params:oauth:grant-type:device_code"
+CLIP_SCOPES = "channel:manage:clips editor:manage:clips"
 _pending_login: dict = {}  # the device code being approved; one login at a time is enough for a one-user app
 
 
@@ -220,9 +221,10 @@ async def _oauth(path: str, **form) -> httpx.Response:
         return await client.post(f"{TWITCH_ID}/{path}", data={"client_id": _client_id(), **form})
 
 
-async def _helix(auth: dict, path: str, **params) -> httpx.Response:
+async def _helix(auth: dict, path: str, method: str = "GET", **params) -> httpx.Response:
     async with httpx.AsyncClient(timeout=15) as client:
-        return await client.get(
+        return await client.request(
+            method,
             f"https://api.twitch.tv/helix/{path}",
             params=params,
             headers={"Client-Id": _client_id(), "Authorization": f"Bearer {auth['access_token']}"},
@@ -231,7 +233,8 @@ async def _helix(auth: dict, path: str, **params) -> httpx.Response:
 
 async def start_twitch_login() -> dict:
     """Ask Twitch for a device code; the user approves it at the returned link."""
-    response = await _oauth("device", scopes="")  # public videos need no scopes
+    # Public videos need no scopes; "Clip on Twitch" needs one of these (own channel, or a channel you edit).
+    response = await _oauth("device", scopes=CLIP_SCOPES)
     if response.status_code != 200:
         raise TwitchLoginError(f"Twitch refused the login request: {response.text[:200]}")
     data = response.json()
@@ -250,7 +253,7 @@ async def poll_twitch_login() -> bool:
     device_code = _pending_login.get("device_code")
     if not device_code:
         raise TwitchLoginError("No Twitch login in progress")
-    response = await _oauth("token", scopes="", device_code=device_code, grant_type=DEVICE_GRANT)
+    response = await _oauth("token", scopes=CLIP_SCOPES, device_code=device_code, grant_type=DEVICE_GRANT)
     if response.status_code != 200:
         message = str(response.json().get("message", "")) if response.content else ""
         if "pending" in message or "slow_down" in message:
@@ -258,7 +261,8 @@ async def poll_twitch_login() -> bool:
         _pending_login.clear()
         raise TwitchLoginError(f"Twitch login failed: {message or response.status_code}")
     tokens = response.json()
-    auth = {"access_token": tokens["access_token"], "refresh_token": tokens.get("refresh_token")}
+    auth = {"access_token": tokens["access_token"], "refresh_token": tokens.get("refresh_token"),
+            "scopes": tokens.get("scope") or []}
     users = (await _helix(auth, "users")).json().get("data") or []
     if not users:
         raise TwitchLoginError("Twitch login worked but the account could not be read")
@@ -331,3 +335,42 @@ async def twitch_logout() -> None:
             await _oauth("revoke", token=auth["access_token"])
         except (httpx.HTTPError, TwitchLoginError) as exc:
             logger.warning("Twitch token revoke failed: %s", exc)
+
+
+# --- "Clip on Twitch": the same moment as a real Twitch clip on the VOD's channel (Helix Create Clip From VOD, open beta) ---
+
+def vod_clip_window(start: float, end: float) -> Tuple[int, float]:
+    """(vod_offset, duration) for Twitch: the clip ENDS at a whole-second vod_offset and lasts 5 to 60 s,
+    so a longer LocalClip clip becomes its first minute."""
+    offset = max(5, round(min(end, start + 60)))
+    return offset, min(60.0, max(5.0, round(offset - start, 1)))
+
+
+async def create_vod_clip(vod_id: str, start: float, end: float, title: str) -> dict:
+    """Make a Twitch clip of start..end in the VOD. {"need_login": True} when the saved login cannot make clips."""
+    auth = _load_auth()
+    if not auth or not set(CLIP_SCOPES.split()) & set(auth.get("scopes") or []):
+        return {"need_login": True}  # not logged in, or logged in before LocalClip asked for clip permission
+    response = await _helix(auth, "videos", id=vod_id)
+    if response.status_code == 401:
+        auth = await _refresh(auth)
+        if not auth:
+            twitch_logout_local()
+            return {"need_login": True}
+        response = await _helix(auth, "videos", id=vod_id)
+    videos = response.json().get("data") if response.status_code == 200 else None
+    if not videos:
+        raise TwitchLoginError("Twitch no longer has this video, so it cannot be clipped there")
+    offset, duration = vod_clip_window(start, end)
+    response = await _helix(
+        auth, "videos/clips", "POST", broadcaster_id=videos[0]["user_id"], editor_id=auth["user_id"],
+        vod_id=vod_id, vod_offset=offset, duration=duration, title=(title.strip() or "Clip")[:100],
+    )
+    body = response.json() if response.content else {}
+    if response.status_code == 401:
+        return {"need_login": True}
+    if response.status_code != 202 or not body.get("data"):
+        raise TwitchLoginError(f"Twitch did not make the clip: {body.get('message') or response.status_code}")
+    clip_id = body["data"][0]["id"]
+    # Twitch finishes the clip a few seconds after answering.
+    return {"id": clip_id, "url": f"https://clips.twitch.tv/{clip_id}", "duration": duration}

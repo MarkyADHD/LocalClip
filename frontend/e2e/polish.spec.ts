@@ -296,3 +296,35 @@ test("the clip request box goes with a new generation and with Find more clips",
   await page.getByRole("button", { name: /find more clips/i }).last().click();
   await expect.poll(() => sent[1]?.clip_request).toBe("rage moments");
 });
+
+test("a clip from a Twitch VOD can be clipped on Twitch, logging in first", async ({ page }) => {
+  await page.route("**/api/tasks/one", (route) => route.fulfill({ json: { ...generation, source_type: "twitch", source_url: "https://www.twitch.tv/videos/42" } }));
+  await page.route("**/api/tasks/one/clips", (route) => route.fulfill({ json: { clips: [{ ...clip, hook_title: "He did NOT see that coming" }] } }));
+  let asks = 0;
+  await page.route("**/api/tasks/one/clips/clip/twitch-clip", (route) => route.fulfill({ json: ++asks === 1
+    ? { need_login: true }
+    : { id: "FunnyClip", url: "https://clips.twitch.tv/FunnyClip", duration: 12 } }));
+  await page.route("**/api/tasks/twitch/login", (route) => route.fulfill({ json: { user_code: "WXYZ1234", verification_uri: "https://www.twitch.tv/activate?device-code=WXYZ1234", interval: 1 } }));
+  let polls = 0;
+  await page.route("**/api/tasks/twitch/login/poll", (route) => route.fulfill({ json: { logged_in: ++polls >= 2 } }));
+  await page.addInitScript(() => { window.open = () => null; });
+  await page.goto("/tasks/one");
+  await page.getByRole("button", { name: "Post He did NOT see that coming" }).click();
+  await page.getByRole("button", { name: "Clip on Twitch" }).click();
+  await expect(page.getByText("WXYZ1234")).toBeVisible();
+  if (process.env.SHOT) await page.screenshot({ path: `${process.env.SHOT}-login.png` });
+  // Approved on Twitch: the clip is made without another click.
+  await expect(page.getByRole("link", { name: "Your Twitch clip" })).toHaveAttribute("href", "https://clips.twitch.tv/FunnyClip");
+  expect(asks).toBe(2);
+  await expect(page.getByRole("button", { name: "Clip on Twitch" })).toBeEnabled();
+  await page.waitForTimeout(400);
+  if (process.env.SHOT) await page.screenshot({ path: `${process.env.SHOT}-done.png` });
+});
+
+test("clips from a YouTube video have no Clip on Twitch button", async ({ page }) => {
+  await page.route("**/api/tasks/one/clips", (route) => route.fulfill({ json: { clips: [{ ...clip, hook_title: "He did NOT see that coming" }] } }));
+  await page.goto("/tasks/one");
+  await page.getByRole("button", { name: "Post He did NOT see that coming" }).click();
+  await expect(page.getByRole("button", { name: "Open YouTube" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Clip on Twitch" })).toHaveCount(0);
+});
