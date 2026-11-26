@@ -87,7 +87,8 @@ Blocking work (ffmpeg, downloads, transcription) is wrapped in `run_in_thread()`
    still work, plus `local:<model>` for any OpenAI-compatible server at `LOCAL_LLM_BASE_URL` (LM Studio,
    llama.cpp, Jan, ...). Settings > AI model lists every model `local_models.py` finds on the PC
    (`GET/PUT /admin/llm`); Ollama and LM Studio servers are started when a model needs them.
-   Long transcripts are analysed in windows and reranked. A stray line left at either end of a pick after an 8 s gap
+   Long transcripts are analysed in windows and reranked; a score-4 chat or laugh/scream signal no pick covers
+   becomes a candidate for the rerank (`add_signal_candidates`, up to 2 per stream hour). A stray line left at either end of a pick after an 8 s gap
    is dropped (`_trim_dead_air`); a setup before a quiet stretch stays, since the render cuts long pauses.
 5. **Speakers**: `media/diarization.py` (sherpa-onnx on the CPU, models downloaded once to
    `TEMP_DIR/models/speakers`) labels each clip's words by speaker when its captions are built and
