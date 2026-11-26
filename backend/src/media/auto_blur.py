@@ -12,6 +12,7 @@ the object is last seen so a missed frame doesn't flash it.
 
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
+import contextlib
 import hashlib
 import json
 import os
@@ -49,6 +50,7 @@ MIN_SIGHTINGS = {"nudity": 2, "vape": 2}  # seen once is more likely a skin-colo
 
 _lock = threading.Lock()
 _sessions: Dict[str, object] = {}
+_gpu_lock = threading.Lock()  # DirectML runs one session call at a time (two clips scan at once)
 
 
 def _state_file() -> Path:
@@ -87,8 +89,33 @@ def _session(kind: str):
             if sha256 and hashlib.sha256(path.read_bytes()).hexdigest() != sha256:
                 path.unlink(missing_ok=True)
                 raise RuntimeError(f"The auto-blur model {name} did not match its checksum")
-            _sessions[kind] = onnxruntime.InferenceSession(str(path), providers=["CPUExecutionProvider"])
+            _sessions[kind] = _fastest(path, MODELS[kind][2])
         return _sessions[kind]
+
+
+def _fastest(path: Path, size: int):
+    """The graphics card (DirectML, Windows) when it gives the CPU's answers on a test picture, else the CPU.
+
+    A clip scans about a second per second on the CPU, which adds minutes to a run."""
+    import onnxruntime
+
+    cpu = onnxruntime.InferenceSession(str(path), providers=["CPUExecutionProvider"])
+    if "DmlExecutionProvider" not in onnxruntime.get_available_providers() or os.environ.get("BLUR_GPU") == "false":
+        return cpu
+    try:
+        options = onnxruntime.SessionOptions()
+        options.enable_mem_pattern = False  # DirectML needs both of these
+        options.execution_mode = onnxruntime.ExecutionMode.ORT_SEQUENTIAL
+        gpu = onnxruntime.InferenceSession(str(path), options, providers=["DmlExecutionProvider"])
+        feed = {cpu.get_inputs()[0].name: np.random.default_rng(0).random((1, 3, size, size), np.float32)}
+        for want, got in zip(cpu.run(None, feed), gpu.run(None, feed)):
+            if np.abs(want - got).max() > 0.01 * (np.abs(want).max() + 1e-6):
+                raise RuntimeError("its answers differ from the CPU's")
+        logger.info("Auto-blur runs %s on the graphics card", path.name)
+        return gpu
+    except Exception as exc:
+        logger.warning("Auto-blur stays on the CPU: the graphics card could not run %s (%s)", path.name, exc)
+        return cpu
 
 
 Box = Tuple[float, float, float, float]  # x, y, w, h, 0..1 of the image
@@ -129,7 +156,8 @@ def _detect(kind: str, image: np.ndarray) -> List[Tuple[int, float, Box]]:
     if kind == "vape":  # OWLv2: scores [1, boxes, names], boxes 0..1 of the square
         rgb = (rgb - _MEAN) / _STD
     blob = rgb.transpose(2, 0, 1)[None].copy()
-    outputs = session.run(None, {session.get_inputs()[0].name: blob})
+    with _gpu_lock if "DmlExecutionProvider" in session.get_providers() else contextlib.nullcontext():
+        outputs = session.run(None, {session.get_inputs()[0].name: blob})
     if kind == "vape":
         return decode(outputs[1][0], outputs[0][0], max(width, height), width, height, THRESHOLD[kind])
     rows = outputs[0][0].T  # NudeNet (YOLOv8): rows of cx, cy, w, h in input pixels, then class scores

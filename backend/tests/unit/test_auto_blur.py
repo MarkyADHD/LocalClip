@@ -93,3 +93,26 @@ def test_a_clip_is_scanned_once_and_reused_for_a_shorter_cut(tmp_path, monkeypat
     auto_blur.find_clip_blurs(tmp_path / "c.mp4", source, [(10.0, 20.0), (30.0, 75.0)])
     auto_blur.find_clip_blurs(tmp_path / "d.mp4", source, [(11.0, 20.0), (30.0, 45.0)])
     assert [p.name for p in scans] == ["a.mp4", "c.mp4", "d.mp4"]
+
+
+def test_the_graphics_card_is_used_only_when_it_agrees_with_the_cpu(tmp_path, monkeypatch):
+    import onnxruntime
+
+    monkeypatch.setattr(onnxruntime, "get_available_providers", lambda: ["DmlExecutionProvider", "CPUExecutionProvider"])
+
+    class Session:  # stands in for a model on DirectML or the CPU; `off` makes the card's answers wrong
+        off = 0.0
+
+        def __init__(self, path, options=None, providers=()):
+            self.gpu = providers == ["DmlExecutionProvider"]
+
+        def get_inputs(self):
+            return [type("Input", (), {"name": "x"})]
+
+        def run(self, names, feed):
+            return [feed["x"] * 3 + (Session.off if self.gpu else 0)]
+
+    monkeypatch.setattr(onnxruntime, "InferenceSession", Session)
+    assert auto_blur._fastest(tmp_path / "m.onnx", 8).gpu
+    Session.off = 0.5
+    assert not auto_blur._fastest(tmp_path / "m.onnx", 8).gpu
