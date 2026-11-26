@@ -355,9 +355,11 @@ class TaskService(ClipEditingMixin):
             exclude_ranges: Optional[list[tuple[int, int]]] = None
             # (start, end) seconds picked in "Search the stream": clip that instead of searching.
             manual_range: Optional[tuple[int, int]] = None
+            metadata = await self.task_repo.load_source_metadata(self.db, task_id)
+            # The user's words on what to clip ("only the funny deaths").
+            clip_request = str(metadata.get("clip_request") or "").strip() or None
             if find_more:
                 existing_clips = await self.clip_repo.get_clips_by_task(self.db, task_id)
-                metadata = await self.task_repo.load_source_metadata(self.db, task_id)
                 if metadata.get("manual_range"):
                     manual_range = (int(metadata["manual_range"][0]), int(metadata["manual_range"][1]))
                 exclude_ranges = sorted(
@@ -403,6 +405,7 @@ class TaskService(ClipEditingMixin):
                 should_cancel=should_cancel,
                 exclude_ranges=exclude_ranges,
                 manual_range=manual_range,
+                clip_request=clip_request,
             )
             stage_timings["pipeline_seconds"] = round(
                 perf_counter() - pipeline_start, 3
@@ -425,7 +428,9 @@ class TaskService(ClipEditingMixin):
                     analysis_json=None,
                 )
                 raise ValueError(
-                    "No usable clip segments were selected for this video."
+                    f'Nothing in this video matched "{clip_request}". Try a broader request.'
+                    if clip_request
+                    else "No usable clip segments were selected for this video."
                 )
 
             if not find_more:  # the cache keeps the first search's picks
@@ -436,7 +441,8 @@ class TaskService(ClipEditingMixin):
                     source_type=source_type,
                     video_path=result.get("video_path"),
                     transcript_text=result.get("transcript"),
-                    analysis_json=result.get("analysis_json"),
+                    # A request's picks are not the video's best picks: keep those cached.
+                    analysis_json=None if clip_request else result.get("analysis_json"),
                 )
 
             video_path = Path(result["video_path"])

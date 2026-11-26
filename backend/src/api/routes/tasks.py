@@ -189,6 +189,11 @@ async def _save_task_source_metadata(
         await redis_client.aclose()
 
 
+def _clean_clip_request(value: Any) -> str:
+    """The user's words on what to clip ("only the funny deaths"), one short line."""
+    return " ".join(value.split())[:200] if isinstance(value, str) else ""
+
+
 def _merge_task_source_metadata(
     existing: Dict[str, Any] | None,
     *,
@@ -328,6 +333,7 @@ async def create_task(request: Request, db: AsyncSession = Depends(get_db)):
     if not isinstance(add_subtitles, bool):
         add_subtitles = True
     cleanup_settings = new_task_cleanup_settings(data)
+    clip_request = _clean_clip_request(data.get("clip_request"))
     if not raw_source or not raw_source.get("url"):
         raise HTTPException(status_code=400, detail="Source URL is required")
 
@@ -368,7 +374,7 @@ async def create_task(request: Request, db: AsyncSession = Depends(get_db)):
                 await _save_task_source_metadata(
                     task_id,
                     _merge_task_source_metadata(
-                        {"processing_job_id": processing_job_id},
+                        {"processing_job_id": processing_job_id, "clip_request": clip_request},
                         source_url=raw_source["url"],
                         source_type=source_type,
                         output_format=output_format,
@@ -1180,12 +1186,23 @@ async def resume_task(
     return await _requeue_task(task_id, request, db)
 
 
+class FindMoreRequest(BaseModel):
+    clip_request: str = ""
+
+
 @router.post("/{task_id}/find-more")
 async def find_more_clips(
-    task_id: str, request: Request, db: AsyncSession = Depends(get_db)
+    task_id: str,
+    request: Request,
+    payload: Optional[FindMoreRequest] = None,
+    db: AsyncSession = Depends(get_db),
 ):
-    """Search a finished task's video again for clips it has not made yet."""
-    return await _requeue_task(task_id, request, db, find_more=True)
+    """Search a finished task's video again for clips it has not made yet.
+
+    ``clip_request`` replaces the saved request ("only the funny deaths"); empty clears it.
+    """
+    clip_request = _clean_clip_request(payload.clip_request) if payload else None
+    return await _requeue_task(task_id, request, db, find_more=True, clip_request=clip_request)
 
 
 # A picked moment: long enough to be a clip, short enough to render quickly.
@@ -1241,6 +1258,7 @@ async def _requeue_task(
     db: AsyncSession,
     find_more: bool = False,
     manual_range: Optional[tuple[int, int]] = None,
+    clip_request: Optional[str] = None,
 ):
     try:
         task_service = TaskService(db)
@@ -1335,6 +1353,8 @@ async def _requeue_task(
                     metadata["find_more"] = find_more
                     # Kept across a crashed run's resume; cleared when the run ends.
                     metadata["manual_range"] = list(manual_range) if manual_range else metadata.get("manual_range")
+                    if clip_request is not None:
+                        metadata["clip_request"] = clip_request
                     await _save_task_source_metadata(task_id, metadata, db=db)
                     job_id = await JobQueue.enqueue_processing_job(
                         "process_video_task",

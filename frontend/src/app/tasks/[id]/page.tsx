@@ -55,6 +55,7 @@ import {
   X,
 } from "lucide-react";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@/components/ui/tooltip";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import Link from "next/link";
 import { ClipTile, ClipFocus, ProcessingPanel, EmptyState } from "@/components/app/clip-wall";
 import { PostClipDialog } from "@/components/post-clip";
@@ -648,21 +649,32 @@ export default function TaskPage() {
               />
             )}
             {task.status === "completed" && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button size="sm" variant="outline" disabled={pendingAction !== null}
-                    onClick={() => void runAction("find-more", async () => {
-                      await requestAction(`${taskApiUrl}/${task.id}/find-more`, "POST");
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button size="sm" variant="outline" disabled={pendingAction !== null}>
+                    <RotateCcw className="size-4" /><span className="hidden sm:inline">Find more clips</span>
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent align="end" className="w-80">
+                  <form className="space-y-3" onSubmit={(event) => {
+                    event.preventDefault();
+                    const clipRequest = String(new FormData(event.currentTarget).get("clip_request") || "").trim();
+                    void runAction("find-more", async () => {
+                      await requestAction(`${taskApiUrl}/${task.id}/find-more`, "POST", { clip_request: clipRequest });
                       await fetchTaskStatus();
                       toast.success(!task.source_bytes && ["youtube", "twitch", "kick"].includes(task.source_type)
                         ? "Looking for new clips. The full video is downloaded again first."
                         : "Looking for new clips. The ones you have are kept.");
-                    })}>
-                    <RotateCcw className="size-4" /><span className="hidden sm:inline">Find more clips</span>
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Not happy with these? Search the video again for different moments. Your clips are kept.</TooltipContent>
-              </Tooltip>
+                    });
+                  }}>
+                    <p className="text-sm text-muted-foreground">Search the video again for different moments. Your clips are kept.</p>
+                    <Input name="clip_request" maxLength={200} autoFocus aria-label="What clips do you want?" placeholder="Optional: only the funny deaths" />
+                    <Button type="submit" size="sm" className="w-full" disabled={pendingAction !== null}>
+                      <RotateCcw className="size-4" />Find more clips
+                    </Button>
+                  </form>
+                </PopoverContent>
+              </Popover>
             )}
             {task.status === "completed" && clips.length > 0 && (
               <>

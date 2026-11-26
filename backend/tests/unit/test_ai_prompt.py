@@ -136,3 +136,20 @@ def test_llm_validation_rejects_unsupported_or_incomplete_model_names():
         "ollama:", runtime_config
     )
     assert _get_missing_llm_key_error("ollama:gpt-oss:20b", runtime_config) is None
+
+
+def test_clip_request_steers_the_search_and_the_rerank():
+    from src.ai import build_candidate_rerank_prompt, build_transcript_analysis_prompt
+
+    transcript = "[00:00 - 00:30] I died again to the same guy"
+    plain = build_transcript_analysis_prompt(transcript)
+    asked = build_transcript_analysis_prompt(transcript, clip_request="only the funny deaths")
+    assert "asked for" not in plain
+    assert '"only the funny deaths". Pick only moments that match' in asked
+
+    segment = TranscriptSegment(
+        start_time="00:00", end_time="00:30", text="I died again", relevance_score=0.9
+    )
+    rerank = build_candidate_rerank_prompt([segment, segment], clip_request="only the funny deaths")
+    assert "does not match the request scores below 40" in rerank
+    assert "asked for" not in build_candidate_rerank_prompt([segment, segment])
