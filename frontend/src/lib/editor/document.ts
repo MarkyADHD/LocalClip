@@ -182,13 +182,6 @@ export const isSwear = (text: string) =>
 /** f*** : keep the first letter of each word, star the rest (same as the export). */
 export const censor = (text: string) =>
   text.replace(/(?<=[\p{L}\p{N}_])[\p{L}\p{N}_]/gu, "*");
-/** Edits only the server can render (the in-browser export keeps the clip's own audio and speed). */
-export const needsServerExport = (doc: EditDocument) =>
-  doc.cleanVoice ||
-  doc.gameVolume !== 1 ||
-  (!!doc.framing.sharpCam && doc.framing.layout !== "crop" && doc.framing.aspect !== "original") ||
-  doc.words.some((w) => w.bleep) ||
-  doc.segments.some((s) => (s.speed ?? 1) !== 1);
 export const DEFAULT_EFFECTS: Effects = {
   brightness: 100,
   contrast: 100,

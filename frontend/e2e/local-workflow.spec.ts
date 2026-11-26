@@ -55,7 +55,7 @@ test.describe.serial("real local processing and editing", () => {
     await page.screenshot({ path: info.outputPath("results-mobile.png"), fullPage: true });
   });
 
-  test("caption rendering persists and browser export contains audio and video", async ({ page }, info) => {
+  test("caption rendering persists", async ({ page }, info) => {
     await page.goto(`/tasks/${taskId}/edit?clip=${clipId}`);
     await expect(page.getByLabel("Word 1", { exact: true })).toBeVisible({ timeout: 120_000 });
     await page.getByRole("button", { name: "Edit script", exact: true }).click();
@@ -70,32 +70,6 @@ test.describe.serial("real local processing and editing", () => {
     const video = page.locator("video");
     await expect.poll(() => video.evaluate(v => (v as HTMLVideoElement).readyState)).toBeGreaterThanOrEqual(2);
     await page.screenshot({ path: info.outputPath("editor.png"), fullPage: true });
-    await page.getByRole("tab", { name: "Audio", exact: true }).click();
-    const volume = page.getByRole("slider", { name: "Volume", exact: true });
-    await volume.press("Home");
-    for (let step = 0; step < 50; step++) await volume.press("ArrowRight");
-    await page.getByRole("button", { name: "Export", exact: true }).click();
-    await page.getByRole("button", { name: /On this device/ }).click();
-    const download = page.waitForEvent("download", { timeout: 120_000 });
-    await page.getByRole("button", { name: "Export clip", exact: true }).click();
-    const file = info.outputPath("browser-export.mp4");
-    await (await download).saveAs(file);
-    const media = probe(file);
-    expect(media.streams.some((s: { codec_type: string }) => s.codec_type === "audio")).toBeTruthy();
-    expect(media.streams.find((s: { codec_type: string }) => s.codec_type === "video")).toMatchObject({ width: 1080, height: 1920 });
-    expect(Number(media.format.duration)).toBeGreaterThan(10);
-    const current = await ok(await page.request.get(`/api/tasks/${taskId}`));
-    const original = await page.request.get(`/api/tasks/${taskId}/clips/${current.clips[0].id}/editor/media/clean.mp4`);
-    const inputFile = info.outputPath("before-export.mp4");
-    fs.writeFileSync(inputFile, await original.body());
-    const rms = (filePath: string) => {
-      const bytes = execFileSync("ffmpeg", ["-v", "error", "-i", filePath, "-vn", "-ac", "1", "-ar", "16000", "-f", "f32le", "pipe:1"], { maxBuffer: 10_000_000 });
-      let sum = 0;
-      for (let offset = 0; offset < bytes.length; offset += 4) sum += bytes.readFloatLE(offset) ** 2;
-      return Math.sqrt(sum / (bytes.length / 4));
-    };
-    expect(rms(file) / rms(inputFile)).toBeGreaterThan(0.43);
-    expect(rms(file) / rms(inputFile)).toBeLessThan(0.57);
   });
 
   test("reversible timeline edits and legacy clip API compatibility", async ({ page }) => {

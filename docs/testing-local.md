@@ -58,7 +58,7 @@ YouTube fixture is the 19-second “Me at the zoo” video. Override it with
 `LOCAL_TEST_YOUTUBE_URL`. `ffmpeg` and `ffprobe` must be on `PATH`.
 
 The eight browser scenarios cover creation and live completion, video playback,
-mobile layout, caption persistence, browser export with measured audio gain, repeated
+mobile layout, caption persistence, repeated
 splits without losing neighboring clips, trimming, merging, sharing/revocation,
 server export, direct upload, signup/signout, preferences, API keys and fonts.
 Screenshots, real exports and failure traces are written to `frontend/test-results/`.

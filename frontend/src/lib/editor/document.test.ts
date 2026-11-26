@@ -68,20 +68,10 @@ describe("non-destructive edits", () => {
 
 describe("bleep helpers", () => {
   it("finds swears through punctuation and case, not lookalikes", async () => {
-    const { isSwear, censor, needsServerExport } = await import("./document");
+    const { isSwear, censor } = await import("./document");
     expect(["Fucking,", "shit!", "ASSHOLE"].every(isSwear)).toBe(true);
     expect(["class", "assume", "shiitake", "duck"].some(isSwear)).toBe(false);
     expect(censor("Fucking,")).toBe("F******,");
-    const doc = {
-      segments: [],
-      gameVolume: 1,
-      framing: {},
-      words: [{ id: "w", start: 0, end: 1, text: "shit", highlight: false }],
-    } as never as Parameters<typeof needsServerExport>[0];
-    expect(needsServerExport(doc)).toBe(false);
-    expect(
-      needsServerExport({ ...doc, words: [{ ...doc.words[0], bleep: true }] }),
-    ).toBe(true);
   });
 });
 
@@ -144,7 +134,7 @@ describe("speakers", () => {
 
 describe("slow motion and punch-ins", () => {
   it("maps times through slowed and repeated segments", async () => {
-    const { addReplay, editDuration, mapped, outputTime, sourceTime, needsServerExport } =
+    const { addReplay, editDuration, mapped, outputTime, sourceTime } =
       await import("./document");
     const { draft: fixture } = await import("./document.test-fixture");
     const doc = addReplay(
@@ -166,7 +156,6 @@ describe("slow motion and punch-ins", () => {
       { start: 3, end: 4 },
       { start: 6, end: 8 },
     ]);
-    expect(needsServerExport(doc)).toBe(true);
   });
 });
 
