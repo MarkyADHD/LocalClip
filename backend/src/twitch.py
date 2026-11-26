@@ -89,7 +89,16 @@ def download_stream_video(url: str) -> Path:
 
 def fetch_chat(video_id: str, duration: float) -> List[Tuple[float, str]]:
     """Chat replay through Twitch's public web GQL (what twitch.tv uses; no login).
-    Pages by time offset because cursor paging needs an integrity token."""
+    Pages by time offset because cursor paging needs an integrity token.
+    Kept beside the VOD (a few minutes to fetch for a long stream), so a resume or Find more doesn't fetch it again;
+    a VOD that has grown since (still live then) is fetched again."""
+    cache = Path(get_config().temp_dir) / "twitch" / f"{video_id}.chat.json"
+    try:
+        kept = json.loads(cache.read_text(encoding="utf-8"))
+        if kept["duration"] >= duration - 60:
+            return [tuple(m) for m in kept["messages"]]
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
     out, seen, at = [], set(), 0.0
     while at <= duration:
         query = (
@@ -119,6 +128,11 @@ def fetch_chat(video_id: str, duration: float) -> List[Tuple[float, str]]:
             text = "".join(f.get("text", "") for f in (node.get("message") or {}).get("fragments") or [])
             out.append((offset, text[:200]))
         at = last if last > at else at + 1
+    try:
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        cache.write_text(json.dumps({"duration": duration, "messages": out}), encoding="utf-8")
+    except OSError:
+        pass
     return out
 
 

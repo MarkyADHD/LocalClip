@@ -75,7 +75,28 @@ def merge_hits(hits: List[Tuple[float, str]]) -> List[Tuple[float, float, str]]:
 
 
 def detect_reactions(video_path: Path) -> List[Tuple[float, float, str]]:
-    """(start, end, "laughing" | "screaming") spans in seconds; [] when the audio can't be read."""
+    """(start, end, "laughing" | "screaming") spans in seconds; [] when the audio can't be read.
+
+    Kept beside the video (minutes for a long stream), so a resume or Find more doesn't listen again."""
+    import json
+
+    cache = video_path.with_name(f"{video_path.stem}.reactions.json")
+    version = f"{_NAME}:{CHUNK_SECONDS}:{MIN_PROB}:{QUIET_DB}"
+    try:
+        kept = json.loads(cache.read_text(encoding="utf-8"))
+        if kept["version"] == version:
+            return [tuple(span) for span in kept["spans"]]
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
+    spans = _detect_reactions(video_path)
+    try:
+        cache.write_text(json.dumps({"version": version, "spans": spans}), encoding="utf-8")
+    except OSError:
+        pass
+    return spans
+
+
+def _detect_reactions(video_path: Path) -> List[Tuple[float, float, str]]:
     import numpy as np
 
     from .transcription import WHISPER_CHUNK_SECONDS, _decode_audio_chunk
