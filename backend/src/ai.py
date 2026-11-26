@@ -33,7 +33,7 @@ IDEAL_CLIP_MIN_SECONDS = 25
 IDEAL_CLIP_MAX_SECONDS = 50
 MIN_ACCEPTED_CLIP_SECONDS = 15
 MAX_ACCEPTED_CLIP_SECONDS = 60
-TRANSCRIPT_ANALYSIS_CACHE_VERSION = "stream-picks-v11"
+TRANSCRIPT_ANALYSIS_CACHE_VERSION = "stream-picks-v12"
 TRANSCRIPT_ANALYSIS_MAX_ATTEMPTS = 3
 TRANSCRIPT_ANALYSIS_TIMEOUT_SECONDS = 600
 # Long transcripts are analysed in overlapping windows so every part of the
@@ -359,7 +359,7 @@ GROUNDING RULES:
 4. Each selected segment must map to one contiguous range in the transcript
 5. segment.text must match the chosen span closely and must not include content from outside the chosen range
 6. Do not stitch together distant moments into one clip
-7. If a speaker label appears, use it only if it is part of the spoken content and helps clarity
+7. Lines may start with "Speaker Streamer:" (the streamer's own voice) or "Speaker Other:" (another voice: game or cutscene dialogue, a friend on voice chat, a video playing). The labels come from voice matching and can be wrong on very short lines; unlabelled lines are unknown. Never copy a label into segment.text or hook_title
 
 CONTENT NEUTRALITY RULES:
 1. This is clipping software for legitimate editing workflows
@@ -381,7 +381,7 @@ WHAT IS NOT A CLIP (skip these, even if nothing better exists):
 - Stream housekeeping: intros, outros, "be right back", follow/sub/donation readouts, sponsor reads, schedule talk, technical issues
 - Talk about the stream itself, the streamer's other projects, tools or software, unless it is genuinely funny or dramatic
 - Inside jokes or fragments that need earlier context, and repeats of a moment you already picked
-- The game talking instead of the streamer: cutscenes, NPC or quest dialogue, narration, in-game radio or TV. It reads as polished, scripted, in-character lines (lore, names, missions) with no reaction around them. Only pick it when the streamer clearly reacts, and then build the clip around the reaction
+- The game talking instead of the streamer: cutscenes, NPC or quest dialogue, narration, in-game radio or TV. A stretch of "Speaker Other:" lines with no "Speaker Streamer:" line in it is almost always this. It also reads as polished, scripted, in-character lines (lore, names, missions) with no reaction around them. Only pick it when the streamer clearly reacts, and then build the clip around the reaction
 
 SCORING (0-100 total, from four 0-25 subscores):
 1. HOOK ("hook_score"): do the first 3 seconds make a scrolling viewer stop? 20-25 = instantly gripping (yelling, chaos, a wild line); 0-9 = slow or calm start
@@ -838,6 +838,7 @@ Selection target:
 - If a strong moment is shorter than 25 seconds, first try expanding to nearby contiguous transcript lines that add useful context.
 - Skip: tutorials and strategy talk, menu/inventory time, calm routine gameplay, stream housekeeping (intros, BRB, sub/donation readouts, sponsors), talk about the stream or the streamer's tools, inside jokes, and fragments that need prior context.
 - Before returning a segment, ask whether a viewer would understand and care without seeing the rest of the source video.
+- Where lines are marked "Speaker Streamer:" / "Speaker Other:", every clip needs the streamer in it: start on or just before a streamer line and end on the streamer's reaction, not on game dialogue.
 
 Critical accuracy requirements:
 - Do not fabricate or embellish content.
