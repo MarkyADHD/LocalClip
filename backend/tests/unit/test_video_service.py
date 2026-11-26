@@ -166,3 +166,9 @@ async def test_a_picked_range_becomes_the_only_clip_without_asking_the_ai(monkey
         exclude_ranges=[(0, 30)], manual_range=(5985, 6021),
     )
     assert result["segments_to_render"][0]["hook_title"] is None  # still clipped, just untitled
+
+
+def test_cut_down_clip_text_is_only_its_parts():
+    words = [{"text": w, "start": i * 10_000, "end": i * 10_000 + 500} for i, w in enumerate("a b c d e f".split())]
+    payload = {"start_time": "00:00", "end_time": "00:55", "text": "", "source_ranges": [[0, 15], [40, 55]]}
+    assert VideoService._ground_segment_text(payload, {"words": words}) == "a b … e f"

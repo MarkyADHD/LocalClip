@@ -42,7 +42,7 @@ from ..clip_source_map import (
     save_clip_source_ranges,
     source_range_bounds,
 )
-from ..ai import _format_minutes_label, get_most_relevant_parts_by_transcript, title_clip
+from ..ai import _format_minutes_label, get_most_relevant_parts_by_transcript, keep_part_seconds, title_clip
 from ..claude_code import check_signed_in
 from ..config import get_config
 
@@ -71,11 +71,10 @@ class VideoService:
         if end_seconds <= start_seconds:
             return str(segment_payload.get("text") or "").strip()
 
-        grounded_text = get_transcript_text_in_range(
-            transcript_data,
-            start_seconds,
-            end_seconds,
-        ).strip()
+        parts = segment_payload.get("source_ranges") or [(start_seconds, end_seconds)]
+        grounded_text = " … ".join(
+            get_transcript_text_in_range(transcript_data, a, b).strip() for a, b in parts
+        ).strip(" …")
         return grounded_text or str(segment_payload.get("text") or "").strip()
 
     @staticmethod
@@ -315,8 +314,9 @@ class VideoService:
                 )
             keep_ranges = extend_keep_ranges_to_sentence_boundary(video_path, keep_ranges)
             clip_text = segment.get("text", "")
-            if not provided_keep_ranges and not source_ranges:
-                keep_ranges = apply_segment_hook_teaser(video_path, keep_ranges, segment)
+            if not provided_keep_ranges:
+                if not source_ranges:
+                    keep_ranges = apply_segment_hook_teaser(video_path, keep_ranges, segment)
                 # Snapping, cleanup and the teaser change what is spoken; keep
                 # the stored text word-for-word with the rendered timeline.
                 clip_text = keep_ranges_transcript_text(video_path, keep_ranges) or clip_text
@@ -630,6 +630,7 @@ class VideoService:
                         "hashtags": segment.get("hashtags") or [],
                         "hook_start_time": segment.get("hook_start_time"),
                         "hook_end_time": segment.get("hook_end_time"),
+                        "source_ranges": segment.get("source_ranges"),
                     }
                 else:
                     virality = segment.virality.model_dump() if segment.virality else {}
@@ -649,6 +650,8 @@ class VideoService:
                         "hashtags": getattr(segment, "hashtags", None) or [],
                         "hook_start_time": getattr(segment, "hook_start_time", None),
                         "hook_end_time": getattr(segment, "hook_end_time", None),
+                        # A long moment cut down to its parts (the gaps are cut out).
+                        "source_ranges": keep_part_seconds(segment) or None,
                     }
 
                 segment_payload["text"] = VideoService._ground_segment_text(
