@@ -165,6 +165,9 @@ def test_laughs_heard_in_the_audio_become_hints(monkeypatch):
     assert "- [01:04 - 01:10] score=4.0: laughing heard in the audio" in summary
     assert "laughing; he walked straight off the roof" in summary
     assert "laughing; anyway" not in summary
+    from src.ai import _crowd_signals
+
+    assert (64, 70, "laughing heard in the audio") in _crowd_signals(summary)  # the rerank sees it too
 
 
 def test_reaction_chunks_merge_into_spans():
