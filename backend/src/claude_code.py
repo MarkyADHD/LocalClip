@@ -85,7 +85,8 @@ class ClaudeCodeAgent(Generic[T]):
         if proc.returncode != 0 or out.get("is_error"):
             detail = out.get("result") or stderr.decode("utf-8", "replace").strip()[-300:] or f"exit {proc.returncode}"
             if re.search(r"authenticat|oauth|log(ged)? ?in|api key", detail, re.I):
-                raise RuntimeError("Claude Code is signed out. Open a terminal, run claude, sign in, then try again.")
+                logger.error("Claude Code sign-in error: %s", detail)
+                raise RuntimeError("Claude Code is signed out. Open a terminal, run claude, type /login and sign in, then press Resume.")
             raise RuntimeError(f"Claude Code failed: {detail}")
         logger.info("Claude Code (%s) answered, cost $%s", self.model, out.get("total_cost_usd"))
         return out.get("structured_output") or {}
