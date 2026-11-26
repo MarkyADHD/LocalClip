@@ -304,6 +304,42 @@ export function mapped<T extends { start: number; end: number }>(
   }
   return result;
 }
+/**
+ * A caption word dragged by `delta` source seconds: the whole word ("move") or one edge.
+ * `following` moves every later word with it, to fix captions that drift late or early.
+ * Words never pass their neighbours or the ends of the clip.
+ */
+export function moveWord(
+  words: CaptionWord[],
+  id: string,
+  delta: number,
+  edge: "move" | "start" | "end",
+  duration: number,
+  following = false,
+): CaptionWord[] {
+  const sorted = [...words].sort((a, b) => a.start - b.start),
+    i = sorted.findIndex((w) => w.id === id);
+  if (i < 0) return words;
+  const word = sorted[i],
+    min = Math.min(word.start, sorted[i - 1]?.end ?? 0),
+    max = Math.max(word.end, sorted[i + 1]?.start ?? duration),
+    round = (t: number) => Math.round(t * 1000) / 1000;
+  if (edge !== "move") {
+    const changed =
+      edge === "start"
+        ? { start: round(clamp(word.start + delta, min, word.end - 0.05)) }
+        : { end: round(clamp(word.end + delta, word.start + 0.05, max)) };
+    return words.map((w) => (w.id === id ? { ...w, ...changed } : w));
+  }
+  const moving = new Set(following ? sorted.slice(i).map((w) => w.id) : [id]),
+    lastEnd = following ? Math.max(...sorted.slice(i).map((w) => w.end)) : word.end,
+    shift = clamp(delta, min - word.start, (following ? Math.max(lastEnd, duration) : max) - lastEnd);
+  return words.map((w) =>
+    moving.has(w.id)
+      ? { ...w, start: round(w.start + shift), end: round(w.end + shift) }
+      : w,
+  );
+}
 export const mappedWords = (doc: EditDocument): CaptionWord[] =>
   mapped(
     doc,

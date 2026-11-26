@@ -26,6 +26,7 @@ from .claude_code import ClaudeCodeAgent, find_claude
 from .config import Config, get_config
 from .local_models import ensure_local_server
 from .runtime_settings import apply_settings_to_process_env
+from .taste import taste_note
 
 logger = logging.getLogger(__name__)
 
@@ -71,9 +72,11 @@ TRANSCRIPT_LINE_PATTERN = re.compile(
     r"^\[(\d{1,3}:\d{2}(?::\d{2})?)\s*-\s*(\d{1,3}:\d{2}(?::\d{2})?)\]\s*(.*)$"
 )
 SIGNAL_LINE_PATTERN = re.compile(r"^- \[(?P<start>\d{1,3}:\d{2}(?::\d{2})?)\s*-")
+# Strong signals no window picked become rerank candidates, up to this many per stream hour.
+SIGNAL_CANDIDATES_PER_HOUR = 2
 CROWD_SIGNAL_PATTERN = re.compile(
     r"^- \[(?P<start>\d{1,3}:\d{2}(?::\d{2})?)\s*-\s*(?P<end>\d{1,3}:\d{2}(?::\d{2})?)\]"
-    r"\s*score=[\d.]+:\s*(?P<reason>.*(?:chat|CLIP THAT|loud).*)$"
+    r"\s*score=(?P<score>[\d.]+):\s*(?P<reason>.*(?:chat|CLIP THAT|loud|heard in the audio).*)$"
 )
 SPEAKER_PREFIX_PATTERN = re.compile(r"^Speaker [^:]+:\s*")
 
@@ -782,6 +785,7 @@ def build_candidate_rerank_prompt(
     return (
         f"Rank these {len(candidates)} clip candidates from the same video, best first.\n"
         + _clip_request_note(clip_request, rerank=True)
+        + taste_note()
         + "\n"
         + "\n\n".join(blocks)
     )
@@ -1821,6 +1825,64 @@ def add_requested_clips(
     return forced + selected
 
 
+def add_signal_candidates(
+    candidates: List[TranscriptSegment],
+    clip_signals: Optional[str],
+    transcript_lines: List[Dict[str, Any]],
+    transcript_spans: List[Dict[str, Any]],
+) -> List[TranscriptSegment]:
+    """Strong stream signals (chat explosions, laughs, screams) that no AI pick covers become
+    candidates of their own, so the rerank judges them instead of them being lost when a
+    window's model skipped a moment whose text looks quiet."""
+    if not transcript_lines:
+        return candidates
+    strong = []
+    for line in (clip_signals or "").splitlines():
+        match = CROWD_SIGNAL_PATTERN.match(line.strip())
+        reason = match.group("reason") if match else ""
+        # ponytail: score 4+ chat or audio reactions only; loud spikes fire on gunfire, "clip that" has its own path.
+        if not match or float(match.group("score")) < 4 or not re.search(r"chat|heard in the audio", reason):
+            continue
+        try:
+            span = (
+                _parse_transcript_timestamp_seconds(match.group("start")),
+                _parse_transcript_timestamp_seconds(match.group("end")),
+            )
+        except ValueError:
+            continue
+        strong.append((float(match.group("score")), span, reason.split(";")[0].strip()))
+    hours = transcript_lines[-1]["end_seconds"] / 3600
+    room = max(3, round(hours * SIGNAL_CANDIDATES_PER_HOUR))
+    taken = list(map(_segment_bounds_seconds, candidates))
+    added: List[TranscriptSegment] = []
+    for _, (a, b), reason in sorted(strong, key=lambda item: -item[0]):
+        if len(added) >= room:
+            break
+        if any(start - 10 <= b and a <= end + 10 for start, end in taken):
+            continue
+        # The lead-up first: start on a line 15-45 s before the signal, end on the line after it.
+        starts = [line["start_seconds"] for line in transcript_lines if a - 45 <= line["start_seconds"] <= a - 15]
+        start = min(starts, key=lambda s: abs(s - (a - 25))) if starts else max(0, a - 25)
+        ends = [line["end_seconds"] for line in transcript_lines if b <= line["end_seconds"] <= start + 60]
+        end = min(ends) if ends else min(b + 5, start + 60)
+        text = " ".join(
+            line["text"] for line in transcript_lines if line["start_seconds"] >= start and line["end_seconds"] <= end
+        )
+        segment = TranscriptSegment(
+            start_time=_format_transcript_timestamp(start),
+            end_time=_format_transcript_timestamp(end),
+            text=text,
+            reasoning=f"Stream signal: {reason}.",
+            virality=ViralityAnalysis(total_score=50, virality_reasoning=f"Stream signal: {reason}."),
+        )
+        for valid in _validate_segments([segment], transcript_lines, transcript_spans):
+            added.append(valid)
+            taken.append(_segment_bounds_seconds(valid))
+    if added:
+        logger.info("Added %d candidate(s) from stream signals the AI did not pick", len(added))
+    return candidates + added
+
+
 def _merge_key_topics(analyses: List[TranscriptAnalysis], limit: int = 12) -> List[str]:
     topics: List[str] = []
     seen: set[str] = set()
@@ -1895,6 +1957,10 @@ async def get_most_relevant_parts_by_transcript(
         # Best-first by virality (primary) then relevance (secondary), without
         # near-duplicates; then compare them all in one rerank call (calibrates
         # scores across windows, rewrites titles, drops weak picks).
+        if not clip_request:
+            candidates = add_signal_candidates(
+                dedupe_overlapping_segments(candidates), clip_signals, transcript_lines, transcript_spans
+            )
         candidates = await rerank_candidates(
             drop_excluded_segments(dedupe_overlapping_segments(candidates), exclude_ranges),
             clip_signals,

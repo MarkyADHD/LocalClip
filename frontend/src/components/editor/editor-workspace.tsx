@@ -33,6 +33,7 @@ import {
   splitSegment,
   timecode,
   type CaptionStyle,
+  type CaptionWord,
 } from "@/lib/editor/document";
 import { cn } from "@/lib/utils";
 import { editorRequest, useEditor } from "./use-editor";
@@ -123,6 +124,27 @@ export function EditorWorkspace({
       return;
     }
     onSelect(id);
+  };
+  const liveEndpoint = useRef(endpoint);
+  liveEndpoint.current = endpoint;
+  const regenerateCaptions = async () => {
+    const url = `${endpoint}/captions`;
+    await editorRequest(url, "POST");
+    for (;;) {
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      const result = await editorRequest<{
+        status: string;
+        words?: CaptionWord[];
+        error?: string;
+      }>(url);
+      if (liveEndpoint.current !== endpoint) return; // switched clips meanwhile
+      if (result.status === "ready") {
+        editor.update((d) => ({ ...d, words: result.words ?? [] }));
+        return;
+      }
+      if (result.status !== "pending")
+        throw new Error(result.error || "Could not transcribe this clip.");
+    }
   };
   const applyAll = async (style: CaptionStyle) => {
     try {
@@ -606,6 +628,7 @@ export function EditorWorkspace({
             seek={seek}
             update={editor.update}
             applyAll={applyAll}
+            regenerateCaptions={regenerateCaptions}
             videoRef={videoRef}
             suggestedTitle={clip.hook_title}
           />

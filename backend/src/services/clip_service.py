@@ -22,6 +22,7 @@ from ..video_utils import VALID_OUTPUT_FORMATS, parse_timestamp_to_seconds, crea
 from ..utils.async_helpers import run_in_thread
 from ..clip_cleanup import normalize_clip_cleanup_settings
 from ..clip_source_map import (
+    join_cut_ranges,
     load_clip_source_ranges,
     save_clip_source_ranges,
     save_clip_caption_settings,
@@ -158,7 +159,8 @@ class ClipEditingMixin:
                         "start_time": start_time,
                         "end_time": end_time,
                         **(
-                            {"source_ranges": source_ranges}
+                            # The stored ranges already have the old cleanup's cuts in them.
+                            {"source_ranges": join_cut_ranges(source_ranges)}
                             if should_recompute_cleanup
                             else {"keep_ranges": source_ranges}
                         ),

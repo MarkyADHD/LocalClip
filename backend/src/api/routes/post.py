@@ -17,6 +17,7 @@ from ...config import get_config
 from ...database import get_db
 from ...post_captions import write_captions
 from ...services.task_service import TaskService
+from ...taste import remember
 from ...utils.async_helpers import run_in_thread
 
 router = APIRouter(prefix="/tasks", tags=["post"])
@@ -64,6 +65,7 @@ async def clip_captions(task_id: str, clip_id: str, request: Request,
                         db: AsyncSession = Depends(get_db, scope="function")):
     """A caption with hashtags for each site, written by the AI model from the clip's transcript."""
     task, clip = await owned_clip(task_id, clip_id, request, db)
+    remember("kept", clip)
     try:
         return await write_captions(clip, task.get("source_title"))
     except ValueError as error:
@@ -79,6 +81,7 @@ async def reveal_clip(task_id: str, clip_id: str, request: Request,
     if not Path(clip["file_path"]).exists():
         raise HTTPException(status_code=404, detail="Clip file not found")
     path = Path(clip["file_path"]).resolve()
+    remember("kept", clip)
     return {"revealed": open_in_explorer(f"/select,{path}"), "path": str(path)}
 
 
@@ -104,6 +107,7 @@ async def export_clip_to_folder(task_id: str, clip_id: str, request: Request, pr
         await run_in_thread(shutil.copyfile, source, target)
     except OSError as exc:  # Windows: the old copy is open in a player or mid-upload
         raise HTTPException(status_code=409, detail=f"Could not write {target.name}: {exc.strerror or exc}")
+    remember("kept", clip)
     return {"folder": str(target.parent), "path": str(target)}
 
 

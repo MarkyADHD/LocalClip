@@ -9,7 +9,9 @@ import {
   Info,
   Maximize2,
   Palette,
+  Loader2,
   Plus,
+  RefreshCw,
   RotateCcw,
   Trash2,
   Volume2,
@@ -18,6 +20,16 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -290,6 +302,8 @@ interface Props {
   seek: (value: number) => void;
   update: (change: (doc: EditDocument) => EditDocument, group?: string) => void;
   applyAll: (style: CaptionStyle) => Promise<void>;
+  /** Transcribe the clip again and replace the caption words. */
+  regenerateCaptions: () => Promise<void>;
   videoRef: RefObject<HTMLVideoElement | null>;
   /** The AI's hook title for this clip, offered as the on-screen title. */
   suggestedTitle?: string | null;
@@ -303,6 +317,7 @@ export function Inspector({
   seek,
   update,
   applyAll,
+  regenerateCaptions,
   videoRef,
   suggestedTitle,
 }: Props) {
@@ -338,6 +353,20 @@ export function Inspector({
   const scriptWords = useRef(doc.words);
   const [script, setScript] = useState<string | null>(null),
     [applying, setApplying] = useState(false);
+  const [regenerating, setRegenerating] = useState(false),
+    [confirmRegenerate, setConfirmRegenerate] = useState(false);
+  const regenerate = async () => {
+    setConfirmRegenerate(false);
+    setScript(null);
+    setRegenerating(true);
+    try {
+      await regenerateCaptions();
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setRegenerating(false);
+    }
+  };
   const swearCount = doc.words.filter((w) => isSwear(w.text)).length,
     allBleeped =
       swearCount > 0 &&
@@ -470,21 +499,44 @@ export function Inspector({
               }
               description="Type over any word. Its timing stays put."
               action={
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-7 px-2 text-xs"
-                  onClick={() => {
-                    scriptWords.current = doc.words;
-                    setScript(
-                      script === null
-                        ? doc.words.map((w) => w.text).join(" ")
-                        : null,
-                    );
-                  }}
-                >
-                  {script === null ? "Edit as text" : "Close"}
-                </Button>
+                <div className="flex gap-1">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 px-2 text-xs"
+                    disabled={regenerating || !asset.hasAudio}
+                    title="Listen to the clip again and rebuild the captions"
+                    onClick={() =>
+                      // Ask first when the words changed since the clip was made.
+                      JSON.stringify(doc.words) ===
+                      JSON.stringify(asset.original.words)
+                        ? void regenerate()
+                        : setConfirmRegenerate(true)
+                    }
+                  >
+                    {regenerating ? (
+                      <Loader2 className="animate-spin" />
+                    ) : (
+                      <RefreshCw />
+                    )}
+                    {regenerating ? "Listening…" : "Regenerate"}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 px-2 text-xs"
+                    onClick={() => {
+                      scriptWords.current = doc.words;
+                      setScript(
+                        script === null
+                          ? doc.words.map((w) => w.text).join(" ")
+                          : null,
+                      );
+                    }}
+                  >
+                    {script === null ? "Edit as text" : "Close"}
+                  </Button>
+                </div>
               }
             >
               {script !== null && (
@@ -924,6 +976,25 @@ export function Inspector({
               </div>
               </div>
             </details>
+            <AlertDialog open={confirmRegenerate} onOpenChange={setConfirmRegenerate}>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Regenerate the captions?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    The clip is transcribed again and the new words replace the
+                    transcript, including words you fixed, highlights and
+                    bleeps. The caption look and speaker colours stay. Undo
+                    brings the old words back.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Keep my edits</AlertDialogCancel>
+                  <AlertDialogAction onClick={() => void regenerate()}>
+                    Regenerate
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           </TabsContent>
           <TabsContent value="layout" className="space-y-6 p-4">
             <Section title="Format">
