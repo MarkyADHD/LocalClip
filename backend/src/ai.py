@@ -33,7 +33,9 @@ logger = logging.getLogger(__name__)
 # No target length (Marky: "the ai should know best"), only the limits.
 MIN_ACCEPTED_CLIP_SECONDS = 15
 MAX_ACCEPTED_CLIP_SECONDS = 90
-TRANSCRIPT_ANALYSIS_CACHE_VERSION = "stream-picks-v13"
+# A moment whose context runs longer is cut down to MAX_ACCEPTED_CLIP_SECONDS of "keep" parts.
+MAX_CONTEXT_SECONDS = 300
+TRANSCRIPT_ANALYSIS_CACHE_VERSION = "stream-picks-v14"
 TRANSCRIPT_ANALYSIS_MAX_ATTEMPTS = 3
 TRANSCRIPT_ANALYSIS_TIMEOUT_SECONDS = 600
 # Long transcripts are analysed in overlapping windows so every part of the
@@ -214,6 +216,13 @@ def _default_virality_analysis() -> ViralityAnalysis:
     return ViralityAnalysis()
 
 
+class KeepPart(BaseModel):
+    """One part of a long moment that stays in the clip; the time between parts is cut out."""
+
+    start_time: str = Field(description="MM:SS start of the part, a transcript line start")
+    end_time: str = Field(description="MM:SS end of the part, a transcript line end")
+
+
 class TranscriptSegment(BaseModel):
     """Represents a relevant segment of transcript with precise timing and virality analysis."""
 
@@ -261,6 +270,14 @@ class TranscriptSegment(BaseModel):
     hook_end_time: Optional[str] = Field(
         default=None,
         description="Optional MM:SS end of that hook line (null with hook_start_time).",
+    )
+    keep: List[KeepPart] = Field(
+        default_factory=list,
+        description=(
+            "Only for a moment whose setup and payoff are more than 90 seconds apart (up to 5 minutes): "
+            "the parts to keep, in order, at most 90 seconds in total. The time between parts is cut "
+            "out. Empty for a normal clip."
+        ),
     )
     hashtags: List[str] = Field(
         default_factory=list,
@@ -351,7 +368,7 @@ OUTPUT CONTRACT:
 - Each item in "most_relevant_segments" must include: "start_time", "end_time", "text", "relevance_score", "reasoning", "virality", and "hook_title".
 - Do not use "segment" as an output field. Use "text".
 - "virality" must include: "hook_score", "engagement_score", "value_score", "shareability_score", "total_score", "hook_type", and "virality_reasoning".
-- Every returned segment must be 15-90 seconds long.
+- Every returned segment must be 15-90 seconds long, or up to 5 minutes when its "keep" parts add up to at most 90 seconds.
 - "most_relevant_segments" may be an empty list when nothing in the transcript is clip-worthy.
 
 GROUNDING RULES:
@@ -437,7 +454,7 @@ TIMESTAMP REQUIREMENTS - EXTREMELY IMPORTANT:
 - Never modify timestamp format (keep MM:SS structure)
 - start_time MUST be LESS THAN end_time (start_time < end_time)
 - MINIMUM segment duration: 15 seconds (end_time - start_time >= 15 seconds)
-- MAXIMUM segment duration: 90 seconds
+- MAXIMUM segment duration: 90 seconds, or up to 5 minutes with "keep" parts (at most 90 seconds in total)
 - Look at transcript ranges like [02:25 - 02:35] and use different start/end times
 - NEVER use the same timestamp for both start_time and end_time
 - Example: start_time: "02:25", end_time: "02:35" (NOT "02:25" and "02:25")
@@ -774,7 +791,9 @@ def build_candidate_rerank_prompt(
         signals = sorted({reason for a, b, reason in crowd if a < end and b > start})
         blocks.append(
             f"candidate_id: {candidate_id}\n"
-            f"time: {segment.start_time} - {segment.end_time} ({end - start}s)\n"
+            f"time: {segment.start_time} - {segment.end_time} ({end - start}s"
+            + (f", cut down to {sum(b - a for a, b in keep_part_seconds(segment))}s" if segment.keep else "")
+            + ")\n"
             f"signals: {'; '.join(signals) or 'none'}\n"
             f"hook_title: {segment.hook_title or '(none)'}\n"
             f"text: {segment.text}"
@@ -856,8 +875,9 @@ Follow this workflow:
 Selection target:
 - Choose {segment_target} segments total. Fewer is fine; never pad with weak picks.
 - Each clip is as long as its moment needs, from 15 to 90 seconds: setup, moment, payoff, nothing more.
+- Long moments: when the setup and the payoff are more than 90 seconds apart (up to 5 minutes), pick the whole stretch as start_time/end_time and list in "keep" the parts that stay, in order, on transcript line boundaries, at most 90 seconds in total. Keep the setup, the beats that build it and the payoff; cut the boring middle (waiting, menus, repeats, unrelated talk). Each part should be a full sentence or more. Leave "keep" empty for a normal clip.
 - Skip: tutorials and strategy talk, menu/inventory time, calm routine gameplay, stream housekeeping (intros, BRB, sub/donation readouts, sponsors), talk about the stream or the streamer's tools, inside jokes, and fragments that need prior context.
-- Start at the setup. The first lines must show what happens or what the streamer is reacting to. A reaction that points at something earlier ("that", "I'm going to hell", "did you see that?") needs its cause inside the clip; if the cause is too far back to fit, clip the cause itself or skip the moment.
+- Start at the setup. The first lines must show what happens or what the streamer is reacting to. A reaction that points at something earlier ("that", "I'm going to hell", "did you see that?") needs its cause inside the clip; if the cause is too far back to fit in 90 seconds, use "keep" parts to reach it (up to 5 minutes back), or skip the moment.
 - Dead air: a gap of {DEAD_AIR_SECONDS}+ seconds between timestamps is silence (long pauses are cut out of the finished clip). Never stretch a clip across one just to reach a stray later line.
 - Before returning a segment, ask whether a viewer would understand and care without seeing the rest of the source video.
 - Where lines are marked "Speaker Streamer:" / "Speaker Other:", every clip needs the streamer in it: start on or just before a streamer line and end on the streamer's reaction, not on game dialogue.
@@ -876,12 +896,12 @@ JSON-only output requirements:
 - Return one valid JSON object and nothing else.
 - No Markdown, headings, bullets, code fences, or explanatory text outside JSON.
 - Top-level keys: "most_relevant_segments", "summary", "key_topics", "broll_opportunities".{' Set "broll_opportunities" to null.' if not include_broll else ''}
-- Segment keys: "start_time", "end_time", "text", "relevance_score", "reasoning", "virality", "hook_title", "hashtags".
+- Segment keys: "start_time", "end_time", "text", "relevance_score", "reasoning", "virality", "hook_title", "hashtags", "keep" (a list of {{"start_time", "end_time"}} parts, empty unless the moment is longer than {MAX_ACCEPTED_CLIP_SECONDS} seconds).
 - "hashtags" is 3-5 tags to post the clip with, without the # sign: the game or topic first, then what happens (no fyp/viral filler).
 - Optional segment keys "hook_start_time"/"hook_end_time": MM:SS range of the strongest 2-5 second line later in the segment (cold-open teaser), or null.
 - "hook_title" is a 3-9 word plain-text headline for the clip, in the transcript's language, grounded in the segment (no hashtags, emojis, or quotes).
 - Virality keys: "hook_score", "engagement_score", "value_score", "shareability_score", "total_score", "hook_type", "virality_reasoning".
-- Do not return segments shorter than {MIN_ACCEPTED_CLIP_SECONDS} seconds or longer than {MAX_ACCEPTED_CLIP_SECONDS} seconds.
+- Do not return segments shorter than {MIN_ACCEPTED_CLIP_SECONDS} seconds or longer than {MAX_ACCEPTED_CLIP_SECONDS} seconds, except a stretch of up to {MAX_CONTEXT_SECONDS} seconds whose "keep" parts add up to {MAX_ACCEPTED_CLIP_SECONDS} seconds or less.
 
 Transcript:
 {transcript}"""
@@ -1622,6 +1642,86 @@ def _trim_dead_air(
     return runs[0][0], runs[-1][-1]
 
 
+def _finish_segment(segment: TranscriptSegment) -> None:
+    """Total = sum of the virality subscores; a clean hook title."""
+    if segment.virality:
+        calculated_total = (
+            segment.virality.hook_score
+            + segment.virality.engagement_score
+            + segment.virality.value_score
+            + segment.virality.shareability_score
+        )
+        if segment.virality.total_score != calculated_total:
+            logger.warning(
+                f"Correcting virality total: {segment.virality.total_score} -> {calculated_total}"
+            )
+            segment.virality.total_score = calculated_total
+    segment.hook_title = sanitize_hook_title(segment.hook_title)
+
+
+def _ground_keep_parts(segment: TranscriptSegment, transcript_lines: List[Dict[str, Any]]) -> bool:
+    """Snap a long moment's "keep" parts onto transcript lines and fit them in the clip limit.
+
+    False when they don't make a usable cut-down clip; the caller then treats it as a normal clip.
+    """
+    parts: List[List[Dict[str, Any]]] = []
+    for part in segment.keep:
+        try:
+            snapped = _snap_bounds_to_transcript_lines(
+                transcript_lines,
+                _parse_transcript_timestamp_seconds(part.start_time),
+                _parse_transcript_timestamp_seconds(part.end_time),
+            )
+        except ValueError:
+            continue
+        if snapped:
+            parts.append(list(snapped))
+    parts.sort(key=lambda p: p[0]["start_seconds"])
+    merged: List[List[Dict[str, Any]]] = []
+    for part in parts:  # overlapping or touching parts are one part
+        if merged and part[0]["start_seconds"] <= merged[-1][1]["end_seconds"] + 1:
+            if part[1]["end_seconds"] > merged[-1][1]["end_seconds"]:
+                merged[-1][1] = part[1]
+        else:
+            merged.append(part)
+
+    def seconds(p):
+        return p[1]["end_seconds"] - p[0]["start_seconds"]
+
+    # Over the limit: drop middle parts first, so the setup and the payoff stay.
+    while len(merged) > 2 and sum(map(seconds, merged)) > MAX_ACCEPTED_CLIP_SECONDS:
+        merged.pop(len(merged) // 2)
+    total = sum(map(seconds, merged))
+    span = merged[-1][1]["end_seconds"] - merged[0][0]["start_seconds"] if merged else 0
+    if (
+        len(merged) < 2
+        or not MIN_ACCEPTED_CLIP_SECONDS <= total <= MAX_ACCEPTED_CLIP_SECONDS
+        or span > MAX_CONTEXT_SECONDS
+    ):
+        return False
+    segment.keep = [KeepPart(start_time=a["start_time"], end_time=b["end_time"]) for a, b in merged]
+    segment.start_time, segment.end_time = merged[0][0]["start_time"], merged[-1][1]["end_time"]
+    segment.text = " … ".join(
+        _extract_transcript_text_for_segment(transcript_lines, a["start_time"], b["end_time"]) or ""
+        for a, b in merged
+    )
+    segment.hook_start_time = segment.hook_end_time = None  # no teaser on a cut-down clip
+    return True
+
+
+def keep_part_seconds(segment: Any) -> List[List[int]]:
+    """[[start, end], ...] source seconds of a cut-down clip's parts; [] for a normal clip."""
+    parts = segment.get("keep") if isinstance(segment, dict) else getattr(segment, "keep", None)
+    ranges = []
+    for part in parts or []:
+        get = part.get if isinstance(part, dict) else lambda key: getattr(part, key)
+        ranges.append([
+            _parse_transcript_timestamp_seconds(get("start_time")),
+            _parse_transcript_timestamp_seconds(get("end_time")),
+        ])
+    return ranges
+
+
 def _validate_segments(
     segments: List[TranscriptSegment],
     transcript_lines: List[Dict[str, Any]],
@@ -1644,8 +1744,17 @@ def _validate_segments(
             )
             continue
 
-        # Parse timestamps to validate duration
         try:
+            if segment.keep and _ground_keep_parts(segment, transcript_lines):
+                _finish_segment(segment)
+                validated_segments.append(segment)
+                logger.info(
+                    "Validated cut-down segment: %s-%s, %d parts",
+                    segment.start_time, segment.end_time, len(segment.keep),
+                )
+                continue
+            segment.keep = []  # unusable parts: treat it as a normal clip
+
             start_seconds = _parse_transcript_timestamp_seconds(segment.start_time)
             end_seconds = _parse_transcript_timestamp_seconds(segment.end_time)
             start_seconds, end_seconds = _snap_segment_bounds(
@@ -1717,22 +1826,7 @@ def _validate_segments(
                 )
                 segment.text = grounded_text
 
-            # Validate virality scores
-            if segment.virality:
-                # Ensure total score is sum of subscores
-                calculated_total = (
-                    segment.virality.hook_score
-                    + segment.virality.engagement_score
-                    + segment.virality.value_score
-                    + segment.virality.shareability_score
-                )
-                if segment.virality.total_score != calculated_total:
-                    logger.warning(
-                        f"Correcting virality total: {segment.virality.total_score} -> {calculated_total}"
-                    )
-                    segment.virality.total_score = calculated_total
-
-            segment.hook_title = sanitize_hook_title(segment.hook_title)
+            _finish_segment(segment)
             # Bounds are final here (after snapping and repair): keep the teaser
             # only when it still sits inside the clip.
             _sanitize_hook_span(segment, start_seconds, end_seconds)

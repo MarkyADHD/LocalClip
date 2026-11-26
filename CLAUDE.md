@@ -91,6 +91,9 @@ Blocking work (ffmpeg, downloads, transcription) is wrapped in `run_in_thread()`
    becomes a candidate for the rerank (`add_signal_candidates`, up to 2 per stream hour). The rerank also gets the
    streamer's last 10 posted/exported and 10 deleted clips as taste examples (`taste.py`, `TEMP_DIR/clip_taste.json`). A stray line left at either end of a pick after an 8 s gap
    is dropped (`_trim_dead_air`); a setup before a quiet stretch stays, since the render cuts long pauses.
+   Clips are 15-90 s with no target length. A moment whose setup and payoff are further apart (up to 5 min) comes back
+   with `keep` parts (at most 90 s in total; `_ground_keep_parts` snaps them to lines and drops middle parts first when
+   over); they reach the render as the segment's `source_ranges`, so the gaps are cut out.
 5. **Speakers**: `media/diarization.py` (sherpa-onnx on the CPU, models downloaded once to
    `TEMP_DIR/models/speakers`) labels each clip's words by speaker when its captions are built and
    when the editor opens it; speakers after the first get their own caption colour

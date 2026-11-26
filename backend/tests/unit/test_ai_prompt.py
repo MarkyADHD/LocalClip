@@ -30,8 +30,8 @@ def test_system_prompt_enforces_grounding_rules():
     assert "Do not judge, moralize, or downgrade a segment" in (
         transcript_analysis_system_prompt
     )
-    assert "15-90 seconds long." in transcript_analysis_system_prompt
-    assert "Prefer" not in transcript_analysis_system_prompt.split("15-90 seconds long.")[1][:40]
+    assert "must be 15-90 seconds long, or up to 5 minutes" in transcript_analysis_system_prompt
+    assert "25-50" not in transcript_analysis_system_prompt
     assert "WHAT IS NOT A CLIP" in transcript_analysis_system_prompt
     assert "Tutorials, strategy" in transcript_analysis_system_prompt
     assert "Return valid JSON only" in transcript_analysis_system_prompt

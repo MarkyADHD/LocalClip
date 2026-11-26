@@ -416,3 +416,46 @@ def test_strong_signals_the_ai_skipped_become_candidates():
         ("17:40", "18:20"), ("04:35", "05:10"), ("11:35", "12:05"),
     ]
     assert result[2].reasoning == "Stream signal: laughing heard in the audio."
+
+
+def test_a_long_moment_is_cut_down_to_its_parts():
+    transcript = _transcript(10 * 60, line_seconds=5)
+    lines, spans = ai._parse_transcript_lines(transcript), ai._parse_transcript_spans(transcript)
+    parts = [("01:00", "01:31"), ("02:40", "03:00"), ("04:31", "05:00")]  # 01:31 / 04:31 snap to lines
+    segment = _segment("01:00", "05:00", total=80, text="the whole long moment here")
+    segment.keep = [ai.KeepPart(start_time=a, end_time=b) for a, b in parts]
+
+    [kept] = ai._validate_segments([segment], lines, spans)
+
+    assert (kept.start_time, kept.end_time) == ("01:00", "05:00")
+    assert ai.keep_part_seconds(kept) == [[60, 90], [160, 180], [270, 300]]
+    assert kept.text.startswith("Line at 60 seconds") and " … Line at 160 seconds" in kept.text
+    assert "Line at 120 seconds" not in kept.text  # the cut middle is not in the clip
+    assert "cut down to 80s" in ai.build_candidate_rerank_prompt([kept])
+
+
+def test_cut_down_parts_over_the_limit_lose_the_middle_first():
+    transcript = _transcript(10 * 60, line_seconds=5)
+    lines, spans = ai._parse_transcript_lines(transcript), ai._parse_transcript_spans(transcript)
+    segment = _segment("00:00", "04:30")
+    segment.keep = [
+        ai.KeepPart(start_time=a, end_time=b)
+        for a, b in [("00:00", "00:30"), ("01:00", "01:30"), ("02:00", "02:30"), ("04:00", "04:30")]
+    ]
+    [kept] = ai._validate_segments([segment], lines, spans)
+    # 120 s of parts: one middle part goes; the setup and the payoff stay.
+    assert ai.keep_part_seconds(kept) == [[0, 30], [60, 90], [240, 270]]
+
+
+def test_unusable_parts_fall_back_to_a_normal_clip():
+    transcript = _transcript(10 * 60, line_seconds=5)
+    lines, spans = ai._parse_transcript_lines(transcript), ai._parse_transcript_spans(transcript)
+    segment = _segment("01:00", "02:00")
+    segment.keep = [ai.KeepPart(start_time="01:00", end_time="01:40")]  # one part is not a cut
+    [kept] = ai._validate_segments([segment], lines, spans)
+    assert kept.keep == [] and (kept.start_time, kept.end_time) == ("01:00", "02:00")
+
+    too_far = _segment("00:00", "07:00")
+    too_far.keep = [ai.KeepPart(start_time="00:00", end_time="00:30"), ai.KeepPart(start_time="06:30", end_time="07:00")]
+    [kept] = ai._validate_segments([too_far], lines, spans)  # over 5 minutes apart: trimmed instead
+    assert kept.keep == [] and ai._segment_bounds_seconds(kept)[1] <= 90
