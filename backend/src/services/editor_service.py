@@ -203,7 +203,7 @@ async def prepare_editor(ctx, task_id: str, clip_id: str, filename: str):
                     words, [(w["start"], w["end"], w.get("speaker")) for w in words]
                 )
             duration = metadata["duration"]
-            blurs = await run_in_thread(find_clip_blurs, clean)
+            blurs = await run_in_thread(find_clip_blurs, clean, source, ranges)
             look = get_template(task.get("caption_template") or "default").get("editor", {})
             initial = (
                 EditDocument.model_validate(
