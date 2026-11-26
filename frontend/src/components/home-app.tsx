@@ -136,6 +136,21 @@ export default function HomeApp() {
   }, []);
 
   useEffect(() => { void refreshFonts(); }, [refreshFonts]);
+  // Remember the cleanup switches, so turning one off stays off for the next video.
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem("localclip-cleanup") ?? "null");
+      if (saved) {
+        setCutLongPauses(Boolean(saved.cutLongPauses));
+        setRemoveFillerWords(Boolean(saved.removeFillerWords));
+      }
+    } catch {}
+  }, []);
+  useEffect(() => {
+    try {
+      localStorage.setItem("localclip-cleanup", JSON.stringify({ cutLongPauses, removeFillerWords }));
+    } catch {}
+  }, [cutLongPauses, removeFillerWords]);
 
   useEffect(() => {
     fetch("/api/caption-templates")

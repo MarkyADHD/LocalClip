@@ -3,12 +3,19 @@ from pathlib import Path
 import pytest
 
 from src.clip_source_map import (
+    join_cut_ranges,
     load_clip_source_ranges,
     save_clip_source_ranges,
     split_source_ranges,
     trim_source_ranges,
 )
 from src.services.task_service import TaskService
+
+
+def test_join_cut_ranges_undoes_pause_cuts_but_keeps_the_hook_teaser():
+    # Teaser 58-60, then the body 40-60 with pauses cut at 45-47 and 52-53.
+    ranges = [(58.0, 60.0), (40.0, 45.0), (47.0, 52.0), (53.0, 60.0)]
+    assert join_cut_ranges(ranges) == [(58.0, 60.0), (40.0, 60.0)]
 
 
 def test_trim_source_ranges_preserves_non_contiguous_mapping():
@@ -274,4 +281,5 @@ async def test_regenerate_all_clips_recomputes_cleanup_from_source_ranges(isolat
 
     segments = captured["segments"]
     assert "keep_ranges" not in segments[0]
-    assert segments[0]["source_ranges"] == [(10.0, 11.0), (13.0, 15.0)]
+    # The old cleanup's cut (11-13 s) is joined back so the new settings start from the uncut clip.
+    assert segments[0]["source_ranges"] == [(10.0, 15.0)]
