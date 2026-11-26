@@ -19,8 +19,8 @@ def test_sightings_become_tracks_that_hold_then_stop():
     blurs = track(sightings, 0.25)
     assert [(b["label"], b["start"], b["end"], len(b["boxes"])) for b in blurs] == [
         ("Vape", 0.0, 1.0, 2),  # held 0.75 s after the last sighting
-        ("Nudity", 0.375, 1.5, 2),  # far away: its own blur
-        ("Vape", 2.875, 4.0, 2),  # a 2.75 s gap is a new blur
+        ("Nudity", 0.25, 1.5, 2),  # far away: its own blur
+        ("Vape", 2.75, 4.0, 2),  # a 2.75 s gap is a new blur
     ]
     # Seen once is a mic, a pen or a skin-coloured wall.
     assert track([(0.0, "Vape", box), (2.0, "Nudity", far)], 0.25) == []
@@ -36,12 +36,16 @@ def test_box_covers_the_motion_between_sightings():
 
 
 def test_decode_scales_boxes_back_and_drops_weak_ones():
-    output = np.zeros((1, 6, 2), np.float32)
-    output[0, :, 0] = [160, 80, 64, 32, 0.9, 0.1]  # class 0 at the middle of a 320 letterbox
-    output[0, :, 1] = [10, 10, 5, 5, 0.1, 0.2]
-    [(cls, score, box)] = decode(output, 320, 640, 320, 0.3)
+    boxes = np.array([[160, 80, 64, 32], [10, 10, 5, 5]], np.float32)  # the middle of a 320 letterbox
+    scores = np.array([[0.9, 0.1], [0.1, 0.2]], np.float32)
+    [(cls, score, box)] = decode(boxes, scores, 640 / 320, 640, 320, 0.3)
     assert cls == 0 and score == pytest.approx(0.9)
     assert box == pytest.approx((256 / 640, 128 / 320, 128 / 640, 64 / 320))
+
+
+def test_slow_vape_sightings_hold_until_the_next_one():
+    blurs = track([(1.0, "Vape", (0.1, 0.1, 0.1, 0.1)), (2.0, "Vape", (0.1, 0.1, 0.1, 0.1))], 1.0)
+    assert [(b["start"], b["end"]) for b in blurs] == [(0.0, 3.0)]
 
 
 def test_switch_is_on_until_turned_off(tmp_path, monkeypatch):

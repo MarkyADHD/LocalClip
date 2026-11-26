@@ -3,11 +3,11 @@
 Runs per clip at render time, not per stream. Two small ONNX models on the CPU (onnxruntime ships with
 faster-whisper), downloaded once into the state folder from the "blur-models-1" release:
 - nudity: NudeNet 320n (AGPL-3.0), exposed breasts, genitals, buttocks;
-- vape: YOLO-World v2 with the names baked in (.github/blur-model/export.py), looked for around the
-  facecam when the stream has one, since a vape there is small.
+- vape: OWLv2 (Apache-2.0) with the vape names baked in (.github/blur-model/owl.py). Slower, so it looks
+  once a second, and only around the facecam when the stream has one (a vape there is small).
 
-A blur is a track: boxes (0..1 of the frame) a few times a second, linked frame to frame by overlap,
-held a moment after the object is last seen so a missed frame doesn't flash it.
+A blur is a track: boxes (0..1 of the frame) linked sighting to sighting by distance, held a moment after
+the object is last seen so a missed frame doesn't flash it.
 """
 
 from pathlib import Path
@@ -28,7 +28,7 @@ from .common import logger
 _RELEASE = "https://github.com/MarkyADHD/LocalClip/releases/download/blur-models-1"
 MODELS = {  # name: (file, sha256, input size)
     "nudity": ("320n.onnx", "", 320),
-    "vape": ("vape-s.onnx", "", 640),
+    "vape": ("vape-owl-480.onnx", "", 480),
 }
 NUDITY_LABELS = {  # NudeNet class index: what to call it
     2: "Nudity",  # BUTTOCKS_EXPOSED
@@ -37,10 +37,13 @@ NUDITY_LABELS = {  # NudeNet class index: what to call it
     6: "Nudity",  # ANUS_EXPOSED
     14: "Nudity",  # MALE_GENITALIA_EXPOSED
 }
-VAPE_CLASSES = 4  # the first names in export.py are vapes; the rest soak up look-alikes (mic, phone, ...)
 THRESHOLD = {"nudity": 0.5, "vape": 0.3}
-SAMPLE_FPS = 4.0
-HOLD_SECONDS = 0.75  # keep blurring this long after the last sighting
+SAMPLE_FPS = 4.0  # nudity: every sampled frame
+VAPE_EVERY = 4  # vape: every 4th sampled frame, once a second
+HOLD_SECONDS = 0.75  # keep blurring at least this long after the last sighting
+# OWLv2's normalisation (CLIP), RGB.
+_MEAN = np.array([0.48145466, 0.4578275, 0.40821073], np.float32)
+_STD = np.array([0.26862954, 0.26130258, 0.27577711], np.float32)
 PAD = 0.25  # grow each box by this share, so edges and motion between samples stay covered
 MIN_SIGHTINGS = {"nudity": 2, "vape": 2}  # seen once is more likely a skin-coloured wall, a mic or a pen
 
@@ -91,21 +94,20 @@ def _session(kind: str):
 Box = Tuple[float, float, float, float]  # x, y, w, h, 0..1 of the image
 
 
-def decode(output: np.ndarray, size: int, width: int, height: int, threshold: float) -> List[Tuple[int, float, Box]]:
-    """YOLOv8 output rows (cx, cy, w, h, class scores...) for a top-left letterbox -> (class, score, box)."""
-    rows = output[0].T
-    scores = rows[:, 4:]
+def decode(
+    boxes: np.ndarray, scores: np.ndarray, scale: float, width: int, height: int, threshold: float
+) -> List[Tuple[int, float, Box]]:
+    """cx, cy, w, h boxes (times `scale` = pixels of a top-left padded square) and class scores -> (class, score, box)."""
     best, score = scores.argmax(1), scores.max(1)
     keep = score >= threshold
-    rows, best, score = rows[keep], best[keep], score[keep]
-    scale = max(width, height) / size
-    boxes = [
+    boxes, best, score = boxes[keep], best[keep], score[keep]
+    rects = [
         (float((cx - w / 2) * scale), float((cy - h / 2) * scale), float(w * scale), float(h * scale))
-        for cx, cy, w, h in rows[:, :4]
+        for cx, cy, w, h in boxes
     ]
     found = []
-    for i in cv2.dnn.NMSBoxes(boxes, score.tolist(), threshold, 0.45):
-        x, y, w, h = boxes[i]
+    for i in cv2.dnn.NMSBoxes(rects, score.tolist(), threshold, 0.45):
+        x, y, w, h = rects[i]
         x0, y0 = max(0.0, x), max(0.0, y)
         x1, y1 = min(float(width), x + w), min(float(height), y + h)
         if x1 > x0 and y1 > y0:
@@ -114,6 +116,7 @@ def decode(output: np.ndarray, size: int, width: int, height: int, threshold: fl
 
 
 def _detect(kind: str, image: np.ndarray) -> List[Tuple[int, float, Box]]:
+    """Runs a model on a BGR image, letterboxed into the top left of its square input."""
     session = _session(kind)
     size = MODELS[kind][2]
     height, width = image.shape[:2]
@@ -122,9 +125,15 @@ def _detect(kind: str, image: np.ndarray) -> List[Tuple[int, float, Box]]:
     canvas[: round(height * scale), : round(width * scale)] = cv2.resize(
         image, (round(width * scale), round(height * scale)), interpolation=cv2.INTER_AREA
     )
-    blob = cv2.dnn.blobFromImage(canvas, 1 / 255, swapRB=True)
-    output = session.run(None, {session.get_inputs()[0].name: blob})[0]
-    return decode(output, size, width, height, THRESHOLD[kind])
+    rgb = canvas[:, :, ::-1].astype(np.float32) / 255
+    if kind == "vape":  # OWLv2: scores [1, boxes, names], boxes 0..1 of the square
+        rgb = (rgb - _MEAN) / _STD
+    blob = rgb.transpose(2, 0, 1)[None].copy()
+    outputs = session.run(None, {session.get_inputs()[0].name: blob})
+    if kind == "vape":
+        return decode(outputs[1][0], outputs[0][0], max(width, height), width, height, THRESHOLD[kind])
+    rows = outputs[0][0].T  # NudeNet (YOLOv8): rows of cx, cy, w, h in input pixels, then class scores
+    return decode(rows[:, :4], rows[:, 4:], max(width, height) / size, width, height, THRESHOLD[kind])
 
 
 def _distance(a: Box, b: Box) -> float:
@@ -134,12 +143,16 @@ def _distance(a: Box, b: Box) -> float:
 
 
 def track(sightings: Sequence[Tuple[float, str, Box]], step: float = 1 / SAMPLE_FPS) -> List[dict]:
-    """Links (time, label, box) sightings into blurs: same label, nearby boxes, gaps under HOLD_SECONDS."""
+    """Links (time, label, box) sightings `step` seconds apart into blurs: same label, nearby boxes, small gaps.
+
+    A blur starts a step before its first sighting and lasts a step (or HOLD_SECONDS) past its last, since the
+    thing may have been there between samples."""
+    hold = max(HOLD_SECONDS, step)
     open_tracks: List[dict] = []
     done: List[dict] = []
     for t, label, box in sorted(sightings, key=lambda s: s[0]):
         for item in list(open_tracks):
-            if t - item["boxes"][-1]["t"] > HOLD_SECONDS + step / 2:
+            if t - item["boxes"][-1]["t"] > hold + step / 2:
                 open_tracks.remove(item)
                 done.append(item)
         last = lambda item: tuple(item["boxes"][-1][k] for k in "xywh")  # noqa: E731
@@ -162,8 +175,8 @@ def track(sightings: Sequence[Tuple[float, str, Box]], step: float = 1 / SAMPLE_
             {
                 "id": uuid.uuid4().hex[:12],
                 "label": item["label"],
-                "start": round(max(0.0, item["boxes"][0]["t"] - step / 2), 3),
-                "end": round(item["boxes"][-1]["t"] + HOLD_SECONDS, 3),
+                "start": round(max(0.0, item["boxes"][0]["t"] - step), 3),
+                "end": round(item["boxes"][-1]["t"] + hold, 3),
                 "boxes": item["boxes"],
             }
         )
@@ -179,31 +192,33 @@ def find_blurs(video: Path, cam: Optional[Box] = None) -> List[dict]:
     """Blurs for `video` (times in its seconds). `cam`: where to look for a vape (the facecam, padded)."""
     from .ffmpeg import ffprobe_video_size
 
-    sightings: List[Tuple[float, str, Box]] = []
+    nudity: List[Tuple[float, str, Box]] = []
+    vapes: List[Tuple[float, str, Box]] = []
     width, height = ffprobe_video_size(video)
     # ffmpeg decodes on all cores and hands over only the sampled frames.
     reader = subprocess.Popen(
         ["ffmpeg", "-v", "error", "-i", str(video), "-an", "-vf", f"fps={SAMPLE_FPS}", "-f", "rawvideo", "-pix_fmt", "bgr24", "-"],
         stdout=subprocess.PIPE,
     )
+    cx, cy, cw, ch = cam or (0.0, 0.0, 1.0, 1.0)
+    x0, y0 = int(cx * width), int(cy * height)
     try:
         index = 0
         while len(data := reader.stdout.read(width * height * 3)) == width * height * 3:
             frame = np.frombuffer(data, np.uint8).reshape(height, width, 3)
             t = index / SAMPLE_FPS
-            for _, _, box in [d for d in _detect("nudity", frame) if d[0] in NUDITY_LABELS]:
-                sightings.append((t, "Nudity", _padded(box)))
-            cx, cy, cw, ch = cam or (0.0, 0.0, 1.0, 1.0)
-            x0, y0 = int(cx * width), int(cy * height)
-            region = frame[y0 : y0 + max(1, int(ch * height)), x0 : x0 + max(1, int(cw * width))]
-            for cls, _, (bx, by, bw, bh) in _detect("vape", region):
-                if cls < VAPE_CLASSES:
-                    sightings.append((t, "Vape", _padded((cx + bx * cw, cy + by * ch, bw * cw, bh * ch))))
+            for cls, _, box in _detect("nudity", frame):
+                if cls in NUDITY_LABELS:
+                    nudity.append((t, "Nudity", _padded(box)))
+            if index % VAPE_EVERY == 0:
+                region = frame[y0 : y0 + max(1, int(ch * height)), x0 : x0 + max(1, int(cw * width))]
+                for _, _, (bx, by, bw, bh) in _detect("vape", region):
+                    vapes.append((t, "Vape", _padded((cx + bx * cw, cy + by * ch, bw * cw, bh * ch))))
             index += 1
     finally:
         reader.kill()
         reader.wait()
-    return track(sightings)
+    return sorted(track(nudity) + track(vapes, VAPE_EVERY / SAMPLE_FPS), key=lambda b: b["start"])
 
 
 def find_clip_blurs(video: Path) -> List[dict]:
