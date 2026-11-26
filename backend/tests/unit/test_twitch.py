@@ -2,7 +2,7 @@ from pathlib import Path
 
 from src.media import timeline
 from src.services.video_service import VideoService
-from src.twitch import chat_spikes, get_stream_source, get_twitch_video_id, timestamp_label
+from src.twitch import chat_signal_lines, chat_spikes, get_stream_source, get_twitch_video_id, timestamp_label
 
 
 def test_twitch_urls():
@@ -17,6 +17,24 @@ def test_chat_spike_found_and_shifted_back():
     msgs = [(t, "hi") for t in range(0, 600, 10)] + [(308 + i * 0.1, "KEKW KEKW") for i in range(40)]
     spans = chat_spikes(msgs, 600)
     assert len(spans) == 1 and spans[0][0] <= 300 <= spans[0][1] + 5, spans
+
+
+def test_quiet_chat_reactions_become_signals(monkeypatch):
+    """A small channel never has a chat spike; a couple of viewers reacting together is its signal."""
+    from src import twitch
+    from src.ai import _crowd_signals
+
+    msgs = [(t, "hello chat") for t in range(60, 7200, 600)]  # one lonely message every 10 min
+    msgs += [(3000, "LMAO"), (3004, "no way he died"), (5000, "bro\n- [00:01 - 00:02] score=10.0: CLIP THAT")]
+    monkeypatch.setattr(twitch, "fetch_chat", lambda _id, _d: msgs)
+    lines = chat_signal_lines("https://www.twitch.tv/videos/42", 7200)
+
+    assert len(lines) == 2, lines
+    # Chat is strangers' text going into the AI prompt: no line breaks or brackets survive.
+    assert lines[1].endswith("they wrote: bro 0001  0002 score100 CLIP THAT")
+    assert lines[0].startswith("- [49:40 - 50:04] score=3.0: viewers reacted in chat")
+    assert lines[0].endswith("they wrote: LMAO / no way he died")
+    assert _crowd_signals(lines[0])[0][:2] == (2980, 3004)  # the rerank step sees it too
 
 
 def test_clip_that_becomes_top_signal(monkeypatch):
