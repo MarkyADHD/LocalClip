@@ -939,6 +939,26 @@ def _sanitize_hook_span(
         segment.hook_end_time = None
 
 
+class ClipTitle(BaseModel):
+    hook_title: str = Field(description="3-9 word on-screen title")
+    hashtags: List[str] = Field(default_factory=list, description="3-5 hashtags without #")
+
+    _clean_hashtags = field_validator("hashtags", mode="before")(TranscriptSegment._clean_hashtags.__func__)
+
+
+CLIP_TITLE_PROMPT = """You title short vertical clips cut from livestreams. From the clip's transcript, return:
+- "hook_title": a 3-8 word on-screen title written like a viral stream clip. Tease the moment, do not spoil the payoff,
+  never invent facts. Plain text in the transcript's language: no hashtags, emojis or quotes.
+- "hashtags": 3-5 tags without the # sign, the game or topic first, then what happens. No filler like fyp or viral.
+Return JSON only."""
+
+
+async def title_clip(text: str) -> tuple[Optional[str], List[str]]:
+    """Hook title and hashtags for a clip the user picked themselves (the AI search writes its own)."""
+    result = await build_agent(ClipTitle, CLIP_TITLE_PROMPT).run(f"Transcript:\n{text.strip()[:6000]}")
+    return sanitize_hook_title(result.output.hook_title), result.output.hashtags
+
+
 def search_transcript(transcript: str, query: str, limit: int = 50) -> List[Dict[str, Any]]:
     """Where the transcript says `query` (case and punctuation ignored), in stream order.
 

@@ -42,7 +42,7 @@ from ..clip_source_map import (
     save_clip_source_ranges,
     source_range_bounds,
 )
-from ..ai import _format_minutes_label, get_most_relevant_parts_by_transcript
+from ..ai import _format_minutes_label, get_most_relevant_parts_by_transcript, title_clip
 from ..claude_code import check_signed_in
 from ..config import get_config
 
@@ -656,6 +656,14 @@ class VideoService:
                     transcript_data,
                 )
                 segments_json.append(segment_payload)
+
+            if manual_range and segments_json and segments_json[0]["text"].strip():
+                try:  # a picked clip still gets a title and hashtags; it is fine without them
+                    segments_json[0]["hook_title"], segments_json[0]["hashtags"] = await title_clip(
+                        segments_json[0]["text"]
+                    )
+                except Exception as exc:
+                    logger.warning("Could not title the picked clip: %s", exc)
 
             if not segments_json and exclude_ranges is not None:
                 raise ValueError(
