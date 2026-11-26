@@ -211,3 +211,31 @@ def test_clip_on_twitch(monkeypatch, tmp_path):
     assert run() == {"id": "FunnyClipAbc", "url": "https://clips.twitch.tv/FunnyClipAbc", "duration": 29.6}
     assert calls[-1] == ("POST", "videos/clips", {"broadcaster_id": "99", "editor_id": "7", "vod_id": "42",
                                                   "vod_offset": 130, "duration": 29.6, "title": "he really did that"})
+
+
+def test_chat_and_reactions_are_fetched_once_per_vod(tmp_path, monkeypatch):
+    """A resume or Find more on a long stream doesn't spend minutes fetching chat and listening again."""
+    import io
+    import json
+
+    from src import twitch
+
+    monkeypatch.setattr(twitch, "get_config", lambda: type("C", (), {"temp_dir": str(tmp_path)})())
+    pages = []
+
+    def urlopen(req, timeout):
+        pages.append(req)
+        edges = [] if len(pages) % 2 == 0 else [{"node": {"id": "a", "contentOffsetSeconds": 5, "message": {"fragments": [{"text": "LUL"}]}}}]
+        return io.BytesIO(json.dumps({"data": {"video": {"comments": {"edges": edges}}}}).encode())
+
+    monkeypatch.setattr(twitch.urllib.request, "urlopen", urlopen)
+    assert twitch.fetch_chat("42", 3600) == [(5.0, "LUL")]
+    assert twitch.fetch_chat("42", 3600) == [(5.0, "LUL")] and len(pages) == 2
+    twitch.fetch_chat("42", 7200)  # the VOD was still live: fetch again
+    assert len(pages) == 4
+
+    listens = []
+    monkeypatch.setattr(reactions, "_detect_reactions", lambda p: listens.append(p) or [(1.0, 3.0, "laughing")])
+    video = tmp_path / "42.mp4"
+    assert reactions.detect_reactions(video) == reactions.detect_reactions(video) == [(1.0, 3.0, "laughing")]
+    assert len(listens) == 1

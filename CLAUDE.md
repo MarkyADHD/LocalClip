@@ -82,6 +82,7 @@ Blocking work (ffmpeg, downloads, transcription) is wrapped in `run_in_thread()`
    activity spikes, which feed the clip selection as an extra signal. `media/reactions.py` tags laughing and
    screaming in the audio (sherpa-onnx CED-tiny, 2 s chunks, ~15 s per stream hour, model downloaded once to
    `TEMP_DIR/models/reactions`); those hints sit beside the loud spikes in `build_clip_signal_summary`.
+   Both are kept beside the VOD (`twitch/<id>.chat.json`, `<stem>.reactions.json`), so a resume or Find more skips them.
 4. **AI analysis**: the LLM picks segments with virality scores; the prompts target stream
    moments (fails, clutches, reactions, chat spikes), not tutorials or talk. Default LLM is the Claude Code
    CLI (`LLM=claude-code:sonnet`, provider `claude-code` in `ai.py`); it uses the user's local
