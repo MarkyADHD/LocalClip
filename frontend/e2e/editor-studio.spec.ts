@@ -288,37 +288,6 @@ test("preview, caption dragging and responsive layout", async ({
   });
 });
 
-test("browser export contains edited video and audio through multiple cuts", async ({
-  page,
-}, info) => {
-  await setup(page);
-  await page.getByLabel("Word 2", { exact: true }).click();
-  await page.getByRole("button", { name: "Split at playhead" }).click();
-  await page.getByRole("tab", { name: "Layout" }).click();
-  await page.getByRole("radio", { name: "Original", exact: true }).click();
-  await page.getByRole("button", { name: "Export", exact: true }).click();
-  await page.getByRole("button", { name: /On this device/ }).click();
-  const downloadPromise = page.waitForEvent("download", { timeout: 60000 });
-  await page.getByRole("button", { name: "Export clip", exact: true }).click();
-  const download = await downloadPromise;
-  const file = info.outputPath("browser-export.mp4");
-  await download.saveAs(file);
-  const probe = JSON.parse(
-    execFileSync(
-      "ffprobe",
-      ["-v", "error", "-show_streams", "-show_format", "-of", "json", file],
-      { encoding: "utf8" },
-    ),
-  );
-  expect(
-    probe.streams.find((s: { codec_type: string }) => s.codec_type === "video"),
-  ).toMatchObject({ width: 640, height: 360 });
-  expect(
-    probe.streams.some((s: { codec_type: string }) => s.codec_type === "audio"),
-  ).toBe(true);
-  expect(Number(probe.format.duration)).toBeCloseTo(3, 1);
-});
-
 test("one switch bleeps every swear word and single words can opt out", async ({
   page,
 }) => {

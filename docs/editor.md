@@ -40,7 +40,7 @@ locally for recovery after an interrupted save.
 - **Slow motion** (`segments[].speed`, 0.25 to 1): the timeline's snail button slows a segment, the
   rewind button adds a half-speed replay of the last 2.5 s. Captions and punch-ins go through the same
   time mapping (`mapped`). The export fills in frames with ffmpeg's `minterpolate` (`SLOWMO_MODE`).
-- **Server-only edits** (`needsServerExport`): bleeps, slow motion, `cleanVoice` (ffmpeg denoise),
+- **Export-only edits**: bleeps, slow motion, `cleanVoice` (ffmpeg denoise),
   `gameVolume` (voice split from game sound with Spleeter via sherpa-onnx, `media/stems.py`, stems
   cached beside the clip) and `framing.sharpCam` (Real-ESRGAN upscale of the facecam, `media/upscale.py`,
   downloaded on first use on Windows, `UPSCALE_MODEL`). None of these change the preview.
@@ -68,20 +68,14 @@ The export dialog shows dimensions, edited duration, audio state, and approximat
 file size. TikTok, Reels, and Shorts presets set target bitrates; the selected
 framing controls the output aspect ratio.
 
-**Background export** uses the worker and produces H.264/AAC MP4. Jobs keep running
-when the editor closes and reappear in the export queue. Progress, cancellation,
-failures, and completed downloads are available there. Export all clips queues
-saved drafts sequentially, preparing uncached source media as needed.
+Export always renders on the PC with the worker (FFmpeg/libass) and produces
+H.264/AAC MP4. Jobs keep running when the editor closes and reappear in the export
+queue. Progress, cancellation, failures, and completed downloads are available there.
+Export all clips queues saved drafts sequentially, preparing uncached source media as needed.
 
-**On this device** checks browser encoder support before starting. The canvas
-renderer is shared by preview and browser export. AAC is preferred; browsers
-without AAC encoding use Opus in MP4 and show a compatibility notice. Background
-export is the most compatible choice. Keep the editor open for a browser export.
-
-The server uses FFmpeg/libass, while browser export uses canvas/WebCodecs. Both
-consume the same cut, word, style, layout, audio, and effects document, and caption
-sizes are matched per font. Line wrapping, blur and color filtering can differ slightly
-between rendering engines.
+The preview draws on a canvas, the export uses FFmpeg/libass. Both consume the same
+cut, word, style, layout, audio, and effects document, and caption sizes are matched
+per font. Line wrapping, blur and color filtering can differ slightly between them.
 
 ## Persistence and operation
 

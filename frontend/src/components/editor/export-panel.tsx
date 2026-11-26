@@ -1,14 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  AlertCircle,
-  Cpu,
-  Copy,
-  Download,
-  Loader2,
-  Monitor,
-  X,
-} from "lucide-react";
+import { AlertCircle, Copy, Download, Loader2, X } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -23,7 +15,6 @@ import {
 } from "@/components/ui/dialog";
 import {
   editDuration,
-  needsServerExport,
   outputSize,
   timecode,
   type EditDocument,
@@ -32,10 +23,8 @@ import {
 } from "@/lib/editor/document";
 import { useSession } from "@/lib/auth-client";
 import { trackClipExport } from "@/lib/clip-export-tracking";
-import { exportDraft } from "@/lib/editor/export-draft";
 import { editorRequest } from "./use-editor";
 import { toast } from "sonner";
-import { cn } from "@/lib/utils";
 export interface ClipSummary {
   id: string;
   filename: string;
@@ -93,55 +82,13 @@ export function ExportPanel({
 }: Props) {
   const userId = useSession().data?.user?.id;
   const [preset, setPreset] = useState("tiktok"),
-    [mode, setMode] = useState("server"),
-    [progress, setProgress] = useState<number | null>(null),
     [busy, setBusy] = useState(false),
     [message, setMessage] = useState("");
-  const [browserSupport, setBrowserSupport] = useState<{
-    supported: boolean;
-    label: string;
-  } | null>(null);
   const [jobs, setJobs] = useState<Job[]>([]),
     [error, setError] = useState<string | null>(null);
   const controller = useRef<AbortController | null>(null);
-  const endpoint = `/api/tasks/${taskId}/clips/${clip.id}/editor`;
   const size = outputSize(doc, asset.width, asset.height),
     duration = editDuration(doc);
-  useEffect(() => {
-    if (!open) return;
-    let stopped = false;
-    setBrowserSupport(null);
-    void import("mediabunny")
-      .then(async (m) => {
-        const video = await m.canEncodeVideo("avc", {
-          width: size.width,
-          height: size.height,
-          bitrate: preset === "reels" ? 12_000_000 : 10_000_000,
-        });
-        const aac = !asset.hasAudio || (await m.canEncodeAudio("aac"));
-        const audio = aac || (await m.canEncodeAudio("opus"));
-        if (!stopped)
-          setBrowserSupport({
-            supported: video && audio,
-            label:
-              !video || !audio
-                ? "Use background export"
-                : aac
-                  ? "MP4 · keep this editor open"
-                  : "MP4 · Opus audio",
-          });
-      })
-      .catch(() => {
-        if (!stopped)
-          setBrowserSupport({
-            supported: false,
-            label: "Use background export",
-          });
-      });
-    return () => {
-      stopped = true;
-    };
-  }, [open, size.width, size.height, preset, asset.hasAudio]);
   const refresh = useCallback(async () => {
     const results = await Promise.allSettled(
       clips.map(async (c) => {
@@ -166,12 +113,6 @@ export function ExportPanel({
     return () => clearInterval(timer);
   }, [open, refresh]);
   useEffect(() => () => controller.current?.abort(), []);
-  useEffect(() => {
-    if (!busy || mode !== "browser") return;
-    const warn = (event: BeforeUnloadEvent) => event.preventDefault();
-    window.addEventListener("beforeunload", warn);
-    return () => window.removeEventListener("beforeunload", warn);
-  }, [busy, mode]);
   const start = async (batch: boolean) => {
     setBusy(true);
     setError(null);
@@ -179,47 +120,29 @@ export function ExportPanel({
     controller.current = control;
     try {
       await save();
-      // Sound edits and slow motion are rendered by the server only.
-      if (mode === "browser" && !batch && !needsServerExport(doc)) {
-        setProgress(0);
-        await exportDraft(
-          `${endpoint}/media/clean.mp4`,
-          doc,
-          asset,
+      for (const c of batch ? clips : [clip]) {
+        control.signal.throwIfAborted();
+        setMessage(`Preparing clip ${c.clip_order}…`);
+        const url = `/api/tasks/${taskId}/clips/${c.id}/editor`;
+        const state =
+          c.id === clip.id ? asset : await readyEditor(url, control.signal);
+        control.signal.throwIfAborted();
+        await editorRequest(`${url}/exports`, "POST", {
+          basis: state.basis,
           preset,
-          control.signal,
-          setProgress,
-        );
-        if (userId) void trackClipExport({ userId, surface: "editor", format: preset });
-        toast.success("Video exported");
-      } else {
-        for (const c of batch ? clips : [clip]) {
-          control.signal.throwIfAborted();
-          setMessage(`Preparing clip ${c.clip_order}…`);
-          const url = `/api/tasks/${taskId}/clips/${c.id}/editor`;
-          const state =
-            c.id === clip.id ? asset : await readyEditor(url, control.signal);
-          control.signal.throwIfAborted();
-          await editorRequest(`${url}/exports`, "POST", {
-            basis: state.basis,
-            preset,
-            document: c.id === clip.id ? doc : state.draft.document,
-          });
-        }
-        await refresh();
-        toast.success(
-          batch
-            ? "Clips added to the export queue"
-            : "Background export started",
-        );
+          document: c.id === clip.id ? doc : state.draft.document,
+        });
       }
+      await refresh();
+      toast.success(
+        batch ? "Clips added to the export queue" : "Export started",
+      );
     } catch (e) {
       if (!control.signal.aborted)
         setError(e instanceof Error ? e.message : "Export failed");
       else toast.info("Export cancelled");
     } finally {
       setBusy(false);
-      setProgress(null);
       setMessage("");
       controller.current = null;
     }
@@ -239,22 +162,6 @@ export function ExportPanel({
       "Estimated size",
       `~${(((preset === "reels" ? 12 : 10) * duration) / 8).toFixed(1)} MB`,
     ],
-  ];
-  const modes = [
-    {
-      id: "server",
-      Icon: Cpu,
-      title: "Background export",
-      detail: "Best quality. Rendered on your PC, keeps going if you leave.",
-      disabled: busy,
-    },
-    {
-      id: "browser",
-      Icon: Monitor,
-      title: "On this device",
-      detail: browserSupport?.label || "Checking this browser…",
-      disabled: busy || !browserSupport?.supported,
-    },
   ];
   const postCaption = [
     doc.title || clip.hook_title,
@@ -303,35 +210,6 @@ export function ExportPanel({
             </div>
           ))}
         </dl>
-        <div className="space-y-2">
-          <p className="text-xs font-medium text-muted-foreground">Render on</p>
-          <div className="grid grid-cols-2 gap-2">
-            {modes.map(({ id, Icon, title, detail, disabled }) => (
-              <button
-                key={id}
-                disabled={disabled}
-                aria-pressed={mode === id}
-                className={cn(
-                  "rounded-lg border p-3 text-left transition-colors outline-none hover:bg-accent focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50",
-                  mode === id && "border-brand ring-1 ring-brand",
-                )}
-                onClick={() => setMode(id)}
-              >
-                <Icon className="mb-2 size-4" />
-                <span className="block text-sm font-medium">{title}</span>
-                <span className="block text-xs text-muted-foreground">
-                  {detail}
-                </span>
-              </button>
-            ))}
-          </div>
-          {mode === "browser" && browserSupport?.label.includes("Opus") && (
-            <p className="text-xs text-muted-foreground">
-              This browser uses Opus audio in MP4. Background export provides
-              wider player compatibility with AAC audio.
-            </p>
-          )}
-        </div>
         {postCaption && (
           <div className="space-y-2">
             <p className="text-xs font-medium text-muted-foreground">
@@ -364,9 +242,7 @@ export function ExportPanel({
             <div className="flex items-center justify-between text-sm">
               <span className="flex items-center gap-2">
                 <Loader2 className="size-4 animate-spin" />
-                {progress !== null
-                  ? `Exporting ${progress}%`
-                  : message || "Saving draft…"}
+                {message || "Saving draft…"}
               </span>
               <Button
                 variant="ghost"
@@ -376,9 +252,6 @@ export function ExportPanel({
                 Cancel
               </Button>
             </div>
-            {progress !== null && (
-              <Progress aria-label="Browser export progress" value={progress} />
-            )}
           </div>
         ) : (
           <div className="flex flex-col-reverse gap-2 sm:flex-row">
@@ -388,7 +261,6 @@ export function ExportPanel({
               </Button>
             )}
             <Button
-              disabled={mode === "browser" && !browserSupport?.supported}
               onClick={() => void start(false)}
               className="bg-brand text-brand-foreground hover:bg-brand/90 sm:flex-1"
             >
@@ -443,7 +315,14 @@ export function ExportPanel({
                       <a
                         href={`${job.endpoint}/exports/${job.id}/file`}
                         download
-                        onClick={() => { if (userId) void trackClipExport({ userId, surface: "editor_queue", format: "queued_render" }); }}
+                        onClick={() => {
+                          if (userId)
+                            void trackClipExport({
+                              userId,
+                              surface: "editor_queue",
+                              format: "queued_render",
+                            });
+                        }}
                       >
                         <Download />
                         Download

@@ -130,7 +130,7 @@ export function drawWords(
   const texts = words.map((w) =>
     style.uppercase ? w.text.toUpperCase() : w.text,
   );
-  // Fit each phrase in the safe width, using the same font for preview and browser export.
+  // Fit each phrase in the safe width, using the same font as the export.
   const space = ctx.measureText(" ").width;
   const lines: number[][] = [];
   let line: number[] = [],

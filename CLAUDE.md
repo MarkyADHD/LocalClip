@@ -109,14 +109,14 @@ the biggest face.
 
 The studio (`frontend/src/components/editor/`, `/tasks/[id]/edit`) edits a draft document
 (`editor_document.py` / `lib/editor/document.ts`: cuts, words, caption style, layout, title). The
-preview and in-browser export draw it on a canvas (`lib/editor/render.ts`); the server export builds
+preview draws it on a canvas (`lib/editor/render.ts`); the export (always on the PC) builds
 the same picture with ffmpeg + libass (`layout_filter`, `write_ass`). Change both together. See `docs/editor.md`.
 
 Caption looks: the editor's one-click `PRESETS` (`inspector.tsx`) are also generation templates (`_look` rows in
 `caption_templates.py`, same values, checked by `tests/unit/test_caption_looks.py`), so a clip made with a look opens in the
 editor with that look picked. Add a look in both places.
 
-Server-export-only extras: punch-in zooms, slow motion and replays, mic cleanup, voice/game volume
+Export-only extras (not in the preview): punch-in zooms, slow motion and replays, mic cleanup, voice/game volume
 split (`media/stems.py`) and AI facecam upscaling (`media/upscale.py`, optional download).
 
 "Find more clips" on a finished generation (`POST /tasks/{id}/find-more`, `process_task(find_more=True)`) runs the
