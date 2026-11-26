@@ -141,15 +141,17 @@ ANALYSIS_UTTERANCE_SPLIT_THRESHOLD_WORDS = 80
 
 _WHISPER_MODEL_CACHE: Dict[str, Any] = {}
 
-FINAL_VIDEO_CRF = 19
+FINAL_VIDEO_CRF = 17
 
 FINAL_VIDEO_PRESET = "medium"
 
-INTERMEDIATE_CRF = 16
+# The cut the final pass reads from: near-lossless, its loss stacks on the final encode's.
+INTERMEDIATE_CRF = 8
 
+# Fallback only: clips keep their source's frame rate up to 60 (clip_fps).
 OUTPUT_FPS = 30
 
-AUDIO_BITRATE = "192k"
+AUDIO_BITRATE = "256k"
 
 LOUDNORM_FILTER = "loudnorm=I=-14:TP=-1.5:LRA=11"
 # The editors' opt-in "Clean up voice": rumble out, steady hiss (fans, hum) down.

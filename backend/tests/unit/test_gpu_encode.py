@@ -18,10 +18,10 @@ def test_cpu_fallback_swaps_only_the_video_encoder(monkeypatch):
     fallback = ffmpeg.cpu_encode_fallback(command)
 
     assert "h264_nvenc" not in fallback and "-cq" not in fallback
-    assert fallback[4:10] == ["-c:v", "libx264", "-preset", "medium", "-crf", "19"]
+    assert fallback[4:10] == ["-c:v", "libx264", "-preset", "medium", "-crf", "17"]
     assert fallback[:4] == command[:4] and fallback[-3:] == ["-c:a", "aac", "out.mp4"]
     intermediate = ["ffmpeg", *ffmpeg.intermediate_video_encode_args(), "o.mp4"]
-    assert ffmpeg.cpu_encode_fallback(intermediate)[1:7] == ["-c:v", "libx264", "-preset", "veryfast", "-crf", "16"]
+    assert ffmpeg.cpu_encode_fallback(intermediate)[1:7] == ["-c:v", "libx264", "-preset", "veryfast", "-crf", "8"]
 
 
 def test_failed_gpu_encode_is_rendered_on_the_cpu(monkeypatch, tmp_path):
@@ -35,3 +35,15 @@ def test_failed_gpu_encode_is_rendered_on_the_cpu(monkeypatch, tmp_path):
 
     assert ffmpeg.render_source_ranges_ffmpeg(source, [(0.5, 2.5)], out)
     assert 1.8 < ffmpeg.ffprobe_duration(out) < 2.3
+
+
+def test_clips_keep_the_source_frame_rate_up_to_60(tmp_path):
+    for rate, expected in (("15", "15"), ("30000/1001", "30000/1001"), ("120", "60"), ("60", "60")):
+        video = tmp_path / "v.mp4"
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", f"testsrc2=s=320x180:r={rate}:d=1",
+                        "-c:v", "libx264", str(video)], check=True)
+        assert ffmpeg.clip_fps(video) == expected
+    cut = tmp_path / "cut.mp4"
+    assert ffmpeg.render_source_ranges_ffmpeg(video, [(0.13, 0.71)], cut)
+    assert ffmpeg.clip_fps(cut) == "60"
+    assert ffmpeg.clip_fps(tmp_path / "missing.mp4") == "30"
