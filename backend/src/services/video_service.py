@@ -43,6 +43,7 @@ from ..clip_source_map import (
     source_range_bounds,
 )
 from ..ai import _format_minutes_label, get_most_relevant_parts_by_transcript
+from ..claude_code import check_signed_in
 from ..config import get_config
 
 logger = logging.getLogger(__name__)
@@ -443,6 +444,14 @@ class VideoService:
                 if max_video_duration is None
                 else max_video_duration
             )
+            needs_ai = not manual_range and not (
+                cached_analysis_json and exclude_ranges is None and not clip_request
+            )
+            if needs_ai and str(getattr(runtime_config, "llm", "")).lower().startswith("claude-code:"):
+                if progress_callback:
+                    await progress_callback(5, "Checking Claude Code is signed in...", "processing")
+                await check_signed_in()
+
             # Step 1: Get video path (download or use existing)
             if should_cancel and await should_cancel():
                 raise Exception("Task cancelled")

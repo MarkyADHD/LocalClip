@@ -51,3 +51,23 @@ async def test_cli_error_is_raised(tmp_path, monkeypatch):
         fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
         with pytest.raises(RuntimeError, match=shown):
             await agent.run("hi")
+
+
+@pytest.mark.asyncio
+async def test_sign_in_check_stops_only_a_signed_out_claude(tmp_path, monkeypatch):
+    from src.claude_code import ClaudeSignedOut, check_signed_in
+
+    fake = tmp_path / "claude"
+    monkeypatch.setenv("CLAUDE_CODE_PATH", str(fake))
+    for answer, signed_out in [
+        ({"is_error": False, "structured_output": {"ok": True}}, False),
+        ({"is_error": True, "result": "Rate limited"}, False),  # left for the clip search to report
+        ({"is_error": True, "result": "OAuth session expired and could not be refreshed"}, True),
+    ]:
+        fake.write_text("#!/bin/sh\ncat >/dev/null\necho '" + json.dumps(answer) + "'\n")
+        fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
+        if signed_out:
+            with pytest.raises(ClaudeSignedOut, match="signed out"):
+                await check_signed_in()
+        else:
+            await check_signed_in()
