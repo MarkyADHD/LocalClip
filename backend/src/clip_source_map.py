@@ -40,6 +40,20 @@ def total_source_duration(ranges: Iterable[tuple[float, float]] | None) -> float
     return sum(end - start for start, end in normalize_source_ranges(ranges))
 
 
+def join_cut_ranges(ranges: Iterable[tuple[float, float]] | None) -> List[SourceRange]:
+    """Undo the cuts (pauses, fillers) inside a clip so cleanup can be redone from scratch.
+
+    A forward jump is a cut and is joined back; a backward jump is a hook teaser and stays.
+    """
+    joined: List[SourceRange] = []
+    for start, end in normalize_source_ranges(ranges):
+        if joined and start >= joined[-1][1]:
+            joined[-1] = (joined[-1][0], end)
+        else:
+            joined.append((start, end))
+    return joined
+
+
 def source_range_bounds(
     ranges: Iterable[tuple[float, float]] | None,
 ) -> SourceRange | None:
