@@ -11,10 +11,10 @@ import { Select, SelectContent, SelectTrigger, SelectValue } from "@/components/
 import { Slider } from "@/components/ui/slider";
 import { useSession } from "@/lib/auth-client";
 import { track } from "@/lib/datafast";
-import { AlertCircle, Bot, Check, Loader2, Moon, Palette, LifeBuoy, ShieldCheck, Sun, Type } from "lucide-react";
+import { AlertCircle, Bot, Check, EyeOff, Loader2, Moon, Palette, LifeBuoy, ShieldCheck, Sun, Type } from "lucide-react";
 import { AiModelPicker } from "@/components/ai-model-picker";
 import { ReportProblem } from "@/components/report-problem";
-import { UsageCountSwitch } from "@/components/usage-count";
+import { AutoBlurSwitch, UsageCountSwitch } from "@/components/usage-count";
 import { cn } from "@/lib/utils";
 import { FontSelectOption, type FontOption } from "@/components/font-select-option";
 
@@ -172,6 +172,10 @@ export default function SettingsPage() {
 
         <Section icon={<Bot className="size-4" />} title="AI model" description="Picks the clips. Saved as soon as you choose.">
           <AiModelPicker />
+        </Section>
+
+        <Section icon={<EyeOff className="size-4" />} title="Auto-blur" description="Keeps clips safe for TikTok, Shorts and Instagram. Saved as soon as you choose.">
+          <AutoBlurSwitch />
         </Section>
 
         <Section icon={<ShieldCheck className="size-4" />} title="Privacy" description="The only thing LocalClip reports. Saved as soon as you choose.">

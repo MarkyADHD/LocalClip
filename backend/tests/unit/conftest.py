@@ -4,6 +4,12 @@ import pytest
 from unittest.mock import AsyncMock
 
 
+@pytest.fixture(autouse=True)
+def no_auto_blur(monkeypatch):
+    """Renders in tests don't look for vapes (that would download the models)."""
+    monkeypatch.setenv("AUTO_BLUR", "false")
+
+
 @pytest.fixture
 def isolated_clip_edits(monkeypatch):
     """Keep service unit tests independent of the PostgreSQL edit boundary.

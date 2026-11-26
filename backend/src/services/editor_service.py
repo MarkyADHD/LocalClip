@@ -125,6 +125,7 @@ async def prepare_editor(ctx, task_id: str, clip_id: str, filename: str):
     from ..caption_templates import get_template
     from ..media.stream_layouts import FULLSCREEN_CAM_WIDTH, detect_facecam, pad_face
     from ..media.diarization import assign_speakers, label_speakers
+    from ..media.auto_blur import find_clip_blurs
     from typing import get_args
 
     CAPTION_FONTS = get_args(CaptionStyle.model_fields["font"].annotation)
@@ -179,6 +180,7 @@ async def prepare_editor(ctx, task_id: str, clip_id: str, filename: str):
                 keep_ranges=ranges,
                 hook_title=None,
                 extend_to_sentence=False,
+                auto_blur=False,  # blurs go in the draft instead, where a wrong one can be removed
             )
             if not rendered:
                 raise ValueError("Could not prepare the original video")
@@ -201,6 +203,7 @@ async def prepare_editor(ctx, task_id: str, clip_id: str, filename: str):
                     words, [(w["start"], w["end"], w.get("speaker")) for w in words]
                 )
             duration = metadata["duration"]
+            blurs = await run_in_thread(find_clip_blurs, clean)
             look = get_template(task.get("caption_template") or "default").get("editor", {})
             initial = (
                 EditDocument.model_validate(
@@ -233,6 +236,9 @@ async def prepare_editor(ctx, task_id: str, clip_id: str, filename: str):
                                 min(0.9, caption_settings.get("position_y") or 0.78),
                             ),
                         },
+                        "blurs": [
+                            {**b, "end": min(b["end"], duration)} for b in blurs if b["start"] < duration
+                        ],
                         "words": [
                             {
                                 "id": f"word-{i}",
@@ -327,7 +333,7 @@ async def combine_editor(ctx, task_id: str, clip_id: str, filename: str, job_id:
     try:
         payload = json.loads((directory / f"request-{job_id}.json").read_text())
         entries = payload["inputs"]
-        commands, filters, joins, all_words, ranges = ["ffmpeg", "-y"], [], [], [], []
+        commands, filters, joins, all_words, all_blurs, ranges = ["ffmpeg", "-y"], [], [], [], [], []
         cursor = 0.0
         width, height = entries[0]["state"]["width"], entries[0]["state"]["height"]
         scale = min(1, 1920 / max(width, height))
@@ -364,6 +370,18 @@ async def combine_editor(ctx, task_id: str, clip_id: str, filename: str, job_id:
                         f"anullsrc=r=48000:cl=stereo,atrim=duration={segment.end - segment.start}[a{key}]"
                     )
                 joins += [f"[v{key}][a{key}]"]
+                shift = cursor - segment.start
+                all_blurs += [
+                    {
+                        **b.model_dump(),
+                        "id": uuid.uuid4().hex,
+                        "start": max(b.start, segment.start) + shift,
+                        "end": min(b.end, segment.end) + shift,
+                        "boxes": [{**x.model_dump(), "t": max(0.0, x.t + shift)} for x in b.boxes],
+                    }
+                    for b in document.blurs
+                    if min(b.end, segment.end) > max(b.start, segment.start)
+                ]
                 cursor += segment.end - segment.start
                 ranges += slice_source_ranges(
                     entry["ranges"], segment.start, segment.end
@@ -373,6 +391,7 @@ async def combine_editor(ctx, task_id: str, clip_id: str, filename: str, job_id:
             **entries[0]["document"],
             "segments": [{"id": "combined", "start": 0, "end": cursor}],
             "words": all_words,
+            "blurs": all_blurs,
             "punches": [],
         }
         document = EditDocument.model_validate(initial).validate_duration(cursor)

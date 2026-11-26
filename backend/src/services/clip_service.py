@@ -586,7 +586,7 @@ class ClipEditingMixin:
             rendered = await run_in_thread(
                 create_optimized_clip, source, ranges[0][0], ranges[-1][1], output_path,
                 add_subtitles=False, output_format="original", keep_ranges=ranges,
-                hook_title=None, extend_to_sentence=False,
+                hook_title=None, extend_to_sentence=False, auto_blur=False,
             )
         finally:
             if downloaded_source is not None:

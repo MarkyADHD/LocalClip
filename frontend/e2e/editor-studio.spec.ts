@@ -46,9 +46,9 @@ test.beforeAll(() => {
     mediaPath,
   ]);
 });
-async function setup(page: Page, failSave = false) {
+async function setup(page: Page, failSave = false, changes: Partial<typeof draft> = {}) {
   const documents = new Map(
-    clips.map((c) => [c.id, { revision: 0, document: structuredClone(draft) }]),
+    clips.map((c) => [c.id, { revision: 0, document: { ...structuredClone(draft), ...changes } }]),
   );
   await page.route("**/api/auth/get-session**", (r) =>
     r.fulfill({
@@ -429,4 +429,34 @@ test("punch-in, slow motion, sound clean-up and facecam sharpening reach the exp
     framing: { layout: "cam_top", sharpCam: true },
   });
   expect((request!.document.punches as unknown[]).length).toBe(2);
+});
+
+test("a found blur shows in the preview and a wrong one can be removed", async ({ page }) => {
+  await setup(page, false, {
+    blurs: [
+      {
+        id: "vape",
+        label: "Vape",
+        start: 0,
+        end: 3,
+        boxes: [{ t: 0, x: 0.3, y: 0.2, w: 0.4, h: 0.6 }],
+      },
+    ],
+  });
+  let request: { document: Record<string, unknown> } | undefined;
+  await page.route("**/editor/exports", (r) => {
+    request = r.request().postDataJSON();
+    return r.fulfill({ json: { id: "job", status: "queued", progress: 0 } });
+  });
+  const canvas = page.getByLabel("Edited video preview");
+  await page.getByRole("tab", { name: "Effects" }).click();
+  await expect(page.getByText("Vape, 3.0s")).toBeVisible();
+  await page.screenshot({ path: "test-results/studio-blur.png" });
+  const blurred = await canvas.screenshot();
+  await page.getByRole("button", { name: "Remove Vape blur" }).click();
+  await expect.poll(async () => (await canvas.screenshot()).equals(blurred)).toBe(false);
+  await page.getByRole("button", { name: "Export", exact: true }).click();
+  await page.getByRole("button", { name: "Export clip", exact: true }).click();
+  await expect.poll(() => request).toBeTruthy();
+  expect(request!.document.blurs).toEqual([]);
 });

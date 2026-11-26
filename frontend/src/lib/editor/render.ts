@@ -1,4 +1,5 @@
 import {
+  blurBox,
   captionGroups,
   frameRect,
   censor,
@@ -7,6 +8,7 @@ import {
   PUNCH_Y,
   PUNCH_ZOOM,
   regionCrop,
+  sourceTime,
   wordColor,
   type CaptionStyle,
   type CaptionWord,
@@ -195,7 +197,21 @@ export function drawEditorFrame(
     ctx.scale(PUNCH_ZOOM, PUNCH_ZOOM);
     ctx.translate(-x, -y);
   }
-  drawLayout(ctx, doc, sourceWidth, sourceHeight, draw);
+  const at = doc.blurs.length ? sourceTime(doc, time).time : 0,
+    boxes = doc.blurs.map((b) => blurBox(b, at)).filter((b) => b !== null);
+  drawLayout(ctx, doc, sourceWidth, sourceHeight, (rect) => {
+    draw(rect);
+    // Each blur box drawn again, blurred, over the same spot (the export does it with a mask).
+    for (const box of boxes) {
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(rect.x + box.x * rect.width, rect.y + box.y * rect.height, box.w * rect.width, box.h * rect.height);
+      ctx.clip();
+      ctx.filter = `${ctx.filter === "none" ? "" : ctx.filter} blur(${Math.max(4, rect.width / 100)}px)`;
+      draw(rect);
+      ctx.restore();
+    }
+  });
   ctx.restore();
   if (doc.title.trim() && (!doc.titleSeconds || time < doc.titleSeconds))
     drawWords(
