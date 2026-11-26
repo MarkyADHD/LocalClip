@@ -298,10 +298,12 @@ def loudness_filter(input_path: Path, pre: List[str]) -> str:
          "-af", ",".join(pre + ["loudnorm=print_format=json"]), "-f", "null", "-"],
         capture_output=True, text=True,
     ).stderr
-    try:
-        measured = float(json.loads(stderr[stderr.rindex("{"):])["input_i"])
-    except (ValueError, KeyError):
+    # Regex, not json.loads: the JSON block failed to parse on ffmpeg 8.0 in CI (log prefixes vary by version).
+    found = re.search(r'"input_i"\s*:\s*"([^"]+)"', stderr)
+    if not found:
+        logger.warning("Could not measure clip loudness; using loudnorm")
         return LOUDNORM_FILTER
+    measured = float(found.group(1))
     gain = min(15.0, max(-20.0, -14.0 - measured))  # -inf (silence) gets the +15 cap
     # level=0: no auto make-up gain; limit 0.79 = -2 dBFS, room for AAC overshoot.
     return f"volume={gain:.2f}dB,alimiter=limit=0.79:level=0"
