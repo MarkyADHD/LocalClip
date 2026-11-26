@@ -169,9 +169,36 @@ def test_a_clip_keeps_its_talking_stretch_and_loses_the_dead_air():
     assert (kept.start_time, kept.end_time) == ("04:16", "04:41")
     assert kept.text.endswith("10 views.")
 
-    # Mostly silence around one line: too little left to be a clip.
+    # Dropping the far line would leave too little: it stays (the render cuts the pause).
     lonely = TranscriptSegment(start_time="04:37", end_time="05:09", text="He'll never make it", relevance_score=0.9)
-    assert _validate_segments([lonely], lines, []) == []
+    [kept] = _validate_segments([lonely], lines, [])
+    assert (kept.start_time, kept.end_time) == ("04:37", "05:09")
+
+
+def test_quiet_gaps_in_an_action_moment_keep_the_whole_clip():
+    from src.ai import _parse_transcript_lines, _validate_segments
+
+    # Marky's GTA heist, 2026-11-26: talk in short bursts with 8-18 s gaps. The old trim cut
+    # this 89 s pick to its first 3 s and dropped it.
+    lines = _parse_transcript_lines("\n".join([
+        "[52:17 - 52:20] what if I moved this van and",
+        "[52:28 - 52:29] I moved it over here?",
+        "[52:44 - 52:45] You know what I mean?",
+        "[52:52 - 52:54] Would we then get even",
+        "[52:57 - 52:57] more?",
+        "[53:15 - 53:17] Wait, where have they gone? They're not in my hands anymore.",
+        "[53:27 - 53:32] Oh my god, it works. We've got even more, chat. This doesn't even make",
+        "[53:44 - 53:46] We've got, like, unlimited cocaine, dude.",
+        "[60:00 - 60:02] Oh, my",
+        "[60:35 - 60:39] God. Oh, I thought I was toast. Oh, fuck.",
+    ]))
+    segment = TranscriptSegment(start_time="52:17", end_time="53:46", text="what if I moved this van", relevance_score=0.9)
+    [kept] = _validate_segments([segment], lines, [])
+    assert (kept.start_time, kept.end_time) == ("52:17", "53:46")
+    # A scream split by a long silence: the far line is the payoff, not a stray.
+    scream = TranscriptSegment(start_time="60:00", end_time="60:39", text="Oh, my God", relevance_score=0.9)
+    [kept] = _validate_segments([scream], lines, [])
+    assert (kept.start_time, kept.end_time) == ("60:00", "60:39")
 
 
 def test_a_setup_before_a_quiet_stretch_stays_in_the_clip():

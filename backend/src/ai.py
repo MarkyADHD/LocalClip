@@ -35,7 +35,7 @@ MIN_ACCEPTED_CLIP_SECONDS = 15
 MAX_ACCEPTED_CLIP_SECONDS = 90
 # A moment whose context runs longer is cut down to MAX_ACCEPTED_CLIP_SECONDS of "keep" parts.
 MAX_CONTEXT_SECONDS = 300
-TRANSCRIPT_ANALYSIS_CACHE_VERSION = "stream-picks-v14"
+TRANSCRIPT_ANALYSIS_CACHE_VERSION = "stream-picks-v15"
 TRANSCRIPT_ANALYSIS_MAX_ATTEMPTS = 3
 TRANSCRIPT_ANALYSIS_TIMEOUT_SECONDS = 600
 # Long transcripts are analysed in overlapping windows so every part of the
@@ -1608,16 +1608,19 @@ def _snap_segment_bounds(
 # ponytail: gaps are measured between transcript lines; silence inside one short line is not seen.
 DEAD_AIR_SECONDS = 8
 STRAY_TALK_SECONDS = 6
+# Only a line this far from the rest is stray. Action streams talk in bursts with 8-15 s
+# gaps (Marky's GTA heists), and the render already cuts long pauses out.
+STRAY_GAP_SECONDS = 20
 
 
 def _trim_dead_air(
     transcript_lines: List[Dict[str, Any]], start_seconds: int, end_seconds: int
 ) -> Optional[tuple[Dict[str, Any], Dict[str, Any]]]:
-    """Drop a stray line left at either end of a clip after 8 s of silence.
+    """Drop one stray line left at either end of a clip after a long silence.
 
     A clip can end on a line said half a minute after the moment ("For you." after
-    28 s of nothing). Only short edge stretches go: a setup, then a quiet drive, then
-    the punchline keeps all three (the render cuts long pauses out).
+    28 s of nothing). Nothing else goes: a setup, a quiet stretch and the payoff all
+    stay (the render cuts long pauses out).
     """
     inside = [
         line for line in transcript_lines
@@ -1631,13 +1634,16 @@ def _trim_dead_air(
             runs.append([])
         runs[-1].append(line)
 
-    def talking(run: List[Dict[str, Any]]) -> int:
-        return sum(line["end_seconds"] - line["start_seconds"] for line in run)
+    def stray(run: List[Dict[str, Any]], gap: int, rest: List[List[Dict[str, Any]]]) -> bool:
+        # A short line far from the rest, and the rest is a clip on its own. Otherwise the
+        # line is likely the payoff ("Oh, my ... God. Oh, I thought I was toast").
+        talk = sum(line["end_seconds"] - line["start_seconds"] for line in run)
+        rest_seconds = rest[-1][-1]["end_seconds"] - rest[0][0]["start_seconds"]
+        return talk < STRAY_TALK_SECONDS and gap >= STRAY_GAP_SECONDS and rest_seconds >= MIN_ACCEPTED_CLIP_SECONDS
 
-    # ponytail: "stray" is under 6 s of talking; raise it if lone tails still get through.
-    while len(runs) > 1 and talking(runs[-1]) < STRAY_TALK_SECONDS:
+    if len(runs) > 1 and stray(runs[-1], runs[-1][0]["start_seconds"] - runs[-2][-1]["end_seconds"], runs[:-1]):
         runs.pop()
-    while len(runs) > 1 and talking(runs[0]) < STRAY_TALK_SECONDS:
+    if len(runs) > 1 and stray(runs[0], runs[1][0]["start_seconds"] - runs[0][-1]["end_seconds"], runs[1:]):
         runs.pop(0)
     return runs[0][0], runs[-1][-1]
 
