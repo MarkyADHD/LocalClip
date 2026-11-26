@@ -17,6 +17,7 @@ from ..project_document import (
     asset_dir,
     chunk_bounds,
     chunk_command,
+    music_needs,
     chunk_key,
     project_dir,
     read_assets,
@@ -300,6 +301,46 @@ def export_encode_args(quality: str, fps: float) -> list[str]:
     return (_nvenc_args(cq, "p5") if nvenc_available() else _x264_args(cq, "veryfast")) + common
 
 
+def make_music_free(directory: Path, needs: dict[str, list[int]], report=None, cancelled=None) -> None:
+    """Takes the music out of the source blocks in `needs` that are not done yet; one run at a time."""
+    from ..media.music import make_blocks, work_lock
+
+    assets = read_assets(directory)
+    total = sum(len(k) for k in needs.values()) or 1
+    done = 0
+    with work_lock:
+        for asset_id, indices in needs.items():
+            asset = assets.get(asset_id)
+            if not asset or not asset.get("path"):
+                continue
+            step = (lambda i, n, base=done: report((base + i) / total)) if report else None
+            make_blocks(asset["path"], asset_dir(directory, asset_id), indices, asset["duration"], step, cancelled)
+            done += len(indices)
+
+
+async def remove_music(ctx, project_id: str, needs: dict[str, list[int]]):
+    """Background job started when clips are marked "Remove music", so the export and preview find it done."""
+    from ..config import get_config
+
+    directory = project_dir(get_config().temp_dir, project_id)
+
+    def status(**values):
+        for asset_id in needs:
+            folder = asset_dir(directory, asset_id) / "music-free"
+            folder.mkdir(parents=True, exist_ok=True)
+            atomic_json(folder / "status.json", values)
+
+    status(status="working", progress=0)
+    try:
+        await run_in_thread(
+            make_music_free, directory, needs, _throttle(lambda value: status(status="working", progress=int(value * 100)))
+        )
+        status(status="done", progress=100)
+    except Exception:
+        logger.exception("Could not take the music out")
+        status(status="failed", progress=0)
+
+
 def render_project(directory: Path, job_id: str) -> None:
     from ..clip_editor import _escape_filter_path
     from ..media.ffmpeg import cpu_encode_fallback
@@ -321,6 +362,15 @@ def render_project(directory: Path, job_id: str) -> None:
     bounds = chunk_bounds(document)
     cancelled = cancel_path.exists
     done = [0]
+    needs = music_needs(document, assets)
+    if needs:
+        report = _throttle(lambda value: atomic_json(status_path, {"status": "rendering", "progress": 0, "message": f"Taking out the music {int(value * 100)}%"}))
+        try:
+            make_music_free(directory, needs, report, cancelled)
+        except InterruptedError:
+            raise Cancelled()
+        for asset_id in needs:
+            assets[asset_id]["musicFree"] = str(asset_dir(directory, asset_id) / "music-free")
 
     def render(index: int) -> Path:
         c0, c1 = bounds[index]
@@ -338,7 +388,8 @@ def render_project(directory: Path, job_id: str) -> None:
             target = chunks / f"{chunk_key(command, ass.read_text(encoding='utf-8') if has_text else '')}.mkv"
             if not target.exists():
                 # Rendered under a temporary name, so a cancelled chunk is never mistaken for a finished one.
-                part = target.with_suffix(".part.mkv")
+                # Named by chunk too: a timeline that repeats itself has chunks with the same key.
+                part = target.with_suffix(f".{index}.part.mkv")
                 command[-1] = str(part)
                 try:
                     run_ffmpeg(command, cancelled=cancelled)

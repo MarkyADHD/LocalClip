@@ -50,6 +50,8 @@ export interface Clip {
   opacity: number;
   volume: number;
   muted: boolean;
+  /** Export (and preview, once ready) plays the source's sound with the music taken out. */
+  noMusic?: boolean;
   fadeIn: number;
   fadeOut: number;
   text: TextStyle | null;
@@ -106,6 +108,9 @@ export interface Asset {
     height: number;
     count: number;
   };
+  /** Music-free blocks of MUSIC_BLOCK seconds already made from this source (backend/src/media/music.py). */
+  musicBlocks?: number[];
+  music?: { status: "working" | "done" | "failed"; progress: number } | null;
 }
 /** A spoken word in source seconds. */
 export interface Word {
@@ -128,6 +133,20 @@ export const trackOf = (doc: ProjectDocument, clip: Clip) =>
 /** The first video track: cuts made in the transcript close up, like a film strip. */
 export const mainTrack = (doc: ProjectDocument) =>
   doc.tracks.find((t) => t.kind === "video")!;
+
+/** Seconds of source per music-free block; same as BLOCK in backend/src/media/music.py. */
+export const MUSIC_BLOCK = 24;
+/** The music-free blocks a "Remove music" clip plays (mirrors music_needs in project_document.py). */
+export function musicBlocks(clip: Clip, asset: Asset) {
+  const first = Math.floor(clip.offset / MUSIC_BLOCK),
+    last = Math.max(first, Math.ceil((sourceEnd(clip) + 0.5) / MUSIC_BLOCK) - 1);
+  const result = [];
+  for (let k = first; k <= last && k * MUSIC_BLOCK < asset.duration; k++) result.push(k);
+  return result;
+}
+/** True when the clip's music-free sound is made and can be played. */
+export const musicReady = (clip: Clip, asset: Asset) =>
+  musicBlocks(clip, asset).every((k) => asset.musicBlocks?.includes(k));
 
 export function newClip(values: Partial<Clip> & Pick<Clip, "track">): Clip {
   return {

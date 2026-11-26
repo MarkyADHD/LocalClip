@@ -73,7 +73,7 @@ export function ExportDialog({ project, lines, open, onOpenChange }: { project: 
               <>
                 <div className="flex items-center gap-2">
                   <Loader2 className="size-4 animate-spin" />
-                  {job.status === "queued" ? "Waiting to start…" : `Rendering ${job.progress}%`}
+                  {job.status === "queued" ? "Waiting to start…" : (job.message ?? `Rendering ${job.progress}%`)}
                   <Button size="sm" variant="ghost" className="ml-auto h-7" onClick={() => editorRequest(`${project.endpoint}/exports/${job.id}`, "DELETE").then(project.refresh)}>
                     Cancel
                   </Button>

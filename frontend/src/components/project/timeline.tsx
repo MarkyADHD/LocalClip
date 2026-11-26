@@ -247,7 +247,7 @@ export function Timeline({
           }
           if (w > 70) {
             ctx.font = "11px ui-sans-serif, system-ui, sans-serif";
-            const label = clip.text ? clip.text.content.split("\n")[0] : (asset?.name ?? "Missing file");
+            const label = (clip.noMusic ? "Music removed · " : "") + (clip.text ? clip.text.content.split("\n")[0] : (asset?.name ?? "Missing file"));
             const textWidth = Math.min(ctx.measureText(label).width + 8, w);
             ctx.fillStyle = "rgba(10,10,14,0.6)";
             ctx.fillRect(a, top, textWidth, 15);

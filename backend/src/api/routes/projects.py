@@ -20,6 +20,7 @@ from ...editor_document import RevisionConflict, atomic_json, editor_lock
 from ...project_ai import ask, read_proposals, remove_proposal
 from ...project_document import (
     ProjectDocument,
+    music_needs,
     project_words,
     asset_dir,
     project_dir,
@@ -281,6 +282,62 @@ async def transcribe(project_id: str, asset_id: str, request: Request, db: Async
             atomic_json(path, {**meta, "transcript": "failed"})
             raise HTTPException(503, WORKER_DOWN)
     return {"transcript": "pending"}
+
+
+@router.post("/{project_id}/music", status_code=202)
+async def take_out_music(project_id: str, request: Request, db: AsyncSession = Depends(get_db)):
+    """Starts taking the music out of what the document's "Remove music" clips play, ahead of the export."""
+    directory = await owned(request, db, project_id)
+    document = parse_document((await _read_json_object(request)).get("document"))
+    assets = read_assets(directory)
+    needs = {
+        asset_id: missing
+        for asset_id, indices in music_needs(document, assets).items()
+        if (missing := [k for k in indices if k not in assets[asset_id].get("musicBlocks", [])])
+    }
+    if needs:
+        for asset_id in needs:
+            folder = asset_dir(directory, asset_id) / "music-free"
+            folder.mkdir(exist_ok=True)
+            atomic_json(folder / "status.json", {"status": "working", "progress": 0})
+        try:
+            await JobQueue.enqueue_job("remove_music", project_id, needs)
+        except Exception:
+            raise HTTPException(503, WORKER_DOWN)
+    return {"needs": needs}
+
+
+@router.get("/{project_id}/assets/{asset_id}/music-free.m4a")
+async def music_free_preview(
+    project_id: str, asset_id: str, first: int, last: int, request: Request,
+    db: AsyncSession = Depends(get_db, scope="function"),
+):
+    """The preview's sound for a "Remove music" clip: music-free blocks first..last joined into one file."""
+    directory = await owned(request, db, project_id)
+    try:
+        folder = asset_dir(directory, asset_id) / "music-free"
+    except FileNotFoundError:
+        raise HTTPException(404, "File not found")
+    target = folder / f"preview-{first}-{last}.m4a"
+    pieces = [folder / f"{k}.flac" for k in range(first, last + 1)]
+    if not target.exists():
+        if first < 0 or last < first or not all(p.exists() for p in pieces):
+            raise HTTPException(404, "Not ready")
+        listing = folder / f".preview-{first}-{last}-{uuid.uuid4().hex}.txt"
+        partial = target.with_name(f".{uuid.uuid4().hex}.m4a")
+        listing.write_text("".join(f"file '{p.as_posix()}'\n" for p in pieces), encoding="utf-8")
+        try:
+            await run_in_thread(
+                subprocess.run,
+                ["ffmpeg", "-y", "-v", "error", "-f", "concat", "-safe", "0", "-i", str(listing),
+                 "-c:a", "aac", "-b:a", "160k", "-movflags", "+faststart", "-f", "mp4", str(partial)],
+                check=True, capture_output=True,
+            )
+            os.replace(partial, target)
+        finally:
+            listing.unlink(missing_ok=True)
+            partial.unlink(missing_ok=True)
+    return FileResponse(target, media_type="audio/mp4", headers={"Cache-Control": "private, max-age=3600"})
 
 
 @router.get("/{project_id}/assets/{asset_id}/{name}")

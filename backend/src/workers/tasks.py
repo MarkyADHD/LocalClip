@@ -128,7 +128,7 @@ async def process_video_task(
             raise
 
 from ..services.editor_service import prepare_editor, export_editor, combine_editor, recaption_editor
-from ..services.project_service import prepare_asset, transcribe_asset, export_project
+from ..services.project_service import prepare_asset, transcribe_asset, export_project, remove_music
 
 async def cleanup_old_sources(ctx: Dict[str, Any]) -> int:
     """Free disk space: drop Twitch/Kick downloads older than SOURCE_KEEP_DAYS."""
@@ -152,7 +152,7 @@ class WorkerSettings:
     # Functions to run
     functions = [
         process_video_task, prepare_editor, export_editor, combine_editor, recaption_editor,
-        prepare_asset, transcribe_asset, export_project,
+        prepare_asset, transcribe_asset, export_project, remove_music,
     ]
     queue_name = "localclip_tasks"
     health_check_interval = 30
