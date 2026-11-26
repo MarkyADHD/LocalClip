@@ -369,7 +369,7 @@ def chunk_bounds(document: ProjectDocument) -> list[tuple[float, float]]:
 
 # Rumble out, steady hiss down, loud and quiet speech brought closer together. Each filter works
 # on a short window of sound, so a chunk sounds the same whichever chunk it lands in.
-VOICE_CLEANUP = "highpass=f=80,afftdn=nf=-25,acompressor=threshold=-21dB:ratio=3:attack=5:release=120:makeup=2,"
+VOICE_CLEANUP = "highpass=f=80,afftdn=nf=-50,acompressor=threshold=-21dB:ratio=3:attack=5:release=120:makeup=2,"
 
 
 def _atempo(speed: float) -> str:

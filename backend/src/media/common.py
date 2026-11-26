@@ -152,8 +152,8 @@ OUTPUT_FPS = 30
 AUDIO_BITRATE = "192k"
 
 LOUDNORM_FILTER = "loudnorm=I=-14:TP=-1.5:LRA=11"
-# Mic cleanup: rumble out, steady hiss (fans, hum) down. Mild enough to leave game sound alone.
-DENOISE_FILTER = "highpass=f=80,afftdn=nf=-25"
+# The editors' opt-in "Clean up voice": rumble out, steady hiss (fans, hum) down.
+DENOISE_FILTER = "highpass=f=80,afftdn=nf=-50"
 
 _EMOJI_SUPPORT_CACHE: Optional[bool] = None
 

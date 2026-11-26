@@ -1264,7 +1264,7 @@ def render_reframed_clip_ffmpeg(
         if subtitle_ass_path
         else None
     )
-    audio_args = build_audio_output_args(has_audio)
+    audio_args = build_audio_output_args(has_audio, input_path)
 
     if output_format == "original":
         out_w, out_h = round_to_even(width), round_to_even(height)
