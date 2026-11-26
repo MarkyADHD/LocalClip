@@ -161,6 +161,10 @@ Tick boxes on the results page plus "Export all" (`components/batch-export.tsx`)
 `services/project_service.py`, `api/routes/projects.py`) is a multi-track editor for whole videos.
 Projects are folders under `TEMP_DIR/projects/`; the canvas preview and the chunked ffmpeg export must
 draw the same picture. See `docs/video-editor.md`.
+"Remove music" on a clip or the whole video (`media/music.py`, `Clip.noMusic`): TIGER on the graphics card (DirectML;
+`onnxruntime-directml` replaces `onnxruntime` on Windows via a uv override) or MRX on the CPU subtracts the music stem,
+in 24 s blocks cached per source (`assets/<id>/music-free/`); export and preview use the blocks. Models on the
+`music-models-1` pre-release. No noise removal on the voice.
 
 ### Frontend
 
