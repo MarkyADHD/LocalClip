@@ -498,9 +498,12 @@ def _get_transcript_with_whisper(video_path: Path, runtime_config) -> str:
     if cached and cached.get("words") and cached.get("whisper_key") == whisper_key:
         logger.info("Reusing cached Whisper transcript for %s", video_path.name)
         return "\n".join(
-            f"[{format_ms_to_timestamp(u['start'])} - {format_ms_to_timestamp(u['end'])}] "
-            f"{u.get('text', '').strip()}"
+            line
             for u in cached.get("utterances") or []
+            for line in _analysis_lines(
+                u["start"], u["end"], u.get("text", ""),
+                [(w["text"], w["start"], w["end"]) for w in u.get("words") or []],
+            )
         )
 
     logger.info("Starting Whisper transcription with model: %s", model_name)
@@ -705,6 +708,45 @@ def _format_words_for_analysis(
     return formatted_lines
 
 
+ANALYSIS_LINE_MAX_MS = 12_000
+ANALYSIS_LINE_SENTENCE_MIN_MS = 4_000
+ANALYSIS_LINE_PAUSE_MS = 1_000
+
+
+def _analysis_lines(start_ms: int, end_ms: int, text: str, words: list) -> List[str]:
+    """One Whisper segment as transcript lines for the clip picker.
+
+    Batched Whisper returns ~30 s blocks (minutes long across silence), and a clip can only
+    start and end on a line, so long blocks are split on pauses and sentence ends.
+    ``words`` are (text, start_ms, end_ms).
+    """
+    if end_ms - start_ms <= ANALYSIS_LINE_MAX_MS or not words:
+        return [f"[{format_ms_to_timestamp(start_ms)} - {format_ms_to_timestamp(end_ms)}] {text.strip()}"]
+    lines: List[str] = []
+    current: list = []
+
+    def flush() -> None:
+        line_text = "".join(w[0] for w in current).strip()
+        if line_text:
+            lines.append(
+                f"[{format_ms_to_timestamp(current[0][1])} - {format_ms_to_timestamp(current[-1][2])}] {line_text}"
+            )
+        current.clear()
+
+    for word in words:
+        if current and word[1] - current[-1][2] >= ANALYSIS_LINE_PAUSE_MS:
+            flush()
+        current.append(word)
+        length = word[2] - current[0][1]
+        if length >= ANALYSIS_LINE_MAX_MS or (
+            length >= ANALYSIS_LINE_SENTENCE_MIN_MS and word[0].rstrip().endswith((".", "!", "?"))
+        ):
+            flush()
+    if current:
+        flush()
+    return lines
+
+
 def format_transcript_for_analysis(transcript) -> List[str]:
     """Format transcripts into readable timestamped segments for AI analysis.
 
@@ -716,11 +758,16 @@ def format_transcript_for_analysis(transcript) -> List[str]:
     if isinstance(transcript, dict):
         formatted_lines = []
         for segment in transcript.get("segments") or []:
-            start_ms = int(segment.get("start", 0) * 1000)
-            end_ms = int(segment.get("end", 0) * 1000)
-            formatted_lines.append(
-                f"[{format_ms_to_timestamp(start_ms)} - {format_ms_to_timestamp(end_ms)}] "
-                f"{segment.get('text', '').strip()}"
+            formatted_lines.extend(
+                _analysis_lines(
+                    int(segment.get("start", 0) * 1000),
+                    int(segment.get("end", 0) * 1000),
+                    segment.get("text", ""),
+                    [
+                        (w.get("word", ""), int(w["start"] * 1000), int(w["end"] * 1000))
+                        for w in segment.get("words") or []
+                    ],
+                )
             )
         return formatted_lines
 
