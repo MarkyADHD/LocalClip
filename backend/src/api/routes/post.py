@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ... import twitch
+from ...clip_source_map import source_range_bounds
 from ...clip_editor import EXPORT_PRESETS, export_with_preset
 from ...auth_headers import get_authenticated_user_id
 from ...config import get_config
@@ -84,9 +85,10 @@ async def clip_on_twitch(task_id: str, clip_id: str, request: Request,
     vod_id = twitch.get_twitch_video_id(task.get("source_url") or "")
     if not vod_id:
         raise HTTPException(status_code=400, detail="Only clips from a Twitch VOD can be clipped on Twitch")
-    ranges = TaskService._get_clip_source_ranges(clip)  # source seconds, cuts included
+    # The whole stretch of the VOD the clip covers: its ranges play out of order when a hook teaser is replayed first.
+    start, end = source_range_bounds(TaskService._get_clip_source_ranges(clip))
     try:
-        made = await twitch.create_vod_clip(vod_id, ranges[0][0], ranges[-1][1],
+        made = await twitch.create_vod_clip(vod_id, start, end,
                                             clip.get("hook_title") or task.get("source_title") or "")
     except twitch.TwitchLoginError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
