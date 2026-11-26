@@ -11,6 +11,7 @@ import {
   clipValues,
   coverScale,
   detachAudio,
+  musicReady,
   patchClips,
   setKeyframe,
   setLook,
@@ -205,6 +206,27 @@ export function Properties({ project, engine, selected }: { project: Project; en
         <Section title="Sound">
           <Range label="Volume" value={Math.round(clip.volume * 100)} min={0} max={300} unit="%" onChange={(v) => patch({ volume: v / 100 }, "volume")} />
           <Toggle label="Mute this clip" checked={clip.muted} onChange={(muted) => patch({ muted }, "")} />
+          {!clip.muted && (
+            <>
+              <Toggle label="Remove music" checked={!!clip.noMusic} onChange={(noMusic) => patch({ noMusic }, "")} />
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                {!clip.noMusic ? (
+                  "Takes songs out so YouTube does not flag them, and keeps voices and game sound. For one song, split the clip where it starts and ends and mark that part."
+                ) : musicReady(clip, asset!) ? (
+                  "Music taken out. The preview plays it without the music."
+                ) : asset!.music?.status === "failed" ? (
+                  <span className="text-destructive">
+                    Could not take the music out.{" "}
+                    <button type="button" className="underline" onClick={project.retryMusic}>
+                      Try again
+                    </button>
+                  </span>
+                ) : (
+                  `Taking out the music… ${asset!.music?.status === "working" ? `${asset!.music.progress}%` : ""}`
+                )}
+              </p>
+            </>
+          )}
           {track.kind === "video" && !clip.muted && (
             <Button size="sm" variant="outline" onClick={() => update((d) => detachAudio(d, clip.id))}>
               Move sound to its own track
@@ -239,6 +261,15 @@ export function Properties({ project, engine, selected }: { project: Project; en
 function ProjectSettings({ project }: { project: Project }) {
   const doc = project.doc!;
   const set = (values: Partial<ProjectDocument>) => project.update((d) => ({ ...d, ...values }));
+  // Every clip with sound from a recording (not music added on purpose to an audio track) changes.
+  const removeAllMusic = (noMusic: boolean) =>
+    project.update((d) => ({
+      ...d,
+      clips: d.clips.map((c) => {
+        const asset = c.asset ? project.assets[c.asset] : undefined;
+        return asset?.hasAudio && asset.kind === "video" && !!c.noMusic !== noMusic ? { ...c, noMusic } : c;
+      }),
+    }));
   return (
     <div className="space-y-6 p-4">
       <p className="text-xs leading-relaxed text-muted-foreground">Select a clip on the timeline to change it. These settings are for the whole video.</p>
@@ -260,6 +291,18 @@ function ProjectSettings({ project }: { project: Project }) {
       </Section>
       <Section title="Sound" description="Takes out rumble and hiss and evens out loud and quiet speech. Music on the audio tracks is left alone. You hear it in the exported video, not in the preview.">
         <Toggle label="Clean up voice" checked={!!doc.cleanVoice} onChange={(cleanVoice) => set({ cleanVoice })} />
+      </Section>
+      <Section title="Music" description="Takes songs out of your recordings so YouTube does not flag them, and keeps voices and game sound. Runs on this PC. To do one stretch, select its clip instead.">
+        <div className="flex flex-wrap gap-1.5">
+          <Button size="sm" variant="outline" onClick={() => removeAllMusic(true)}>
+            Remove music from the whole video
+          </Button>
+          {doc.clips.some((c) => c.noMusic) && (
+            <Button size="sm" variant="ghost" onClick={() => removeAllMusic(false)}>
+              Put the music back
+            </Button>
+          )}
+        </div>
       </Section>
     </div>
   );

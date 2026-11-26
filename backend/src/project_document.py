@@ -21,6 +21,7 @@ import re
 
 from pydantic import Field, model_validator
 
+from .media.music import BLOCK, blocks as music_blocks
 from .editor_document import (
     ASS_EVENTS,
     CaptionStyle,
@@ -82,6 +83,7 @@ class Clip(Model):
     opacity: float = Field(default=1, ge=0, le=1)
     volume: float = Field(default=1, ge=0, le=4)
     muted: bool = False
+    noMusic: bool = False  # export plays the source's sound with the music taken out (media/music.py)
     fadeIn: float = Field(default=0, ge=0, le=30)
     fadeOut: float = Field(default=0, ge=0, le=30)
     text: Optional[TextStyle] = None
@@ -188,6 +190,10 @@ def read_assets(directory: Path) -> dict[str, dict]:
     for meta in sorted((directory / "assets").glob("*/meta.json")):
         data = read_json(meta)
         if data:
+            music = meta.parent / "music-free"
+            if music.is_dir():
+                data["musicBlocks"] = sorted(int(p.stem) for p in music.glob("*.flac") if p.stem.isdigit())
+                data["music"] = read_json(music / "status.json")
             result[data["id"]] = data
     return result
 
@@ -427,8 +433,25 @@ def chunk_command(
         t0, length = a - clip.start, b - a
         fade_in, fade_out = max(clip.fadeIn, CUT_FADE), max(clip.fadeOut, CUT_FADE)
         label = f"a{len(audio_labels)}"
+        source = f"[{index}:a:0]"
+        folder = assets[clip.asset].get("musicFree") if clip.noMusic else None
+        if folder:
+            # The music-free blocks this piece needs, joined and cut to the same stretch of the source.
+            start = clip.offset + (a - clip.start) * clip.speed
+            span = length * clip.speed + 0.5
+            first = inputs.count("-i")
+            needed = [k for k in music_blocks(start, start + span) if k * BLOCK < assets[clip.asset]["duration"]]
+            for k in needed:
+                inputs.extend(["-i", str(Path(folder) / f"{k}.flac")])
+            source = f"m{label}"
+            filters.append(
+                "".join(f"[{first + i}:a:0]" for i in range(len(needed)))
+                + f"concat=n={len(needed)}:v=0:a=1,atrim=start={start - needed[0] * BLOCK:.5f}:duration={span:.5f}[{source}]"
+            )
+            source = f"[{source}]"
         filters.append(
-            f"[{index}:a:0]asetpts=PTS-STARTPTS,{_atempo(clip.speed)},atrim=duration={length:.4f},"
+            # atempo reshapes the sound even at 1x (time-stretch windows), so normal speed skips it.
+            f"{source}asetpts=PTS-STARTPTS,{_atempo(clip.speed) if clip.speed != 1 else 'anull'},atrim=duration={length:.4f},"
             f"aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,"
             # Fades are timed from the clip's start, so a clip split across chunks fades once.
             f"asetpts=PTS-STARTPTS+{t0:.4f}/TB,afade=t=in:st=0:d={fade_in:.4f},"
@@ -559,6 +582,17 @@ def chunk_command(
         + encode
         + ["-frames:v", str(frames(D)), "-c:a", "pcm_s16le", "-ar", "48000", output]
     )
+
+
+def music_needs(document: ProjectDocument, assets: dict[str, dict]) -> dict[str, list[int]]:
+    """{asset: [block, ...]} of music-free sound that the clips marked "Remove music" play (see media/music.py)."""
+    needs: dict[str, set[int]] = {}
+    for clip in document.clips:
+        asset = assets.get(clip.asset or "")
+        if clip.noMusic and asset and asset.get("hasAudio") and asset["kind"] != "image":
+            end = clip.offset + clip.duration * clip.speed + 0.5
+            needs.setdefault(clip.asset, set()).update(k for k in music_blocks(clip.offset, end) if k * BLOCK < asset["duration"])
+    return {a: sorted(k) for a, k in needs.items()}
 
 
 def chunk_key(command: list[str], ass_text: str) -> str:

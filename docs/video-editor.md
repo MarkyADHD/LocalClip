@@ -30,6 +30,19 @@ The preview (`components/project/engine.ts`) plays the preview copies on a canva
 two at once, then joins the pieces. Finished pieces are named by what they contain, so a failed
 export picks up where it stopped. Change the preview and the export together.
 
+## Remove music
+
+A clip's "Remove music" (or "Remove music from the whole video" with nothing selected) keeps voices and game
+sound and takes songs out, so YouTube's copyright check has less to match. `backend/src/media/music.py` splits the
+sound into speech, music and effects and subtracts the music: TIGER on the graphics card through DirectML
+(`onnxruntime-directml` replaces `onnxruntime` on Windows), MRX on the CPU when no card can run it (`MUSIC_GPU=false`
+forces the CPU). The source is done in 24 s blocks, kept as FLAC in `assets/<id>/music-free/`, so marking one song in
+a two-hour stream only costs that song and later trims reuse the blocks.
+
+Marking a clip starts the `remove_music` job (`POST /projects/{id}/music`); the export does whatever is still
+missing first. The preview plays `music-free.m4a?first=&last=` (the clip's blocks joined) beside the muted picture
+once the blocks exist. To do one stretch, split the clip where the song starts and ends.
+
 ## Jobs
 
 `prepare_asset`, `transcribe_asset` and `export_project` run in the ARQ worker

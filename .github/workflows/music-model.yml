@@ -1,0 +1,27 @@
+# Copies the two music/voice/effects separators to the "music-models-1" pre-release, where the app downloads them for
+# the video editor's "Remove music" (backend/src/media/music.py): TIGER (Apache-2.0, JusperLee/TIGER-DnR) for the graphics
+# card and MRX (MIT, merlresearch/cocktail-fork-separation) for the CPU, both as ONNX exported by audiojs.
+# Never replaces a published file (the app checks its sha256): for a new model, change the release tag here and there.
+name: Music model
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  copy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: List the model's files
+        run: curl -sfL https://huggingface.co/api/models/audiojs/tiger-dnr | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('sha')); [print(s['rfilename']) for s in d['siblings']]"
+      - run: curl -sfLO https://huggingface.co/audiojs/tiger-dnr/resolve/65072a210374cac07ea2ac30a85a4a0b7c71a652/tiger.int8.onnx
+      - run: curl -sfLO https://huggingface.co/audiojs/mrx/resolve/main/mrx.int8.onnx
+      - run: ls -l *.onnx && sha256sum *.onnx
+      - name: Publish the model
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view music-models-1 -R ${{ github.repository }} >/dev/null 2>&1 || gh release create music-models-1 -R ${{ github.repository }} --prerelease --title "Music removal models" --notes "Music/voice/effects separators for the video editor's Remove music: tiger.int8.onnx (TIGER for Divide and Remaster, Apache-2.0, from audiojs/tiger-dnr) and mrx.int8.onnx (MRX, MIT, from audiojs/mrx). Copied by .github/workflows/music-model.yml."
+          gh release upload music-models-1 -R ${{ github.repository }} tiger.int8.onnx mrx.int8.onnx

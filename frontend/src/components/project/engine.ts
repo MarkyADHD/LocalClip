@@ -4,6 +4,9 @@ import {
   clipValues,
   docDuration,
   fadeAt,
+  MUSIC_BLOCK,
+  musicBlocks,
+  musicReady,
   type Assets,
   type Clip,
   type ProjectDocument,
@@ -13,7 +16,8 @@ import {
 interface Deck {
   el: HTMLVideoElement | HTMLAudioElement;
   clip: string | null;
-  asset: string | null;
+  /** The file loaded in the player. */
+  src: string | null;
 }
 const clamp01 = (value: number) => Math.min(1, Math.max(0, value));
 
@@ -134,6 +138,13 @@ export class Engine {
     const asset = clip?.asset ? this.assets[clip.asset] : undefined;
     return asset?.status === "ready" && asset.kind !== "image" ? asset : undefined;
   }
+  /** For a "Remove music" clip whose music-free sound is made: the first and last block it plays. */
+  private musicFree(clip: Clip | null | undefined) {
+    const asset = this.playable(clip);
+    if (!clip?.noMusic || !asset || !musicReady(clip, asset)) return null;
+    const blocks = musicBlocks(clip, asset);
+    return { first: blocks[0], last: blocks[blocks.length - 1] };
+  }
   private decksFor(track: string, kind: "video" | "audio") {
     let pair = this.decks.get(track);
     if (!pair) {
@@ -141,34 +152,49 @@ export class Engine {
         const el = document.createElement(kind);
         el.preload = "auto";
         if (el instanceof HTMLVideoElement) el.playsInline = true;
-        return { el, clip: null, asset: null };
+        return { el, clip: null, src: null };
       });
       this.decks.set(track, pair);
     }
     return pair;
   }
-  private load(deck: Deck, clip: Clip, time: number) {
-    const asset = this.assets[clip.asset!];
-    if (deck.asset !== asset.id) {
-      deck.el.src = `${this.endpoint}/assets/${asset.id}/${asset.kind === "audio" ? "audio.m4a" : "proxy.mp4"}`;
-      deck.asset = asset.id;
+  private load(deck: Deck, clip: Clip, time: number, sound: boolean, key: string) {
+    const asset = this.assets[clip.asset!],
+      music = sound && this.musicFree(clip);
+    const src = music
+      ? `${this.endpoint}/assets/${asset.id}/music-free.m4a?first=${music.first}&last=${music.last}`
+      : `${this.endpoint}/assets/${asset.id}/${asset.kind === "audio" ? "audio.m4a" : "proxy.mp4"}`;
+    if (deck.src !== src) {
+      deck.el.src = src;
+      deck.src = src;
     }
     deck.el.currentTime = time;
-    deck.clip = clip.id;
+    deck.clip = key;
   }
 
-  /** Lines the track's players up with the timeline and returns the one showing now. */
-  private sync(track: ProjectDocument["tracks"][number], time: number) {
+  /**
+   * Lines the track's players up with the timeline and returns the one showing now. With `sound`, a second
+   * pair of players plays the music-free sound of "Remove music" clips while the picture's own is muted.
+   */
+  private sync(track: ProjectDocument["tracks"][number], time: number, sound = false) {
     const { active, next } = this.around(track.id, time);
-    const pair = this.decksFor(track.id, track.kind === "audio" ? "audio" : "video");
+    const pair = sound ? this.decksFor(`${track.id}:sound`, "audio") : this.decksFor(track.id, track.kind === "audio" ? "audio" : "video");
+    const usable = (clip: Clip | null | undefined) => (sound ? this.musicFree(clip) : this.playable(clip));
+    // Where the player's file starts in the source: block `first` for music-free sound.
+    const origin = (clip: Clip) => (sound ? (this.musicFree(clip)?.first ?? 0) * MUSIC_BLOCK : 0);
+    // A sound player is tied to the clip and the blocks it was loaded with, which change when the clip is trimmed.
+    const key = (clip: Clip | null | undefined) => {
+      const music = sound && this.musicFree(clip);
+      return clip && (sound ? (music ? `${clip.id}:${music.first}:${music.last}` : null) : clip.id);
+    };
     let current: Deck | null = null;
-    if (active && this.playable(active)) {
+    if (active && usable(active)) {
       current =
-        pair.find((d) => d.clip === active.id) ?? null;
-      const expected = active.offset + (time - active.start) * active.speed;
+        pair.find((d) => d.clip === key(active)) ?? null;
+      const expected = active.offset + (time - active.start) * active.speed - origin(active);
       if (!current) {
-        current = pair.find((d) => d.clip !== next?.id) ?? pair[0];
-        this.load(current, active, expected);
+        current = pair.find((d) => !key(next) || d.clip !== key(next)) ?? pair[0];
+        this.load(current, active, expected, sound, key(active)!);
       }
       const el = current.el,
         drift = Math.abs(el.currentTime - expected);
@@ -181,7 +207,7 @@ export class Engine {
         if (!el.paused) el.pause();
         if (drift > 0.02 && !el.seeking) el.currentTime = expected;
       }
-      const silent = track.muted || active.muted;
+      const silent = track.muted || active.muted || (!sound && !!this.musicFree(active));
       // ponytail: the preview tops out at normal volume; boosts above 100% are heard in the export.
       el.volume = silent ? 0 : clamp01(active.volume * fadeAt(active, time - active.start));
       el.muted = silent;
@@ -190,9 +216,10 @@ export class Engine {
       if (deck === current) continue;
       if (!deck.el.paused) deck.el.pause();
       // Park the spare player on the next clip a few seconds ahead of the cut.
-      if (next && this.playable(next) && next.start - time < 4) {
-        if (deck.clip !== next.id || Math.abs(deck.el.currentTime - next.offset) > 0.05)
-          if (!deck.el.seeking) this.load(deck, next, next.offset);
+      if (next && usable(next) && next.start - time < 4) {
+        const start = next.offset - origin(next);
+        if (deck.clip !== key(next) || Math.abs(deck.el.currentTime - start) > 0.05)
+          if (!deck.el.seeking) this.load(deck, next, start, sound, key(next)!);
       }
     }
     return { active, deck: current };
@@ -232,6 +259,7 @@ export class Engine {
     for (const track of doc.tracks) {
       if (track.kind === "text") continue;
       const { active, deck } = this.sync(track, time);
+      this.sync(track, time, true);
       if (!active || track.kind !== "video" || track.hidden) continue;
       const asset = this.assets[active.asset ?? ""];
       if (!asset || asset.status !== "ready") continue;

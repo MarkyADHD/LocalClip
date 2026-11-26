@@ -1,12 +1,13 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { editorRequest } from "@/components/editor/use-editor";
-import type {
-  Asset,
-  Assets,
-  ProjectDocument,
-  ProposedEdit,
-  Word,
+import {
+  musicBlocks,
+  type Asset,
+  type Assets,
+  type ProjectDocument,
+  type ProposedEdit,
+  type Word,
 } from "@/lib/project/document";
 
 export interface ExportJob {
@@ -14,6 +15,8 @@ export interface ExportJob {
   status: "queued" | "rendering" | "completed" | "failed" | "cancelled";
   progress: number;
   error?: string;
+  /** What the export is doing before it renders, such as taking out music. */
+  message?: string;
 }
 /** Edits left by an MCP client (Claude Code, Claude Desktop), waiting to be accepted. */
 export interface Proposal {
@@ -170,7 +173,7 @@ export function useProject(id: string) {
   }, [endpoint]);
   // Follow anything still being worked on: a file being prepared, a transcript, an export.
   const busy =
-    assetList.some((a) => a.status === "preparing" || a.transcript === "pending") ||
+    assetList.some((a) => a.status === "preparing" || a.transcript === "pending" || a.music?.status === "working") ||
     jobs.some((j) => j.status === "queued" || j.status === "rendering");
   // When nothing is running, a slower look still picks up edits proposed from outside (MCP).
   useEffect(() => {
@@ -206,6 +209,34 @@ export function useProject(id: string) {
     () => Object.fromEntries(assetList.map((a) => [a.id, a])),
     [assetList],
   );
+  // Start taking the music out as soon as clips are marked "Remove music", or trimmed longer, so the preview
+  // can play it and the export finds it done.
+  const musicAsked = useRef(new Set<string>());
+  const [musicRetry, setMusicRetry] = useState(0);
+  const present = history?.present;
+  useEffect(() => {
+    if (!present) return;
+    const missing = present.clips.flatMap((clip) => {
+      const asset = clip.asset ? assets[clip.asset] : undefined;
+      if (!clip.noMusic || asset?.status !== "ready" || !asset.hasAudio || asset.kind === "image") return [];
+      return musicBlocks(clip, asset)
+        .filter((k) => !asset.musicBlocks?.includes(k))
+        .map((k) => `${asset.id}:${k}`);
+    });
+    const fresh = missing.filter((key) => !musicAsked.current.has(key));
+    if (!fresh.length) return;
+    const timer = setTimeout(() => {
+      fresh.forEach((key) => musicAsked.current.add(key));
+      editorRequest(`${endpoint}/music`, "POST", { document: present })
+        .then(() => refresh())
+        .catch(() => fresh.forEach((key) => musicAsked.current.delete(key)));
+    }, 1000);
+    return () => clearTimeout(timer);
+  }, [present, assets, endpoint, refresh, musicRetry]);
+  const retryMusic = useCallback(() => {
+    musicAsked.current.clear();
+    setMusicRetry((n) => n + 1);
+  }, []);
   const rename = useCallback(
     (next: string) => {
       setName(next);
@@ -222,6 +253,7 @@ export function useProject(id: string) {
     jobs,
     proposals,
     refresh,
+    retryMusic,
     doc: history?.present ?? null,
     update,
     undo,
