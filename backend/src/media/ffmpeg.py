@@ -17,7 +17,6 @@ from .common import (
     FINAL_VIDEO_CRF,
     FINAL_VIDEO_PRESET,
     INTERMEDIATE_CRF,
-    DENOISE_FILTER,
     LOUDNORM_FILTER,
     OUTPUT_FPS,
     logger,
@@ -287,7 +286,7 @@ def build_final_video_encode_args(
     ]
 
 
-def loudness_filter(input_path: Path, pre: List[str]) -> str:
+def loudness_filter(input_path: Path) -> str:
     """One fixed gain to -14 LUFS plus a peak limiter.
 
     Single-pass loudnorm rides the gain inside a clip (quiet bits up 20 dB, loud bits 4 dB),
@@ -295,7 +294,7 @@ def loudness_filter(input_path: Path, pre: List[str]) -> str:
     """
     stderr = subprocess.run(
         ["ffmpeg", "-hide_banner", "-nostats", "-i", str(input_path), "-vn",
-         "-af", ",".join(pre + ["loudnorm=print_format=json"]), "-f", "null", "-"],
+         "-af", "loudnorm=print_format=json", "-f", "null", "-"],
         capture_output=True, text=True,
     ).stderr
     # Regex, not json.loads: the JSON block failed to parse on ffmpeg 8.0 in CI (log prefixes vary by version).
@@ -310,13 +309,10 @@ def loudness_filter(input_path: Path, pre: List[str]) -> str:
 
 
 def build_audio_output_args(has_audio: bool, input_path: Optional[Path] = None) -> List[str]:
-    """Audio encode args (mic cleanup, loudness to -14 LUFS when input_path is given) or `-an`."""
+    """Audio encode args (loudness to -14 LUFS when input_path is given) or `-an`."""
     if not has_audio:
         return ["-an"]
-    chain = [DENOISE_FILTER] if get_config().clean_voice else []
-    if input_path:
-        chain.append(loudness_filter(input_path, chain))
-    args = ["-af", ",".join(chain)] if chain else []
+    args = ["-af", loudness_filter(input_path)] if input_path else []
     return args + ["-c:a", "aac", "-b:a", AUDIO_BITRATE, "-ar", "48000"]
 
 

@@ -95,7 +95,7 @@ Blocking work (ffmpeg, downloads, transcription) is wrapped in `run_in_thread()`
 6. **Rendering**: 9:16 clips with face-tracked crops or a stream template, word-synced
    captions, hook title, optional transitions/B-roll. Two clips render at once; encodes use
    NVENC when ffmpeg has it (`VIDEO_ENCODER=cpu` forces libx264) and fall back to the CPU on failure.
-   Every clip gets mic rumble and hiss removed (`CLEAN_VOICE=false`) and a snap zoom on its loudest
+   Every clip gets one fixed volume to -14 LUFS with a limiter (no noise removal, at Marky's request) and a snap zoom on its loudest
    moment (`AUTO_PUNCH=false`).
 
 ### Stream templates
