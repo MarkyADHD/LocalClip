@@ -66,3 +66,21 @@ def test_long_audio_is_transcribed_an_hour_at_a_time_with_shifted_timestamps(mon
     assert result["segments"][1]["words"][0]["end"] == hour + 0.4
     # language is detected on the first hour and pinned for the rest
     assert [options["language"] for _, options in model.calls] == [None, "en"]
+
+
+def test_long_whisper_blocks_are_split_into_short_lines():
+    """A clip can only start and end on a transcript line, so a 30 s block must not be one line."""
+    from src.media.transcription import format_transcript_for_analysis
+
+    words = [
+        {"word": f" w{i}{'.' if i % 5 == 4 else ''}", "start": i * 0.5, "end": i * 0.5 + 0.4}
+        for i in range(60)
+    ]
+    words += [{"word": " late.", "start": 90.0, "end": 90.4}]  # after a minute of silence
+    block = {"start": 0.0, "end": 90.4, "text": "".join(w["word"] for w in words), "words": words}
+    lines = format_transcript_for_analysis({"segments": [block]})
+
+    assert lines[0].startswith("[00:00 - 00:04] w0 w1")
+    assert lines[-1] == "[01:30 - 01:30] late."
+    assert len(lines) >= 6
+    assert " ".join(line.split("] ", 1)[1] for line in lines) == block["text"].strip()
