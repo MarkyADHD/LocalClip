@@ -135,6 +135,21 @@ def chat_spikes(messages, duration: float, lag: float = 8.0, window: int = 300, 
     return spike_spans(smooth, window=window, z=z, floor=0.5, min_value=1)
 
 
+def quiet_chat_bursts(messages, gap: float = 20.0, before: float = 20.0):
+    """For a slow chat, where ``chat_spikes`` never fires: (start, end, quotes) for each run of
+    messages at most ``gap`` seconds apart that is 3 messages, or fewer with a reaction emote.
+    The span starts ``before`` seconds ahead of the first message, where the moment was."""
+    bursts, run = [], []
+    for message in sorted(messages) + [(float("inf"), "")]:
+        if run and message[0] - run[-1][0] > gap:
+            if sum(1 + 2 * len(CHAT_EMOTES.findall(text)) for _, text in run) >= 3:
+                quotes = [re.sub(r"[^\w ?!']", "", text)[:40].strip() for _, text in run[:3]]
+                bursts.append((max(0.0, run[0][0] - before), run[-1][0], [q for q in quotes if q]))
+            run = []
+        run.append(message)
+    return bursts
+
+
 def timestamp_label(seconds: float) -> str:
     """Same format as transcript timestamps (MM:SS, or HH:MM:SS past an hour)."""
     s = max(0, int(seconds))
@@ -152,10 +167,16 @@ def chat_signal_lines(url: str, duration: float) -> List[str]:
         logger.warning("Twitch chat fetch failed: %s", exc)
         return []
     spans = chat_spikes(messages, duration)
-    logger.info("Twitch chat: %s messages, %s spikes", len(messages), len(spans))
+    # Under a message every 20 s a spike is impossible, so a few viewers reacting together counts.
+    bursts = quiet_chat_bursts(messages) if len(messages) < duration / 20 else []
+    logger.info("Twitch chat: %s messages, %s spikes, %s small bursts", len(messages), len(spans), len(bursts))
     return [
         f"- [{timestamp_label(a)} - {timestamp_label(b)}] score=4.0: Twitch chat exploded here (viewers reacted to this moment)"
         for a, b in spans
+    ] + [
+        f"- [{timestamp_label(a)} - {timestamp_label(b)}] score=3.0: viewers reacted in chat (quiet chat, so this stands out); "
+        f"they wrote: {' / '.join(quotes)}"
+        for a, b, quotes in bursts
     ]
 
 
