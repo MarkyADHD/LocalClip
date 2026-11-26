@@ -93,6 +93,30 @@ def cpu_encode_fallback(command: List[str]) -> List[str]:
     return command[:i] + _x264_args(int(quality), preset) + command[i + len(_nvenc_args(0, "")):]
 
 
+def clip_fps(video_path: Path) -> str:
+    """The video's frame rate as ffmpeg takes it ("60", "30000/1001"), capped at 60; OUTPUT_FPS if unknown.
+
+    A cut's average rate comes out a hair off (59.996), so it snaps to the nearest common rate."""
+    rate = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=avg_frame_rate",
+         "-of", "csv=p=0", str(video_path)],
+        capture_output=True, text=True,
+    ).stdout.strip()
+    try:
+        num, den = rate.split("/")
+        value = float(num) / float(den)
+    except (ValueError, ZeroDivisionError):
+        return str(OUTPUT_FPS)
+    if value < 1:
+        return str(OUTPUT_FPS)
+    if value > 60.5:
+        return "60"
+    common = {"24000/1001": 23.976, "24": 24, "25": 25, "30000/1001": 29.97, "30": 30,
+              "48": 48, "50": 50, "60000/1001": 59.94, "60": 60}
+    nearest = min(common, key=lambda name: abs(common[name] - value))
+    return nearest if abs(common[nearest] - value) < 0.02 else str(round(value))
+
+
 def intermediate_video_encode_args() -> List[str]:
     """Video args for the near-lossless cut that later passes read from."""
     if nvenc_available():
@@ -266,7 +290,7 @@ def ffmpeg_escape_filter_path(path: Path) -> str:
 def build_final_video_encode_args(
     crf: int = FINAL_VIDEO_CRF,
     preset: str = FINAL_VIDEO_PRESET,
-    fps: int = OUTPUT_FPS,
+    fps: str = str(OUTPUT_FPS),
 ) -> List[str]:
     """Args for the quality-determining final pass (CFR, H.264 High): NVENC on
     an NVIDIA GPU, libx264 otherwise."""
@@ -383,12 +407,13 @@ def render_ranges_crossfade_ffmpeg(
         return False
     has_audio = audio_stream is not None
     seek, keep_ranges = _seek_to_first_range(keep_ranges)
+    fps = clip_fps(video_path)
 
     parts: List[str] = []
     for idx, (start, end) in enumerate(keep_ranges):
         parts.append(
             f"[0:v]trim=start={start:.3f}:end={end:.3f},setpts=PTS-STARTPTS,"
-            f"fps={OUTPUT_FPS},format=yuv420p,setsar=1[v{idx}]"
+            f"fps={fps},format=yuv420p,setsar=1[v{idx}]"
         )
         if has_audio:
             parts.append(
@@ -423,7 +448,7 @@ def render_ranges_crossfade_ffmpeg(
         *intermediate_video_encode_args(),
     ]
     if has_audio:
-        command += ["-c:a", "aac", "-b:a", "192k"]
+        command += ["-c:a", "aac", "-b:a", "320k"]
     command += ["-movflags", "+faststart", str(output_path)]
     return run_ffmpeg_command(command, timeout=1800).returncode == 0
 
@@ -457,7 +482,7 @@ def render_source_ranges_ffmpeg(
             "-c:a",
             "aac",
             "-b:a",
-            "192k",
+            "320k",
             "-movflags",
             "+faststart",
             str(output_path),
@@ -510,7 +535,7 @@ def render_source_ranges_ffmpeg(
         *intermediate_video_encode_args(),
     ]
     if has_audio:
-        command.extend(["-c:a", "aac", "-b:a", "192k"])
+        command.extend(["-c:a", "aac", "-b:a", "320k"])
     command.extend(["-movflags", "+faststart", str(output_path)])
     return run_ffmpeg_command(command, timeout=1800).returncode == 0
 

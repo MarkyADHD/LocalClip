@@ -61,7 +61,7 @@ def get_twitch_title(url: str) -> str:
 
 
 def download_stream_video(url: str) -> Path:
-    """Download a Twitch/Kick VOD or clip at up to 1080p. Kept until its generation or the full video is deleted
+    """Download a Twitch/Kick VOD or clip at its best quality (Source). Kept until its generation or the full video is deleted
     (or SOURCE_KEEP_DAYS pass), so a retry or "+30s" doesn't re-download hours of video."""
     import yt_dlp
 
@@ -75,7 +75,7 @@ def download_stream_video(url: str) -> Path:
     if target.exists() and target.stat().st_size > 0:
         return target
     with yt_dlp.YoutubeDL(_ydl_opts(
-        format="b[height<=1080]/bv*[height<=1080]+ba/b",
+        format="b/bv*+ba",
         outtmpl=str(out_dir / f"{video_id}.%(ext)s"),
         merge_output_format="mp4",
         # Twitch serves fMP4 HLS that yt-dlp's native HLS downloader rejects; ffmpeg handles it.
