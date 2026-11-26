@@ -15,7 +15,9 @@ locally for recovery after an interrupted save.
 - **Timeline**: segments sit in playback order. Drag the orange ends of the selected
   segment to trim it, click or drag anywhere to scrub, and use Split, Remove,
   Duplicate and the arrows to cut and reorder. The row underneath shows every caption
-  word where it is spoken. In/Out take exact seconds.
+  word where it is spoken: drag a word to move it, drag its ends to stretch it, hold
+  Shift to move every later word too (`moveWord` in `document.ts`); arrow keys nudge a
+  focused word by 0.05 s. In/Out take exact seconds.
 - **Layout**: 9:16, 1:1 or the original shape, then how the frame is filled. Fill and
   Fit crop one picture (Fit puts a blurred copy behind it). Cam top, Cam bottom and
   Floating cam cut the facecam out of the stream and place it with the gameplay, like
@@ -33,7 +35,10 @@ locally for recovery after an interrupted save.
   speaker changes. `SPEAKER_CAPTIONS=false` turns detection off.
 - **Transcript**: type over any word. Clicking a word jumps to it and offers
   Highlight, Bleep, Delete and its timing. "Edit as text" rewrites whole phrases and
-  keeps unchanged words anchored.
+  keeps unchanged words anchored. "Regenerate" runs Whisper on the clip again
+  (`recaption_editor` in the worker) and replaces the words, with speakers detected again;
+  the caption look stays. It asks first when the words differ from the original, and Undo
+  brings them back.
 - **Hook title**: one line at the top in the caption style, for a set number of seconds (`titleSeconds`, 0 = the whole clip).
 - **Punch-in zoom** (`punches`, source times): a snap zoom of `PUNCH_ZOOM` towards the face or the
   facecam pane (`PUNCH_Y`), at the playhead or at the loudest moment. Preview and export use the same crop.
@@ -109,6 +114,7 @@ All routes require ownership of both the task and clip.
 | --- | --- | --- |
 | `/` (without trailing slash) | GET | Preparation state, original, draft, media metadata, recent exports |
 | `/prepare` | POST | Queue source preparation |
+| `/captions` | POST / GET | Queue a fresh transcription / poll it (`pending`, `ready` with `words`, `failed`) |
 | `/` (without trailing slash) | PATCH | Save `{basis, revision, document}`; stale writes return 409 |
 | `/media/clean.mp4` | GET | Private preview with byte-range support |
 | `/media/thumbnails.jpg` | GET | Timeline thumbnail strip |

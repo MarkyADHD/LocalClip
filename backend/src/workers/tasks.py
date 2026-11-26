@@ -127,7 +127,7 @@ async def process_video_task(
             # Error will be caught by arq and task status will be updated
             raise
 
-from ..services.editor_service import prepare_editor, export_editor, combine_editor
+from ..services.editor_service import prepare_editor, export_editor, combine_editor, recaption_editor
 from ..services.project_service import prepare_asset, transcribe_asset, export_project
 
 async def cleanup_old_sources(ctx: Dict[str, Any]) -> int:
@@ -151,7 +151,7 @@ class WorkerSettings:
 
     # Functions to run
     functions = [
-        process_video_task, prepare_editor, export_editor, combine_editor,
+        process_video_task, prepare_editor, export_editor, combine_editor, recaption_editor,
         prepare_asset, transcribe_asset, export_project,
     ]
     queue_name = "localclip_tasks"

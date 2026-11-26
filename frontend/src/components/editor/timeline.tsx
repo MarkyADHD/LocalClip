@@ -18,6 +18,7 @@ import {
   addReplay,
   editDuration,
   mappedWords,
+  moveWord,
   outputTime,
   segmentLength,
   sourceTime,
@@ -70,6 +71,16 @@ export function Timeline({
     start: number;
     end: number;
     perSecond: number;
+  } | null>(null);
+  const wordDrag = useRef<{
+    id: string;
+    edge: "move" | "start" | "end";
+    following: boolean;
+    x: number;
+    words: EditDocument["words"];
+    perSecond: number;
+    speed: number;
+    moved: boolean;
   } | null>(null);
   const active = doc.segments[index] ?? doc.segments[0];
   const total = editDuration(doc),
@@ -135,6 +146,24 @@ export function Timeline({
   }, [playhead, scale, zoom]);
   const step = tickStep(scale / zoom);
   const words = mappedWords(doc);
+  const nudgeWord = (
+    id: string,
+    delta: number,
+    edge: "move" | "start" | "end",
+    following: boolean,
+    from = doc.words,
+  ) =>
+    update(
+      (d) => ({
+        ...d,
+        words: moveWord(from, id, delta, edge, asset.duration, following),
+      }),
+      "caption-timing",
+    );
+  const endWordDrag = () => {
+    wordDrag.current = null;
+    setFrozen(null);
+  };
   return (
     <section
       aria-label="Clip timeline"
@@ -435,23 +464,101 @@ export function Timeline({
               );
             })}
           </div>
-          <div aria-hidden className="relative mt-1 h-5">
-            {words.map((w, n) => (
-              <span
-                key={n}
-                className={cn(
-                  "absolute inset-y-0 truncate rounded-sm bg-muted px-1 text-[10px] leading-5 text-muted-foreground",
-                  w.highlight && "bg-brand-soft text-foreground",
-                  w.bleep && "bg-red-500/30 text-red-200",
-                )}
-                style={{
-                  left: percent(w.start),
-                  width: `max(2px, calc(${percent(w.end - w.start)} - 1px))`,
-                }}
-              >
-                {w.text}
-              </span>
-            ))}
+          <div
+            role="group"
+            aria-label="Captions"
+            className="relative mt-1 h-5"
+          >
+            {words.map((w, n) => {
+              // Edges are only grabbable on a word wide enough to also be moved.
+              const wide = (w.end - w.start) / (scale / zoom) > 0.025;
+              const edgeHandle = (edge: "start" | "end") => (
+                <span
+                  data-edge={edge}
+                  className={cn(
+                    "absolute inset-y-0 w-1.5 cursor-ew-resize hover:bg-brand/70",
+                    edge === "start" ? "left-0" : "right-0",
+                  )}
+                />
+              );
+              return (
+                <span
+                  key={n}
+                  role="slider"
+                  tabIndex={0}
+                  aria-label={`Caption: ${w.text}`}
+                  aria-valuemin={0}
+                  aria-valuemax={Number(total.toFixed(2))}
+                  aria-valuenow={Number(w.start.toFixed(2))}
+                  title="Drag to move this caption, drag its edges to stretch it. Hold Shift to move every caption after it too."
+                  className={cn(
+                    "absolute inset-y-0 cursor-grab truncate rounded-sm bg-muted px-1 text-[10px] leading-5 text-muted-foreground outline-none hover:ring-1 hover:ring-brand focus-visible:ring-2 focus-visible:ring-ring active:cursor-grabbing",
+                    w.highlight && "bg-brand-soft text-foreground",
+                    w.bleep && "bg-red-500/30 text-red-200",
+                  )}
+                  style={{
+                    left: percent(w.start),
+                    width: `max(2px, calc(${percent(w.end - w.start)} - 1px))`,
+                  }}
+                  onKeyDown={(e) => {
+                    const direction =
+                      e.key === "ArrowLeft" ? -1 : e.key === "ArrowRight" ? 1 : 0;
+                    if (!direction) return;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    nudgeWord(w.id, direction * 0.05, "move", e.shiftKey);
+                  }}
+                  onPointerDown={(e) => {
+                    e.stopPropagation();
+                    e.currentTarget.setPointerCapture(e.pointerId);
+                    const edge = wide
+                      ? ((e.target as HTMLElement).dataset.edge as
+                          | "start"
+                          | "end"
+                          | undefined)
+                      : undefined;
+                    wordDrag.current = {
+                      id: w.id,
+                      edge: edge ?? "move",
+                      following: e.shiftKey,
+                      x: e.clientX,
+                      words: doc.words,
+                      perSecond:
+                        track.current!.getBoundingClientRect().width / scale,
+                      speed: doc.segments[sourceTime(doc, w.start).index].speed ?? 1,
+                      moved: false,
+                    };
+                    setFrozen(scale);
+                  }}
+                  onPointerMove={(e) => {
+                    const d = wordDrag.current;
+                    if (!d || (!d.moved && Math.abs(e.clientX - d.x) < 3)) return;
+                    d.moved = true;
+                    nudgeWord(
+                      d.id,
+                      ((e.clientX - d.x) / d.perSecond) * d.speed,
+                      d.edge,
+                      d.following,
+                      d.words,
+                    );
+                  }}
+                  onPointerUp={() => {
+                    // A click without a drag jumps to the word.
+                    if (wordDrag.current && !wordDrag.current.moved) {
+                      const at = sourceTime(doc, w.start);
+                      select(at.index);
+                      seek(at.time);
+                    }
+                    endWordDrag();
+                  }}
+                  onPointerCancel={endWordDrag}
+                >
+                  {wide && edgeHandle("start")}
+                  {w.text}
+                  {wide && edgeHandle("end")}
+                </span>
+              );
+            })}
           </div>
           <div
             aria-hidden

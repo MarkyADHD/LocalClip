@@ -272,6 +272,43 @@ async def prepare_editor(ctx, task_id: str, clip_id: str, filename: str):
             service._cleanup_source_video(downloaded_source, "youtube", source_url)
 
 
+def fresh_words(directory: Path) -> list[dict]:
+    """Whisper the editor's clip again: caption words on its timeline, with speakers."""
+    from .project_service import transcribe
+    from ..media.diarization import label_speakers
+
+    clean = directory / "clean.mp4"
+    duration = json.loads((directory / "asset.json").read_text())["duration"]
+    transcribe(str(clean), directory)
+    transcript = directory / "transcript.json"
+    raw = json.loads(transcript.read_text())["words"]
+    transcript.unlink(missing_ok=True)
+    words = [
+        {"start": max(0, min(w["s"], duration - 0.01)), "end": max(0.01, min(w["e"], duration)), "text": w["t"][:120]}
+        for w in raw
+        if w["s"] < duration
+    ]
+    speakers = label_speakers(clean, words)
+    return [{"id": f"word-{uuid.uuid4().hex[:12]}", **w, "highlight": False, "speaker": s} for w, s in zip(words, speakers)]
+
+
+async def recaption_editor(ctx, task_id: str, clip_id: str, filename: str):
+    from ..config import get_config
+
+    directory = editor_dir(get_config().temp_dir, task_id, clip_id, filename)
+    try:
+        words = await run_in_thread(fresh_words, directory)
+        atomic_json(directory / "captions.json", {"status": "ready", "words": words})
+    except Exception:
+        import logging
+
+        logging.getLogger(__name__).exception("Editor caption regeneration failed")
+        atomic_json(
+            directory / "captions.json",
+            {"status": "failed", "error": "Could not transcribe this clip. Try again."},
+        )
+
+
 async def export_editor(ctx, task_id: str, clip_id: str, filename: str, job_id: str):
     from ..config import get_config
     from ..database import AsyncSessionLocal
