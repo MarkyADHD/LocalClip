@@ -33,7 +33,10 @@ locally for recovery after an interrupted save.
   speaker changes. `SPEAKER_CAPTIONS=false` turns detection off.
 - **Transcript**: type over any word. Clicking a word jumps to it and offers
   Highlight, Bleep, Delete and its timing. "Edit as text" rewrites whole phrases and
-  keeps unchanged words anchored.
+  keeps unchanged words anchored. "Regenerate" runs Whisper on the clip again
+  (`recaption_editor` in the worker) and replaces the words, with speakers detected again;
+  the caption look stays. It asks first when the words differ from the original, and Undo
+  brings them back.
 - **Hook title**: one line at the top in the caption style, for a set number of seconds (`titleSeconds`, 0 = the whole clip).
 - **Punch-in zoom** (`punches`, source times): a snap zoom of `PUNCH_ZOOM` towards the face or the
   facecam pane (`PUNCH_Y`), at the playhead or at the loudest moment. Preview and export use the same crop.
@@ -109,6 +112,7 @@ All routes require ownership of both the task and clip.
 | --- | --- | --- |
 | `/` (without trailing slash) | GET | Preparation state, original, draft, media metadata, recent exports |
 | `/prepare` | POST | Queue source preparation |
+| `/captions` | POST / GET | Queue a fresh transcription / poll it (`pending`, `ready` with `words`, `failed`) |
 | `/` (without trailing slash) | PATCH | Save `{basis, revision, document}`; stale writes return 409 |
 | `/media/clean.mp4` | GET | Private preview with byte-range support |
 | `/media/thumbnails.jpg` | GET | Timeline thumbnail strip |

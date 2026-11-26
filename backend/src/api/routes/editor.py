@@ -3,6 +3,7 @@
 from pathlib import Path
 import json
 import re
+import time
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -130,6 +131,37 @@ async def save(
         raise HTTPException(409, str(exc))
     except (ValueError, ValidationError) as exc:
         raise HTTPException(400, str(exc))
+
+
+@router.post("/{task_id}/clips/{clip_id}/editor/captions", status_code=202)
+async def regenerate_captions(
+    task_id: str, clip_id: str, request: Request, db: AsyncSession = Depends(get_db)
+):
+    """Transcribe the clip again; GET the same path for the new words."""
+    clip, directory = await context(request, db, task_id, clip_id)
+    path = directory / "captions.json"
+    with editor_lock(directory):
+        if read_state(directory)["status"] != "ready":
+            raise HTTPException(409, "Wait for the editor preview to finish preparing")
+        # A run left pending by a stopped worker is retried after 10 minutes.
+        if path.exists() and json.loads(path.read_text()).get("status") == "pending" and time.time() - path.stat().st_mtime < 600:
+            return {"status": "pending"}
+        atomic_json(path, {"status": "pending"})
+    try:
+        await JobQueue.enqueue_job("recaption_editor", task_id, clip_id, clip["filename"])
+    except Exception:
+        atomic_json(path, {"status": "failed", "error": "The rendering worker is unavailable."})
+        raise HTTPException(503, "The rendering worker is unavailable. Try again shortly.")
+    return {"status": "pending"}
+
+
+@router.get("/{task_id}/clips/{clip_id}/editor/captions")
+async def regenerated_captions(
+    task_id: str, clip_id: str, request: Request, db: AsyncSession = Depends(get_db)
+):
+    _, directory = await context(request, db, task_id, clip_id)
+    path = directory / "captions.json"
+    return json.loads(path.read_text()) if path.exists() else {"status": "none"}
 
 
 @router.get("/{task_id}/clips/{clip_id}/editor/media/{asset}")

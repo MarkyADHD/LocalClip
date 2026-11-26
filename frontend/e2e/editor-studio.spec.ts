@@ -307,6 +307,33 @@ test("one switch bleeps every swear word and single words can opt out", async ({
   await expect(word).toHaveAttribute("aria-pressed", "false");
 });
 
+test("regenerate captions asks before replacing fixed words", async ({
+  page,
+}) => {
+  const documents = await setup(page);
+  let ready = false;
+  await page.route("**/clips/clip1/editor/captions", (r) => {
+    if (r.request().method() === "POST") return r.fulfill({ json: { status: "pending" } });
+    const words = [
+      { id: "n1", start: 0.2, end: 0.6, text: "brand", highlight: false, speaker: 0 },
+      { id: "n2", start: 0.7, end: 1.1, text: "new", highlight: false, speaker: 1 },
+    ];
+    r.fulfill({ json: ready ? { status: "ready", words } : { status: "pending" } });
+    ready = true;
+  });
+  await page.getByLabel("Word 1", { exact: true }).fill("fixed");
+  await page.getByRole("button", { name: "Regenerate" }).click();
+  await page.getByRole("button", { name: "Keep my edits" }).click();
+  await expect(page.getByLabel("Word 1", { exact: true })).toHaveValue("fixed");
+  await page.getByRole("button", { name: "Regenerate" }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "Regenerate" }).click();
+  await expect(page.getByLabel("Word 1", { exact: true })).toHaveValue("brand", { timeout: 10_000 });
+  await expect(page.getByLabel("Word 2", { exact: true })).toHaveValue("new");
+  await expect
+    .poll(() => documents.get("clip1")!.document.words.map((w: { text: string }) => w.text))
+    .toEqual(["brand", "new"]);
+});
+
 test("layout, caption look, hook title and safe zone", async ({ page }) => {
   await setup(page);
   let request: { document: Record<string, unknown> } | undefined;

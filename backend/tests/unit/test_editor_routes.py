@@ -129,3 +129,30 @@ async def test_failed_enqueue_is_retryable(client, monkeypatch):
     assert response.status_code == 503
     state = (await http.get("/tasks/task/clips/clip/editor")).json()
     assert state["jobs"][0]["status"] == "failed"
+
+
+async def test_regenerate_captions_transcribes_the_clip_again(client, monkeypatch, tmp_path):
+    http, service, doc, directory = client
+    url = "/tasks/task/clips/clip/editor/captions"
+    assert (await http.get(url)).json() == {"status": "none"}
+    assert (await http.post(url)).json() == {"status": "pending"}
+    assert (await http.post(url)).json() == {"status": "pending"}
+    editor.JobQueue.enqueue_job.assert_awaited_once_with("recaption_editor", "task", "clip", "clip.mp4")
+
+    from src.services import editor_service
+
+    def transcribe(source, folder):  # stands in for Whisper
+        atomic_json(folder / "transcript.json", {"words": [
+            {"s": 0.1, "e": 0.5, "t": "hello"}, {"s": 1.8, "e": 2.4, "t": "there"}, {"s": 2.5, "e": 2.9, "t": "gone"},
+        ]})
+
+    monkeypatch.setattr("src.services.project_service.transcribe", transcribe)
+    monkeypatch.setattr("src.media.diarization.label_speakers", lambda path, words: [0, 1])
+    monkeypatch.setattr("src.config.get_config", lambda: SimpleNamespace(temp_dir=str(tmp_path)))
+    await editor_service.recaption_editor({}, "task", "clip", "clip.mp4")
+    result = (await http.get(url)).json()
+    assert result["status"] == "ready"
+    assert [(w["text"], w["speaker"]) for w in result["words"]] == [("hello", 0), ("there", 1)]
+    # The words fit the clip (the last one is clipped to its end) and save as a draft.
+    EditDocument.model_validate({**doc, "words": result["words"]}).validate_duration(2)
+    assert not (directory / "transcript.json").exists()
