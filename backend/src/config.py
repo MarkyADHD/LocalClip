@@ -170,6 +170,8 @@ class Config:
         self.speaker_framing = self._get_bool_env("SPEAKER_FRAMING", True)
         # Detect who is speaking in each clip and colour their captions.
         self.speaker_captions = self._get_bool_env("SPEAKER_CAPTIONS", True)
+        # Mark transcript lines as the streamer or another voice (game dialogue) for the clip picker.
+        self.streamer_voice = self._get_bool_env("STREAMER_VOICE", True)
         # Take mic rumble and hiss out of every generated clip.
         self.clean_voice = self._get_bool_env("CLEAN_VOICE", True)
         # Snap-zoom on the loudest moment of every generated clip.

@@ -494,29 +494,19 @@ def _get_transcript_with_whisper(video_path: Path, runtime_config) -> str:
     # A retry after a cancel or a failed analysis reuses the finished transcript
     # instead of re-running Whisper over the whole VOD.
     whisper_key = f"{model_name}:{language or 'auto'}"
+    label_voices = getattr(runtime_config, "streamer_voice", True)
     cached = load_cached_transcript_data(video_path)
     if cached and cached.get("words") and cached.get("whisper_key") == whisper_key:
         logger.info("Reusing cached Whisper transcript for %s", video_path.name)
-        return "\n".join(
-            line
-            for u in cached.get("utterances") or []
-            for line in _analysis_lines(
-                u["start"], u["end"], u.get("text", ""),
-                [(w["text"], w["start"], w["end"]) for w in u.get("words") or []],
-            )
-        )
+        return _cached_whisper_transcript(video_path, cached, label_voices)
 
     logger.info("Starting Whisper transcription with model: %s", model_name)
     whisper_result = transcribe_with_whisper(video_path, model_name, language)
 
-    formatted_lines = format_transcript_for_analysis(whisper_result)
     cache_transcript_data(video_path, whisper_result, whisper_key=whisper_key)
-
-    result = "\n".join(formatted_lines)
+    result = _cached_whisper_transcript(video_path, load_cached_transcript_data(video_path) or {}, label_voices)
     logger.info(
-        "Whisper transcript formatted: %d segments, %d chars",
-        len(formatted_lines),
-        len(result),
+        "Whisper transcript formatted: %d segments, %d chars", result.count("\n") + 1, len(result)
     )
     return result
 
@@ -713,24 +703,22 @@ ANALYSIS_LINE_SENTENCE_MIN_MS = 4_000
 ANALYSIS_LINE_PAUSE_MS = 1_000
 
 
-def _analysis_lines(start_ms: int, end_ms: int, text: str, words: list) -> List[str]:
-    """One Whisper segment as transcript lines for the clip picker.
+def _analysis_lines(start_ms: int, end_ms: int, text: str, words: list) -> List[tuple]:
+    """One Whisper segment as (start_ms, end_ms, text) transcript lines for the clip picker.
 
     Batched Whisper returns ~30 s blocks (minutes long across silence), and a clip can only
     start and end on a line, so long blocks are split on pauses and sentence ends.
     ``words`` are (text, start_ms, end_ms).
     """
     if end_ms - start_ms <= ANALYSIS_LINE_MAX_MS or not words:
-        return [f"[{format_ms_to_timestamp(start_ms)} - {format_ms_to_timestamp(end_ms)}] {text.strip()}"]
-    lines: List[str] = []
+        return [(start_ms, end_ms, text.strip())]
+    lines: List[tuple] = []
     current: list = []
 
     def flush() -> None:
         line_text = "".join(w[0] for w in current).strip()
         if line_text:
-            lines.append(
-                f"[{format_ms_to_timestamp(current[0][1])} - {format_ms_to_timestamp(current[-1][2])}] {line_text}"
-            )
+            lines.append((current[0][1], current[-1][2], line_text))
         current.clear()
 
     for word in words:
@@ -747,6 +735,39 @@ def _analysis_lines(start_ms: int, end_ms: int, text: str, words: list) -> List[
     return lines
 
 
+def _format_analysis_line(line: tuple, voice: Optional[str] = None) -> str:
+    start_ms, end_ms, text = line
+    prefix = f"Speaker {voice}: " if voice else ""
+    return f"[{format_ms_to_timestamp(start_ms)} - {format_ms_to_timestamp(end_ms)}] {prefix}{text}"
+
+
+def _cached_whisper_transcript(video_path: Path, cached: Dict[str, Any], label: bool = True) -> str:
+    """The cached Whisper words as the transcript the clip picker reads, each line marked
+    "Speaker Streamer:" or "Speaker Other:" where the voice is clear (kept in the cache)."""
+    lines = [
+        line
+        for u in cached.get("utterances") or []
+        for line in _analysis_lines(
+            u["start"], u["end"], u.get("text", ""),
+            [(w["text"], w["start"], w["end"]) for w in u.get("words") or []],
+        )
+    ]
+    voices = cached.get("line_voices")
+    if label and (voices is None or len(voices) != len(lines)):
+        try:
+            from .streamer_voice import label_voices
+
+            voices = label_voices(_prepare_audio_for_transcription(video_path), [line[:2] for line in lines])
+            with open(video_path.with_suffix(".transcript_cache.json"), "w") as f:
+                json.dump({**cached, "line_voices": voices}, f)
+        except Exception as exc:  # the labels are a hint; clips are still made without them
+            logger.warning("Streamer voice detection failed: %s", exc)
+            voices = None
+    if not label or not voices or len(voices) != len(lines):
+        voices = [None] * len(lines)
+    return "\n".join(_format_analysis_line(line, voice) for line, voice in zip(lines, voices))
+
+
 def format_transcript_for_analysis(transcript) -> List[str]:
     """Format transcripts into readable timestamped segments for AI analysis.
 
@@ -759,7 +780,8 @@ def format_transcript_for_analysis(transcript) -> List[str]:
         formatted_lines = []
         for segment in transcript.get("segments") or []:
             formatted_lines.extend(
-                _analysis_lines(
+                _format_analysis_line(line)
+                for line in _analysis_lines(
                     int(segment.get("start", 0) * 1000),
                     int(segment.get("end", 0) * 1000),
                     segment.get("text", ""),

@@ -90,6 +90,8 @@ Blocking work (ffmpeg, downloads, transcription) is wrapped in `run_in_thread()`
    `TEMP_DIR/models/speakers`) labels each clip's words by speaker when its captions are built and
    when the editor opens it; speakers after the first get their own caption colour
    (`SPEAKER_CAPTIONS=false` turns it off). Per clip, not per VOD: speaker 0 is whoever talks most.
+   Separately, `media/streamer_voice.py` marks each transcript line the clip picker reads as `Speaker Streamer:` or
+   `Speaker Other:` (game dialogue, friends): the most common voice in the VOD is the streamer (`STREAMER_VOICE=false`).
 6. **Rendering**: 9:16 clips with face-tracked crops or a stream template, word-synced
    captions, hook title, optional transitions/B-roll. Two clips render at once; encodes use
    NVENC when ffmpeg has it (`VIDEO_ENCODER=cpu` forces libx264) and fall back to the CPU on failure.
