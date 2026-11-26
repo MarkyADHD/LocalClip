@@ -6,6 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import json
 import logging
+import os
 import shutil
 import subprocess
 import tempfile
@@ -385,7 +386,9 @@ def render_project(directory: Path, job_id: str) -> None:
                 _escape_filter_path(fonts) if fonts else None,
                 encode, "",
             )
-            target = chunks / f"{chunk_key(command, ass.read_text(encoding='utf-8') if has_text else '')}.mkv"
+            # Music-free blocks are named by position only; their times make a remade block a new chunk.
+            made = "".join(f"{p}:{os.stat(p).st_mtime_ns}" for p in command if p.endswith(".flac"))
+            target = chunks / f"{chunk_key(command, (ass.read_text(encoding='utf-8') if has_text else '') + made)}.mkv"
             if not target.exists():
                 # Rendered under a temporary name, so a cancelled chunk is never mistaken for a finished one.
                 # Named by chunk too: a timeline that repeats itself has chunks with the same key.

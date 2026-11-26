@@ -450,7 +450,8 @@ def chunk_command(
             )
             source = f"[{source}]"
         filters.append(
-            f"{source}asetpts=PTS-STARTPTS,{_atempo(clip.speed)},atrim=duration={length:.4f},"
+            # atempo reshapes the sound even at 1x (time-stretch windows), so normal speed skips it.
+            f"{source}asetpts=PTS-STARTPTS,{_atempo(clip.speed) if clip.speed != 1 else 'anull'},atrim=duration={length:.4f},"
             f"aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,"
             # Fades are timed from the clip's start, so a clip split across chunks fades once.
             f"asetpts=PTS-STARTPTS+{t0:.4f}/TB,afade=t=in:st=0:d={fade_in:.4f},"
