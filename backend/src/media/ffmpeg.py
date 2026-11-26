@@ -287,18 +287,35 @@ def build_final_video_encode_args(
     ]
 
 
-def build_audio_output_args(has_audio: bool, loudnorm: bool = True) -> List[str]:
-    """Audio encode args (with optional loudness normalisation) or `-an`."""
+def loudness_filter(input_path: Path, pre: List[str]) -> str:
+    """One fixed gain to -14 LUFS plus a peak limiter.
+
+    Single-pass loudnorm rides the gain inside a clip (quiet bits up 20 dB, loud bits 4 dB),
+    which pumps game sound and room noise up between words. One measured gain keeps the mix as it was.
+    """
+    stderr = subprocess.run(
+        ["ffmpeg", "-hide_banner", "-nostats", "-i", str(input_path), "-vn",
+         "-af", ",".join(pre + ["loudnorm=print_format=json"]), "-f", "null", "-"],
+        capture_output=True, text=True,
+    ).stderr
+    try:
+        measured = float(json.loads(stderr[stderr.rindex("{"):])["input_i"])
+    except (ValueError, KeyError):
+        return LOUDNORM_FILTER
+    gain = min(15.0, max(-20.0, -14.0 - measured))  # -inf (silence) gets the +15 cap
+    # level=0: no auto make-up gain; limit 0.79 = -2 dBFS, room for AAC overshoot.
+    return f"volume={gain:.2f}dB,alimiter=limit=0.79:level=0"
+
+
+def build_audio_output_args(has_audio: bool, input_path: Optional[Path] = None) -> List[str]:
+    """Audio encode args (mic cleanup, loudness to -14 LUFS when input_path is given) or `-an`."""
     if not has_audio:
         return ["-an"]
-    args: List[str] = []
     chain = [DENOISE_FILTER] if get_config().clean_voice else []
-    if loudnorm:
-        chain.append(LOUDNORM_FILTER)
-    if chain:
-        args += ["-af", ",".join(chain)]
-    args += ["-c:a", "aac", "-b:a", AUDIO_BITRATE, "-ar", "48000"]
-    return args
+    if input_path:
+        chain.append(loudness_filter(input_path, chain))
+    args = ["-af", ",".join(chain)] if chain else []
+    return args + ["-c:a", "aac", "-b:a", AUDIO_BITRATE, "-ar", "48000"]
 
 
 def subtitles_filter_fragment(
