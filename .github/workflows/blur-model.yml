@@ -1,12 +1,11 @@
 # Builds and checks the vape detector for auto-blur (.github/blur-model/owl.py), then puts it and NudeNet on
 # the "blur-models-1" pre-release, where the app downloads it. Pre-releases never count as an app update.
+# Never replaces a published file (the app checks its sha256): for a new model, change the release tag here and in
+# backend/src/media/auto_blur.py.
 name: Blur model
 
 on:
   workflow_dispatch:
-  push:
-    branches: [claude/project-thread-ymshoc]
-    paths: [.github/blur-model/**, .github/workflows/blur-model.yml]
 
 permissions:
   contents: write
@@ -24,7 +23,7 @@ jobs:
           python-version: "3.11"
       - run: pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
       - run: pip install onnx onnxruntime transformers opencv-python-headless
-      - run: python owl.py 480 640 960
+      - run: python owl.py 480
       - name: NudeNet's model, from its PyPI package
         run: pip download nudenet==3.4.2 --no-deps -d nudenet && unzip -j nudenet/*.whl nudenet/320n.onnx -d .
       - run: ls -l *.onnx && sha256sum *.onnx
@@ -33,4 +32,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release view blur-models-1 >/dev/null 2>&1 || gh release create blur-models-1 --prerelease --title "Auto-blur models" --notes "Models for LocalClip's auto-blur, built by .github/workflows/blur-model.yml: vape-owl-*.onnx from OWLv2 (Apache-2.0, Google), 320n.onnx from NudeNet 3.4.2 (AGPL-3.0)."
-          gh release upload blur-models-1 vape-owl-*.onnx 320n.onnx --clobber
+          gh release upload blur-models-1 vape-owl-*.onnx 320n.onnx

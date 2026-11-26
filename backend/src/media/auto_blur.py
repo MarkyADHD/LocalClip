@@ -27,8 +27,8 @@ from .common import logger
 
 _RELEASE = "https://github.com/MarkyADHD/LocalClip/releases/download/blur-models-1"
 MODELS = {  # name: (file, sha256, input size)
-    "nudity": ("320n.onnx", "", 320),
-    "vape": ("vape-owl-480.onnx", "", 480),
+    "nudity": ("320n.onnx", "c15d8273adad2d0a92f014cc69ab2d6c311a06777a55545f2c4eb46f51911f0f", 320),
+    "vape": ("vape-owl-480.onnx", "97084ce481051cc044ebdc89b35a386c82edd43966c9dd4f61c019b73271b712", 480),
 }
 NUDITY_LABELS = {  # NudeNet class index: what to call it
     2: "Nudity",  # BUTTOCKS_EXPOSED
