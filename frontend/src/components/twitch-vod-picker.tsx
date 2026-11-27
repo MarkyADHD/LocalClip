@@ -5,6 +5,7 @@ import { ExternalLink, Loader2, Twitch } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 interface Vod {
   id: string;
@@ -16,12 +17,51 @@ interface Vod {
   type: string;
 }
 
+interface TwitchClip {
+  id: string;
+  title: string;
+  url: string;
+  thumbnail: string;
+  duration: number;
+  created_at: string;
+  views: number;
+  creator: string;
+}
+
 interface Listing {
   configured: boolean;
   logged_in: boolean;
   name?: string;
   vods?: Vod[];
+  clips?: TwitchClip[];
   cursor?: string | null;
+}
+
+type Kind = "vods" | "clips";
+
+/** One grid tile, a stream or a clip. */
+interface Item {
+  id: string;
+  url: string;
+  title: string;
+  thumbnail: string;
+  badge: string;
+  meta: string;
+}
+
+const day = (iso: string) => iso ? new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : "";
+
+function items(listing: Listing): Item[] {
+  return [
+    ...(listing.vods ?? []).map((vod) => ({
+      id: vod.id, url: vod.url, title: vod.title, thumbnail: vod.thumbnail, badge: vod.duration,
+      meta: day(vod.created_at) + (vod.type !== "archive" ? ` · ${vod.type}` : ""),
+    })),
+    ...(listing.clips ?? []).map((clip) => ({
+      id: clip.id, url: clip.url, title: clip.title, thumbnail: clip.thumbnail, badge: `${Math.round(clip.duration)}s`,
+      meta: `${clip.views.toLocaleString()} views · ${day(clip.created_at)}`,
+    })),
+  ];
 }
 
 export interface Login {
@@ -87,13 +127,15 @@ export function TwitchCode({ login }: { login: Login }) {
   );
 }
 
-/** Log in with Twitch (device code) and pick one of your own VODs; `onPick` gets its link. */
+/** Log in with Twitch (device code) and pick one of your own VODs or clips; `onPick` gets its link.
+ * A VOD brings the clips viewers made from it along with the AI's picks; a clip is imported whole to edit. */
 export function TwitchVodPicker({ open, onOpenChange, onPick }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onPick: (url: string) => void;
 }) {
   const [listing, setListing] = useState<Listing | null>(null);
+  const [kind, setKind] = useState<Kind>("vods");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const openRef = useRef(open);
@@ -111,7 +153,7 @@ export function TwitchVodPicker({ open, onOpenChange, onPick }: {
     }
   }, []);
 
-  const load = useCallback(() => run(async () => setListing(await api<Listing>("vods"))), [run]);
+  const load = useCallback(() => run(async () => setListing(await api<Listing>(kind))), [run, kind]);
   const twitch = useTwitchLogin(() => { if (openRef.current) void load(); }, setError);
   const { login, cancel } = twitch;
 
@@ -123,8 +165,8 @@ export function TwitchVodPicker({ open, onOpenChange, onPick }: {
   const startLogin = () => run(twitch.start);
 
   const more = () => run(async () => {
-    const next = await api<Listing>(`vods?after=${encodeURIComponent(listing?.cursor ?? "")}`);
-    setListing((prev) => ({ ...next, vods: [...(prev?.vods ?? []), ...(next.vods ?? [])] }));
+    const next = await api<Listing>(`${kind}?after=${encodeURIComponent(listing?.cursor ?? "")}`);
+    setListing((prev) => ({ ...next, [kind]: [...(prev?.[kind] ?? []), ...(next[kind] ?? [])] }));
   });
 
   const logout = () => run(async () => {
@@ -136,9 +178,13 @@ export function TwitchVodPicker({ open, onOpenChange, onPick }: {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-3xl">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2"><Twitch className="size-5" />Your Twitch VODs</DialogTitle>
+          <DialogTitle className="flex items-center gap-2"><Twitch className="size-5" />Your Twitch videos</DialogTitle>
           <DialogDescription>
-            {listing?.logged_in ? `Logged in as ${listing.name}. Pick a stream to clip.` : "Log in to pick one of your past streams."}
+            {!listing?.logged_in
+              ? "Log in to pick one of your past streams or clips."
+              : kind === "vods"
+                ? `Logged in as ${listing.name}. Pick a stream: the clips viewers made from it come along with the AI's picks.`
+                : `Logged in as ${listing.name}. Pick a clip to bring it in whole and edit it.`}
           </DialogDescription>
         </DialogHeader>
 
@@ -158,31 +204,38 @@ export function TwitchVodPicker({ open, onOpenChange, onPick }: {
           </div>
         ) : (
           <>
-            {listing.vods?.length ? (
+            <Tabs value={kind} onValueChange={(value) => { setBusy(true); setListing({ ...listing, vods: undefined, clips: undefined, cursor: null }); setKind(value as Kind); }}>
+              <TabsList>
+                <TabsTrigger value="vods">Streams</TabsTrigger>
+                <TabsTrigger value="clips">Clips</TabsTrigger>
+              </TabsList>
+            </Tabs>
+            {items(listing).length ? (
               <ul className="grid max-h-[60vh] grid-cols-2 gap-3 overflow-y-auto pr-1 sm:grid-cols-3">
-                {listing.vods.map((vod) => (
-                  <li key={vod.id}>
+                {items(listing).map((item) => (
+                  <li key={item.id}>
                     <button
                       type="button"
-                      onClick={() => { onPick(vod.url); onOpenChange(false); }}
+                      onClick={() => { onPick(item.url); onOpenChange(false); }}
                       className="group w-full rounded-lg border bg-card p-1.5 text-left transition-colors hover:border-foreground/40 hover:bg-accent focus-visible:outline-2 focus-visible:outline-ring"
                     >
                       <span className="relative block aspect-video overflow-hidden rounded-md bg-muted">
-                        {vod.thumbnail && (
+                        {item.thumbnail && (
                           // eslint-disable-next-line @next/next/no-img-element
-                          <img src={vod.thumbnail} alt="" loading="lazy" className="size-full object-cover" />
+                          <img src={item.thumbnail} alt="" loading="lazy" className="size-full object-cover" />
                         )}
-                        <span className="absolute bottom-1 right-1 rounded bg-black/75 px-1 text-[11px] font-medium text-white">{vod.duration}</span>
+                        <span className="absolute bottom-1 right-1 rounded bg-black/75 px-1 text-[11px] font-medium text-white">{item.badge}</span>
                       </span>
-                      <span className="mt-1.5 block truncate text-sm font-medium">{vod.title}</span>
-                      <span className="block text-xs text-muted-foreground">
-                        {vod.created_at ? new Date(vod.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : ""}
-                        {vod.type !== "archive" ? ` · ${vod.type}` : ""}
-                      </span>
+                      <span className="mt-1.5 block truncate text-sm font-medium">{item.title}</span>
+                      <span className="block text-xs text-muted-foreground">{item.meta}</span>
                     </button>
                   </li>
                 ))}
               </ul>
+            ) : busy ? (
+              <div className="flex justify-center py-10"><Loader2 className="size-5 animate-spin text-muted-foreground" /></div>
+            ) : kind === "clips" ? (
+              <p className="py-6 text-sm text-muted-foreground">No clips on this channel yet. You can also paste any Twitch clip link.</p>
             ) : (
               <p className="py-6 text-sm text-muted-foreground">No videos on this channel. Twitch only keeps past streams if Store past broadcasts is on, and deletes them after 7 to 60 days.</p>
             )}

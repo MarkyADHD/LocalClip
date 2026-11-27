@@ -13,7 +13,9 @@ import subprocess
 import uuid
 
 from ..utils.async_helpers import run_in_thread
-from ..twitch import chat_signal_lines, download_stream_video, get_stream_source
+from ..twitch import (
+    chat_signal_lines, clips_from_vod, download_stream_video, get_stream_source, get_twitch_video_id, is_stream_clip,
+)
 from ..youtube_utils import (
     async_download_youtube_video,
     async_get_youtube_video_info,
@@ -444,7 +446,9 @@ class VideoService:
                 if max_video_duration is None
                 else max_video_duration
             )
-            needs_ai = not manual_range and not (
+            # A Twitch/Kick clip link is imported whole: no AI search, ready for the editor.
+            imported_clip = source_type in ("twitch", "kick") and is_stream_clip(url) and not manual_range
+            needs_ai = not manual_range and not imported_clip and not (
                 cached_analysis_json and exclude_ranges is None and not clip_request
             )
             if needs_ai and str(getattr(runtime_config, "llm", "")).lower().startswith("claude-code:"):
@@ -505,6 +509,9 @@ class VideoService:
                     f"Maximum allowed duration is {mins} minutes."
                 )
 
+            if imported_clip:
+                manual_range = (0, math.ceil(file_duration or 60))
+
             # Step 2: Generate transcript
             if should_cancel and await should_cancel():
                 raise Exception("Task cancelled")
@@ -545,7 +552,7 @@ class VideoService:
                         "start_time": _format_minutes_label(manual_range[0]),
                         "end_time": _format_minutes_label(manual_range[1]),
                         "relevance_score": 1.0,
-                        "reasoning": "Picked by you from the transcript.",
+                        "reasoning": f"Imported from {source_type.title()}." if imported_clip else "Picked by you from the transcript.",
                     }],
                 )
             elif cached_analysis_json and exclude_ranges is None and not clip_request:
@@ -660,6 +667,9 @@ class VideoService:
                 )
                 segments_json.append(segment_payload)
 
+            if imported_clip and source_type == "twitch":
+                segments_json[0]["hook_type"] = "twitch_clip"  # badged on the results page
+
             if manual_range and segments_json and segments_json[0]["text"].strip():
                 try:  # a picked clip still gets a title and hashtags; it is fine without them
                     segments_json[0]["hook_title"], segments_json[0]["hashtags"] = await title_clip(
@@ -668,11 +678,46 @@ class VideoService:
                 except Exception as exc:
                     logger.warning("Could not title the picked clip: %s", exc)
 
+            # Clips viewers already made on Twitch from this VOD sit beside the AI's picks (first search only;
+            # Find more skips them because they are already clipped). Not kept in the cached analysis, so a
+            # rerun fetches them again and picks up new ones.
+            twitch_segments: List[Dict[str, Any]] = []
+            vod_id = get_twitch_video_id(url) if source_type == "twitch" else None
+            if vod_id and exclude_ranges is None and not manual_range and not clip_request:
+                try:
+                    vod_clips = await clips_from_vod(vod_id)
+                except Exception as exc:
+                    logger.warning("Could not list this VOD's Twitch clips: %s", exc)
+                    vod_clips = []
+                end_limit = file_duration or float("inf")
+                for clip in vod_clips:
+                    if clip["start"] >= end_limit - 1:
+                        continue
+                    end = min(clip["end"], end_limit)
+                    segment_payload = {
+                        "start_time": _format_minutes_label(clip["start"]),
+                        "end_time": _format_minutes_label(math.ceil(end)),
+                        "text": "",
+                        "relevance_score": 1.0,
+                        "reasoning": f"Clipped on Twitch by {clip['creator'] or 'a viewer'} ({clip['views']} views).",
+                        "virality_score": 0, "hook_score": 0, "engagement_score": 0, "value_score": 0,
+                        "shareability_score": 0,
+                        "hook_type": "twitch_clip",
+                        "hook_title": clip["title"],
+                        "hashtags": [],
+                        "hook_start_time": None,
+                        "hook_end_time": None,
+                        "source_ranges": [[clip["start"], end]],
+                    }
+                    segment_payload["text"] = VideoService._ground_segment_text(segment_payload, transcript_data)
+                    twitch_segments.append(segment_payload)
+                logger.info("Added %s Twitch clips made from this VOD", len(twitch_segments))
+
             if not segments_json and exclude_ranges is not None:
                 raise ValueError(
                     "No new clips found: the AI did not find any other moments worth clipping."
                 )
-            if not segments_json:
+            if not segments_json and not twitch_segments:
                 logger.warning(
                     "AI analysis selected no segments; using fallback clip window"
                 )
@@ -685,8 +730,8 @@ class VideoService:
                 ]
 
             return {
-                "segments": segments_json,
-                "segments_to_render": segments_json,
+                "segments": segments_json + twitch_segments,
+                "segments_to_render": segments_json + twitch_segments,
                 "video_path": str(video_path),
                 "clips": [],
                 "summary": relevant_parts.summary if relevant_parts else None,

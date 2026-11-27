@@ -239,3 +239,47 @@ def test_chat_and_reactions_are_fetched_once_per_vod(tmp_path, monkeypatch):
     video = tmp_path / "42.mp4"
     assert reactions.detect_reactions(video) == reactions.detect_reactions(video) == [(1.0, 3.0, "laughing")]
     assert len(listens) == 1
+
+
+def test_clips_made_from_a_vod_are_found_one_per_moment(monkeypatch, tmp_path):
+    import asyncio
+    from types import SimpleNamespace
+
+    from src import twitch
+
+    assert twitch.is_stream_clip("https://clips.twitch.tv/FaintLightGullWholeWheat")
+    assert twitch.is_stream_clip("https://kick.com/someone/clips/clip_01ABC")
+    assert not twitch.is_stream_clip("https://www.twitch.tv/videos/42")
+
+    monkeypatch.setattr(twitch, "get_config", lambda: SimpleNamespace(temp_dir=str(tmp_path), twitch_client_id="cid"))
+    assert asyncio.run(twitch.clips_from_vod("42")) == []  # not logged in: no clips, no error
+    twitch._save_auth({"access_token": "a", "user_id": "7", "name": "Marky"})
+
+    def clip(offset, views, title="ranked grind", video="42", duration=30):
+        return {"id": f"c{offset}", "video_id": video, "vod_offset": offset, "duration": duration,
+                "view_count": views, "title": title, "creator_name": "viewer"}
+
+    pages = {
+        None: {"data": [clip(100, 5), clip(110, 50, "HE DID IT"), clip(500, 2, video="99")], "pagination": {"cursor": "p2"}},
+        "p2": {"data": [clip(900, 9), {**clip(0, 99), "vod_offset": None}], "pagination": {}},
+    }
+
+    class Reply:
+        status_code = 200
+
+        def __init__(self, body):
+            self._body = body
+
+        def json(self):
+            return self._body
+
+    async def helix(auth, path, **params):
+        if path == "videos":
+            return Reply({"data": [{"id": "42", "user_id": "7", "created_at": "2026-11-20T18:00:00Z", "title": "ranked grind"}]})
+        assert params["broadcaster_id"] == "7" and params["started_at"] == "2026-11-20T18:00:00Z"
+        return Reply(pages[params.get("after")])
+
+    monkeypatch.setattr(twitch, "_helix", helix)
+    picked = asyncio.run(twitch.clips_from_vod("42"))
+    # 110 has the most views and covers 100's moment; another VOD's clip and one with no offset yet are skipped.
+    assert [(p["start"], p["end"], p["title"], p["views"]) for p in picked] == [(110, 140, "HE DID IT", 50), (900, 930, None, 9)]

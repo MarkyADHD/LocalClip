@@ -4,6 +4,7 @@ import json
 import logging
 import re
 import urllib.request
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional, Tuple
 
@@ -18,15 +19,18 @@ TWITCH_VOD = re.compile(r"^https?://(?:www\.|m\.)?twitch\.tv/(?:[^/]+/)?videos?/
 CHAT_EMOTES = re.compile(r"\b(LUL|KEKW|OMEGALUL|LMAO+|LOL+|Pog\w*|POGGERS|W+|L+|clip|monkaS|ICANT|Clap|EZ)\b|\?{2,}", re.I)
 
 
+TWITCH_CLIP = re.compile(
+    r"^https?://(?:clips\.twitch\.tv/(?:embed\?(?:[^#]*&)?clip=)?|(?:(?:www|go|m)\.)?twitch\.tv/(?:[^/]+/)?clip/)([\w-]+)",
+    re.I,
+)
+KICK_CLIP = re.compile(r"^https?://(?:www\.)?kick\.com/[\w-]+(?:/clips/|/?\?(?:[^#]+&)?clip=)(clip_[\w-]+)", re.I)
+
 # (site, pattern capturing the id). The id names the cached file, so every pattern keeps it to [\w-].
 STREAM_SOURCES = (
     ("twitch", TWITCH_VOD),
-    ("twitch", re.compile(
-        r"^https?://(?:clips\.twitch\.tv/(?:embed\?(?:[^#]*&)?clip=)?|(?:(?:www|go|m)\.)?twitch\.tv/(?:[^/]+/)?clip/)([\w-]+)",
-        re.I,
-    )),
+    ("twitch", TWITCH_CLIP),
     ("kick", re.compile(r"^https?://(?:www\.)?kick\.com/[\w-]+/videos/([\da-f]{8}-(?:[\da-f]{4}-){3}[\da-f]{12})", re.I)),
-    ("kick", re.compile(r"^https?://(?:www\.)?kick\.com/[\w-]+(?:/clips/|/?\?(?:[^#]+&)?clip=)(clip_[\w-]+)", re.I)),
+    ("kick", KICK_CLIP),
 )
 
 
@@ -43,6 +47,12 @@ def get_stream_source(url: str) -> Optional[Tuple[str, str]]:
         if match:
             return site, match.group(1)
     return None
+
+
+def is_stream_clip(url: str) -> bool:
+    """A Twitch or Kick clip link (not a whole VOD): it is imported whole, without the AI search."""
+    url = (url or "").strip()
+    return bool(TWITCH_CLIP.match(url) or KICK_CLIP.match(url))
 
 
 def _ydl_opts(**extra):
@@ -388,3 +398,105 @@ async def create_vod_clip(vod_id: str, start: float, end: float, title: str) -> 
     clip_id = body["data"][0]["id"]
     # Twitch finishes the clip a few seconds after answering.
     return {"id": clip_id, "url": f"https://clips.twitch.tv/{clip_id}", "duration": duration}
+
+
+# --- Twitch clips: the user's own clips to import, and the clips viewers made from a VOD being clipped ---
+
+async def _helix_logged_in(path: str, **params) -> Optional[httpx.Response]:
+    """GET with the saved login, refreshing it once. None when not logged in (or the login was revoked)."""
+    auth = _load_auth()
+    if not auth:
+        return None
+    response = await _helix(auth, path, **params)
+    if response.status_code == 401:
+        auth = await _refresh(auth)
+        if not auth:
+            twitch_logout_local()
+            return None
+        response = await _helix(auth, path, **params)
+    return response
+
+
+def clip_summary(clip: dict) -> dict:
+    return {
+        "id": clip["id"],
+        "title": clip.get("title") or "Untitled clip",
+        "url": clip.get("url") or f"https://clips.twitch.tv/{clip['id']}",
+        "thumbnail": clip.get("thumbnail_url") or "",
+        "duration": float(clip.get("duration") or 0),
+        "created_at": clip.get("created_at", ""),
+        "views": int(clip.get("view_count") or 0),
+        "creator": clip.get("creator_name") or "",
+    }
+
+
+async def list_my_clips(after: Optional[str] = None) -> dict:
+    """Clips of the logged-in user's channel, most viewed first."""
+    auth = _load_auth()
+    if not auth:
+        return {"configured": bool(get_config().twitch_client_id), "logged_in": False}
+    response = await _helix_logged_in("clips", broadcaster_id=auth["user_id"], first=50, **({"after": after} if after else {}))
+    if response is None:
+        return {"configured": True, "logged_in": False}
+    if response.status_code != 200:
+        raise TwitchLoginError(f"Twitch did not return your clips ({response.status_code})")
+    body = response.json()
+    return {
+        "configured": True,
+        "logged_in": True,
+        "name": auth.get("name"),
+        "clips": [clip_summary(clip) for clip in body.get("data", [])],
+        "cursor": (body.get("pagination") or {}).get("cursor"),
+    }
+
+
+def pick_vod_clips(clips: List[dict], vod_id: str, vod_title: str = "", limit: int = 20) -> List[dict]:
+    """The clips made from this VOD, most viewed first, one per moment (viewers often clip the same play
+    several times): {start, end, title, creator, views}. A title that is just the stream's title is dropped."""
+    found = sorted(
+        (c for c in clips if c.get("video_id") == vod_id and c.get("vod_offset") is not None),
+        key=lambda c: -int(c.get("view_count") or 0),
+    )
+    picked: List[dict] = []
+    for clip in found:
+        start = float(clip["vod_offset"])
+        end = start + float(clip.get("duration") or 30)
+        if any(min(end, p["end"]) - max(start, p["start"]) > (end - start) / 2 for p in picked):
+            continue
+        title = (clip.get("title") or "").strip()
+        picked.append({
+            "start": start, "end": end,
+            "title": title if title and title != vod_title.strip() else None,
+            "creator": clip.get("creator_name") or "",
+            "views": int(clip.get("view_count") or 0),
+        })
+        if len(picked) >= limit:
+            break
+    return picked
+
+
+async def clips_from_vod(vod_id: str) -> List[dict]:
+    """Twitch clips viewers made from this VOD, to add beside the AI's picks. [] without the Twitch login."""
+    response = await _helix_logged_in("videos", id=vod_id)
+    videos = response.json().get("data") if response is not None and response.status_code == 200 else None
+    if not videos:
+        return []
+    vod = videos[0]
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    clips: List[dict] = []
+    after = None
+    for _ in range(10):  # ponytail: the channel's first 1000 clips since the stream started; page further if a channel needs it
+        response = await _helix_logged_in(
+            "clips", broadcaster_id=vod["user_id"], started_at=vod["created_at"], ended_at=now, first=100,
+            **({"after": after} if after else {}),
+        )
+        if response is None or response.status_code != 200:
+            if response is not None:
+                logger.warning("Twitch clips list failed (%s): %s", response.status_code, response.text[:200])
+            break
+        body = response.json()
+        clips += body.get("data") or []
+        after = (body.get("pagination") or {}).get("cursor")
+        if not after:
+            break
+    return pick_vod_clips(clips, vod_id, vod.get("title") or "")

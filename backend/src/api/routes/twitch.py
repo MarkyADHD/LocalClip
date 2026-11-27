@@ -42,6 +42,11 @@ async def vods(after: Optional[str] = None):
     return await _call(twitch.list_my_vods(after))
 
 
+@router.get("/clips")
+async def clips(after: Optional[str] = None):
+    return await _call(twitch.list_my_clips(after))
+
+
 @router.post("/logout")
 async def logout():
     await twitch.twitch_logout()
