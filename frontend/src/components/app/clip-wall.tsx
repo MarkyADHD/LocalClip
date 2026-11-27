@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect } from "react";
 import {
   AudioLines, Check, ChevronLeft, ChevronRight, Clapperboard, Copy, Download, Flame, Loader2, MessageSquare,
-  Play, Scissors, Send, Share2, Sparkles, Star, Trash2, TrendingUp,
+  Play, Scissors, Send, Share2, Sparkles, Star, Trash2, TrendingUp, Twitch,
 } from "lucide-react";
 import { toast } from "sonner";
 import { ClipCover, ScoreRing } from "@/components/app/clip-cover";
@@ -36,7 +36,11 @@ export interface WallClip {
   hook_type: string | null;
   hook_title: string | null;
   hashtags?: string[];
+  reasoning?: string;
 }
+
+/** Made on Twitch (imported clip link, or a viewer's clip of the VOD), not picked by the AI. */
+const fromTwitch = (clip: WallClip) => clip.hook_type === "twitch_clip";
 
 function clipTitle(clip: WallClip) {
   return clip.hook_title || `Clip ${clip.clip_order}`;
@@ -84,6 +88,11 @@ export function ClipTile({ clip, taskId, busy, best, editable, selected, onSelec
           {best && (
             <span className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-full bg-brand px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-brand-foreground shadow">
               <Flame className="size-3" />Top pick
+            </span>
+          )}
+          {fromTwitch(clip) && (
+            <span className="absolute right-2 top-2 inline-flex items-center gap-1 rounded-full bg-[#9146FF] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white shadow">
+              <Twitch className="size-3" />Twitch clip
             </span>
           )}
           {clip.virality_score > 0 && (
@@ -173,7 +182,7 @@ export function ClipFocus({ clip, taskId, twitchVod = false, index, total, busy,
               <div className="flex items-center justify-between gap-2 border-b px-5 py-3 pr-12 text-xs text-muted-foreground">
                 <div className="flex items-center gap-3">
                   <span className="tabular-nums">Clip {index + 1} of {total}</span>
-                  {twitchVod && <ClipOnTwitch key={clip.id} taskId={taskId} clipId={clip.id} />}
+                  {twitchVod && !fromTwitch(clip) && <ClipOnTwitch key={clip.id} taskId={taskId} clipId={clip.id} />}
                 </div>
                 <div className="flex items-center gap-1">
                   <Button size="icon-sm" variant="ghost" onClick={() => onNavigate(-1)} aria-label="Previous clip"><ChevronLeft className="size-4" /></Button>
@@ -186,6 +195,9 @@ export function ClipFocus({ clip, taskId, twitchVod = false, index, total, busy,
                   <DialogDescription className="mt-1 tabular-nums">
                     {clip.start_time} – {clip.end_time} · {formatClipDuration(clip.duration)}
                   </DialogDescription>
+                  {fromTwitch(clip) && clip.reasoning && (
+                    <p className="mt-2 flex items-center gap-1.5 text-sm text-muted-foreground"><Twitch className="size-3.5 text-[#9146FF]" />{clip.reasoning}</p>
+                  )}
                   {clip.hashtags && clip.hashtags.length > 0 && (
                     <button
                       type="button"

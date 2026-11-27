@@ -437,8 +437,8 @@ export default function HomeApp() {
                 </Chip>
               )}
               {!file && (
-                <Chip onClick={() => setTwitchOpen(true)} disabled={controlsDisabled} aria-label="Pick one of your Twitch VODs">
-                  <Twitch className="size-3.5" /><span className="hidden sm:inline">My Twitch VODs</span>
+                <Chip onClick={() => setTwitchOpen(true)} disabled={controlsDisabled} aria-label="Pick one of your Twitch VODs or clips">
+                  <Twitch className="size-3.5" /><span className="hidden sm:inline">My Twitch</span>
                 </Chip>
               )}
               <TwitchVodPicker open={twitchOpen} onOpenChange={setTwitchOpen} onPick={setUrl} />

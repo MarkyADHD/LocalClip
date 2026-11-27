@@ -75,9 +75,12 @@ Blocking work (ffmpeg, downloads, transcription) is wrapped in `run_in_thread()`
    generation is deleted, the "Delete full video" button is used, or `SOURCE_KEEP_DAYS` (3) pass), YouTube URL, or uploaded file.
 2. **Transcription**: faster-whisper (CTranslate2, fp16 on the GPU, VAD on) locally (`WHISPER_MODEL`).
    No torch; cuBLAS/cuDNN come from the `nvidia-*` wheels. Close games while clipping: they share the GPU.
-   "My Twitch VODs" on the home screen logs in with Twitch's device code flow (`TWITCH_CLIENT_ID`, a public app, no
+   "My Twitch" on the home screen logs in with Twitch's device code flow (`TWITCH_CLIENT_ID`, a public app, no
    secret; tokens in `TEMP_DIR/twitch_login.json`) and lists the user's videos from Helix (`/tasks/twitch/*`); picking
-   one just fills in its link.
+   one just fills in its link. Its "Clips" tab lists the channel's clips (`/tasks/twitch/clips`).
+   A Twitch or Kick clip link is imported whole, without the AI search (`is_stream_clip`), to edit like any clip. For a
+   Twitch VOD with the Twitch login, the clips viewers made from it (`clips_from_vod`, Helix Get Clips, one per moment,
+   up to 20) are added beside the AI's picks with `hook_type` `twitch_clip` (a "Twitch clip" badge); not on Find more.
 3. **Twitch chat signals**: for Twitch VODs, `twitch.py` downloads the chat replay and scores
    activity spikes, which feed the clip selection as an extra signal. `media/reactions.py` tags laughing and
    screaming in the audio (sherpa-onnx CED-tiny, 2 s chunks, ~15 s per stream hour, model downloaded once to

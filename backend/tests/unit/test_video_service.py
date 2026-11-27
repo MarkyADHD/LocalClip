@@ -172,3 +172,61 @@ def test_cut_down_clip_text_is_only_its_parts():
     words = [{"text": w, "start": i * 10_000, "end": i * 10_000 + 500} for i, w in enumerate("a b c d e f".split())]
     payload = {"start_time": "00:00", "end_time": "00:55", "text": "", "source_ranges": [[0, 15], [40, 55]]}
     assert VideoService._ground_segment_text(payload, {"words": words}) == "a b … e f"
+
+
+@pytest.mark.asyncio
+async def test_twitch_clips_are_imported_whole_and_vod_clips_sit_beside_the_ai_picks(monkeypatch, tmp_path):
+    video_path = tmp_path / "source.mp4"
+    video_path.write_bytes(b"placeholder")
+    monkeypatch.setattr(
+        video_service_module, "get_config", lambda: SimpleNamespace(max_video_duration=86400, clip_duration=30)
+    )
+    duration = {"value": 27.4}
+    monkeypatch.setattr(VideoService, "_get_file_duration", staticmethod(lambda _path: duration["value"]))
+
+    async def fake_run_in_thread(func, *_args, **_kwargs):
+        return video_path if func is video_service_module.download_stream_video else None
+
+    async def fake_generate_transcript(*_args, **_kwargs):
+        return "[00:01 - 00:05] no way"
+
+    async def no_ai(*_args, **_kwargs):
+        raise AssertionError("an imported clip must not run the AI search")
+
+    async def fake_title(_text):
+        return "No Way", []
+
+    monkeypatch.setattr(video_service_module, "run_in_thread", fake_run_in_thread)
+    monkeypatch.setattr(VideoService, "generate_transcript", staticmethod(fake_generate_transcript))
+    monkeypatch.setattr(VideoService, "analyze_transcript", staticmethod(no_ai))
+    monkeypatch.setattr(VideoService, "_ground_segment_text", staticmethod(lambda *_args: "no way"))
+    monkeypatch.setattr(video_service_module, "title_clip", fake_title)
+
+    result = await VideoService.process_video_complete(url="https://clips.twitch.tv/FaintLightGull", source_type="twitch")
+    (segment,) = result["segments_to_render"]
+    assert (segment["start_time"], segment["end_time"], segment["reasoning"]) == ("00:00", "00:28", "Imported from Twitch.")
+    assert segment["hook_type"] == "twitch_clip"
+
+    duration["value"] = 3600.0
+
+    async def ai_picks(*_args, **_kwargs):
+        return SimpleNamespace(summary=None, key_topics=[], most_relevant_segments=[{"start_time": "00:10", "end_time": "00:40"}])
+
+    async def vod_clips(vod_id):
+        assert vod_id == "42"
+        return [{"start": 100.5, "end": 130.5, "title": "HE DID IT", "creator": "viewer", "views": 3},
+                {"start": 3599.5, "end": 3629.5, "title": None, "creator": "", "views": 1}]  # past the end: skipped
+
+    monkeypatch.setattr(VideoService, "analyze_transcript", staticmethod(ai_picks))
+    monkeypatch.setattr(video_service_module, "clips_from_vod", vod_clips)
+    result = await VideoService.process_video_complete(url="https://www.twitch.tv/videos/42", source_type="twitch")
+    ai, twitch_clip = result["segments_to_render"]
+    assert ai["start_time"] == "00:10"
+    assert (twitch_clip["start_time"], twitch_clip["end_time"], twitch_clip["source_ranges"]) == ("01:40", "02:11", [[100.5, 130.5]])
+    assert (twitch_clip["hook_type"], twitch_clip["hook_title"]) == ("twitch_clip", "HE DID IT")
+    assert "HE DID IT" not in result["analysis_json"]  # fetched fresh on a rerun, not cached
+
+    result = await VideoService.process_video_complete(
+        url="https://www.twitch.tv/videos/42", source_type="twitch", exclude_ranges=[(10, 40)]
+    )
+    assert [s["hook_type"] for s in result["segments_to_render"]] == [None]  # Find more: not added again

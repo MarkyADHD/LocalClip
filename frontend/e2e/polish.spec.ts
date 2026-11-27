@@ -328,3 +328,33 @@ test("clips from a YouTube video have no Clip on Twitch button", async ({ page }
   await expect(page.getByText("Clip 1 of 1")).toBeVisible();
   await expect(page.getByRole("button", { name: "Clip on Twitch" })).toHaveCount(0);
 });
+
+test("Twitch clips can be picked to import, and show as Twitch clips beside the AI's", async ({ page }) => {
+  await page.route("**/api/tasks/billing-summary", (route) => route.fulfill({ json: { monetization_enabled: false } }));
+  const vod = { id: "42", title: "ranked grind", url: "https://www.twitch.tv/videos/42", thumbnail: "", duration: "3h2m1s", created_at: "2026-11-20T18:00:00Z", type: "archive" };
+  const twitchClip = { id: "FunnyClip", title: "HE DID IT", url: "https://clips.twitch.tv/FunnyClip", thumbnail: "", duration: 28.4, created_at: "2026-11-21T18:00:00Z", views: 1234, creator: "viewer" };
+  await page.route("**/api/tasks/twitch/vods**", (route) => route.fulfill({ json: { configured: true, logged_in: true, name: "Marky", vods: [vod] } }));
+  await page.route("**/api/tasks/twitch/clips**", (route) => route.fulfill({ json: { configured: true, logged_in: true, name: "Marky", clips: [twitchClip] } }));
+  await page.goto("/");
+  await page.getByRole("button", { name: "Pick one of your Twitch VODs or clips" }).click();
+  await expect(page.getByText("ranked grind")).toBeVisible();
+  await page.getByRole("tab", { name: "Clips" }).click();
+  await expect(page.getByText("1,234 views", { exact: false })).toBeVisible();
+  if (process.env.SHOT) await page.screenshot({ path: `${process.env.SHOT}-picker.png` });
+  await page.getByRole("button", { name: /HE DID IT/ }).click();
+  await expect(page.getByLabel("Video link")).toHaveValue("https://clips.twitch.tv/FunnyClip");
+
+  await page.route("**/api/tasks/one", (route) => route.fulfill({ json: { ...generation, source_type: "twitch", source_url: "https://www.twitch.tv/videos/42", clips_count: 2 } }));
+  await page.route("**/api/tasks/one/clips", (route) => route.fulfill({ json: { clips: [
+    { ...clip, hook_title: "He did NOT see that coming", hook_type: "reaction" },
+    { ...clip, id: "tw", clip_order: 2, virality_score: 0, hook_title: "HE DID IT", hook_type: "twitch_clip", reasoning: "Clipped on Twitch by viewer (1234 views)." },
+  ] } }));
+  await page.goto("/tasks/one");
+  await expect(page.getByText("Twitch clip", { exact: true })).toHaveCount(1);
+  if (process.env.SHOT) await page.screenshot({ path: `${process.env.SHOT}-results.png` });
+  await page.getByRole("button", { name: "Preview HE DID IT" }).click();
+  await expect(page.getByText("Clipped on Twitch by viewer (1234 views).")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Clip on Twitch" })).toHaveCount(0);
+  await page.waitForTimeout(400);
+  if (process.env.SHOT) await page.screenshot({ path: `${process.env.SHOT}-preview.png` });
+});
