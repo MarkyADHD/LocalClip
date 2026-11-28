@@ -278,11 +278,34 @@ def transcribe_with_whisper(
             break
         offset += WHISPER_CHUNK_SECONDS
         logger.info("Whisper transcribed %d h so far", offset // 3600)
+    tighten_word_timings([w for segment in result_segments for w in segment["words"]])
+    for segment in result_segments:
+        if segment["words"]:
+            segment["start"], segment["end"] = segment["words"][0]["start"], segment["words"][-1]["end"]
     return {
         "text": "".join(segment["text"] for segment in result_segments),
         "segments": result_segments,
         "language": detected_language,
     }
+
+
+def tighten_word_timings(words: List[Dict[str, Any]], unit: float = 1.0) -> List[Dict[str, Any]]:
+    """Whisper stretches some words over the pause beside them (a 10 s "Here's"), so the caption
+    pops in long before the word is said or stays up after it. Cut each word to a speakable length,
+    keeping the side next to its closer neighbour, where the speech is. ``unit`` 1000 for ms timings."""
+    # ponytail: length guessed from the letters; snap to the audio's loudness if early captions still show.
+    gaps = [b["start"] - a["end"] for a, b in zip(words, words[1:])]
+    for i, word in enumerate(words):
+        longest = (0.5 + 0.08 * len(str(word.get("word", word.get("text", ""))).strip())) * unit
+        if word["end"] - word["start"] <= longest:
+            continue
+        before = gaps[i - 1] if i else float("inf")
+        after = gaps[i] if i < len(gaps) else float("inf")
+        if before > after:
+            word["start"] = round(word["end"] - longest, 3)
+        else:
+            word["end"] = round(word["start"] + longest, 3)
+    return words
 
 
 def _whisper_result_to_transcript_data(whisper_result: Dict[str, Any]) -> Dict[str, Any]:
@@ -595,6 +618,8 @@ def load_cached_transcript_data(video_path: Path) -> Optional[Dict]:
             if "version" not in payload:
                 payload["version"] = TRANSCRIPT_CACHE_SCHEMA_VERSION
                 payload.setdefault("utterances", [])
+            if payload.get("whisper_key"):  # Whisper transcripts from before tighten_word_timings
+                tighten_word_timings(payload.get("words") or [], 1000)
             return payload
     except Exception as e:
         logger.warning(f"Failed to load transcript cache: {e}")
