@@ -833,14 +833,25 @@ export function cutSavings(doc: ProjectDocument, asset: string, ranges: [number,
 
 export const wordText = (doc: ProjectDocument, asset: string, index: number, word: Word) =>
   doc.wordEdits[asset]?.[index] ?? word.t;
-export function setWordText(doc: ProjectDocument, asset: string, index: number, text: string): ProjectDocument {
-  return {
-    ...doc,
-    wordEdits: {
-      ...doc.wordEdits,
-      [asset]: { ...doc.wordEdits[asset], [index]: text.slice(0, 120) },
-    },
-  };
+/**
+ * New caption text for words first..last: one typed word per spoken word, the rest go on the last one,
+ * and words left over show no caption. "" hides them from the captions. The video is never cut here.
+ */
+export function setWordsText(doc: ProjectDocument, asset: string, words: Word[], first: number, last: number, text: string): ProjectDocument {
+  const tokens = text.trim().split(/\s+/).filter(Boolean);
+  const edits = { ...doc.wordEdits[asset] };
+  for (let i = first; i <= last; i++) {
+    const value = (i === last ? tokens.slice(i - first).join(" ") : (tokens[i - first] ?? "")).slice(0, 120);
+    if (value === words[i].t) delete edits[i];
+    else edits[i] = value;
+  }
+  return { ...doc, wordEdits: { ...doc.wordEdits, [asset]: edits } };
+}
+/** Back to the words Whisper heard. */
+export function resetWordsText(doc: ProjectDocument, asset: string, first: number, last: number): ProjectDocument {
+  const edits = { ...doc.wordEdits[asset] };
+  for (let i = first; i <= last; i++) delete edits[i];
+  return { ...doc, wordEdits: { ...doc.wordEdits, [asset]: edits } };
 }
 
 // ------------------------------------------------------------------ captions

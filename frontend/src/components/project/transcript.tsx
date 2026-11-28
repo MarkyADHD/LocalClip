@@ -1,6 +1,6 @@
 "use client";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Loader2, RotateCcw, Scissors, Search, Sparkles } from "lucide-react";
+import { Loader2, Pencil, RotateCcw, Scissors, Search, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -16,8 +16,9 @@ import {
   findSilences,
   keptRanges,
   keptWords,
+  resetWordsText,
   restoreCuts,
-  setWordText,
+  setWordsText,
   timecode,
   timelineTime,
   wordRange,
@@ -94,9 +95,11 @@ const Paragraph = memo(function Paragraph({
                 "cursor-pointer rounded-sm px-[1px] hover:bg-accent",
                 states[k] === "1" ? "" : CUT_STYLE[states[k]],
                 shown[k] !== word.t && states[k] === "1" && "underline decoration-dotted underline-offset-4",
+                !shown[k] && states[k] === "1" && "text-muted-foreground/50 line-through decoration-dotted no-underline",
               )}
+              title={!shown[k] && states[k] === "1" ? "Not in the captions" : undefined}
             >
-              {shown[k] || "∅"}
+              {shown[k] || word.t}
             </span>{" "}
           </span>
         );
@@ -136,7 +139,7 @@ export function TranscriptPanel({ project, engine }: { project: Project; engine:
 
   const body = useRef<HTMLDivElement>(null);
   const [selection, setSelection] = useState<[number, number] | null>(null);
-  const [editing, setEditing] = useState<{ index: number; text: string } | null>(null);
+  const [editing, setEditing] = useState<{ first: number; last: number; text: string } | null>(null);
   const [query, setQuery] = useState("");
   const [match, setMatch] = useState(0);
 
@@ -163,9 +166,33 @@ export function TranscriptPanel({ project, engine }: { project: Project; engine:
     if (!selection || !assetId) return;
     const s = words[selection[0]].s,
       e = words[selection[1]].e;
-    update((d) => restoreCuts(d, (c) => c.asset === assetId && c.start < e && c.end > s));
+    update((d) =>
+      resetWordsText(
+        restoreCuts(d, (c) => c.asset === assetId && c.start < e && c.end > s),
+        assetId,
+        selection[0],
+        selection[1],
+      ),
+    );
     window.getSelection()?.removeAllRanges();
   }, [assetId, selection, update, words]);
+  // Deleting or typing over words changes only the captions; cutting the video is the Cut button.
+  const editSelection = useCallback(
+    (text?: string) => {
+      if (!selection || !assetId) return;
+      const [first, last] = selection;
+      const edits = doc.wordEdits[assetId] ?? {};
+      if (text === "") update((d) => setWordsText(d, assetId, words, first, last, ""));
+      else
+        setEditing({
+          first,
+          last,
+          text: text ?? words.slice(first, last + 1).map((w, k) => edits[first + k] ?? w.t).filter(Boolean).join(" "),
+        });
+      window.getSelection()?.removeAllRanges();
+    },
+    [assetId, doc.wordEdits, selection, update, words],
+  );
 
   // Light up the word being spoken, without re-rendering the transcript on every frame.
   useEffect(() => {
@@ -224,8 +251,8 @@ export function TranscriptPanel({ project, engine }: { project: Project; engine:
   if (!spoken.length)
     return (
       <Empty>
-        Add a recording with speech and its transcript appears here. Delete text to cut the video; the timeline closes
-        up by itself.
+        Add a recording with speech and its transcript appears here. Select words to fix their captions, or to cut
+        them from the video with Cut.
       </Empty>
     );
   if (!asset) return null;
@@ -274,12 +301,15 @@ export function TranscriptPanel({ project, engine }: { project: Project; engine:
         </div>
       </div>
       {selection && (
-        <div className="flex items-center gap-2 border-b bg-accent/40 px-3 py-1.5 text-xs">
-          <span className="text-muted-foreground">
-            {selection[1] - selection[0] + 1} words · {(words[selection[1]].e - words[selection[0]].s).toFixed(1)}s
+        <div className="flex flex-wrap items-center gap-2 border-b bg-accent/40 px-3 py-1.5 text-xs">
+          <span className="whitespace-nowrap text-muted-foreground">
+            {selection[1] - selection[0] + 1} word{selection[0] === selection[1] ? "" : "s"} · {(words[selection[1]].e - words[selection[0]].s).toFixed(1)}s
           </span>
-          <Button size="sm" variant="destructive" className="ml-auto h-7" onMouseDown={(e) => e.preventDefault()} onClick={cutSelection}>
-            <Scissors /> Cut
+          <Button size="sm" variant="outline" className="ml-auto h-7" onMouseDown={(e) => e.preventDefault()} onClick={() => editSelection()}>
+            <Pencil /> Edit caption
+          </Button>
+          <Button size="sm" variant="destructive" className="h-7" onMouseDown={(e) => e.preventDefault()} onClick={cutSelection}>
+            <Scissors /> Cut from video
           </Button>
           <Button size="sm" variant="outline" className="h-7" onMouseDown={(e) => e.preventDefault()} onClick={restoreSelection}>
             <RotateCcw /> Restore
@@ -303,11 +333,12 @@ export function TranscriptPanel({ project, engine }: { project: Project; engine:
         aria-readonly
         className="min-h-0 flex-1 overflow-y-auto px-4 py-3 text-sm outline-none"
         onKeyDown={(event) => {
-          if ((event.key === "Delete" || event.key === "Backspace") && selection) {
-            event.preventDefault();
-            event.stopPropagation();
-            cutSelection();
-          }
+          if (!selection || event.ctrlKey || event.metaKey || event.altKey) return;
+          const typed = event.key.length === 1 && event.key !== " " ? event.key : null;
+          if (event.key !== "Delete" && event.key !== "Backspace" && event.key !== "Enter" && !typed) return;
+          event.preventDefault();
+          event.stopPropagation();
+          editSelection(typed ?? (event.key === "Enter" ? undefined : ""));
         }}
         onClick={(event) => {
           const target = (event.target as HTMLElement).closest<HTMLElement>("[data-i]");
@@ -318,7 +349,7 @@ export function TranscriptPanel({ project, engine }: { project: Project; engine:
           const target = (event.target as HTMLElement).closest<HTMLElement>("[data-i]");
           if (!target) return;
           const index = Number(target.dataset.i);
-          setEditing({ index, text: doc.wordEdits[asset.id]?.[index] ?? words[index].t });
+          setEditing({ first: index, last: index, text: doc.wordEdits[asset.id]?.[index] ?? words[index].t });
         }}
       >
         {paragraphs.map(([a, b]) => {
@@ -340,14 +371,17 @@ export function TranscriptPanel({ project, engine }: { project: Project; engine:
           className="flex items-center gap-2 border-t p-2"
           onSubmit={(event) => {
             event.preventDefault();
-            update((d) => setWordText(d, asset.id, editing.index, editing.text.trim()));
+            update((d) => setWordsText(d, asset.id, words, editing.first, editing.last, editing.text));
             setEditing(null);
           }}
         >
-          <span className="text-xs text-muted-foreground">Caption text</span>
+          <span className="text-xs text-muted-foreground">
+            Caption text{editing.last > editing.first ? ` (${editing.last - editing.first + 1} words)` : ""}
+          </span>
           <Input
             autoFocus
             aria-label="Corrected word"
+            onFocus={(event) => event.currentTarget.setSelectionRange(event.currentTarget.value.length, event.currentTarget.value.length)}
             className="h-8 flex-1 text-sm"
             value={editing.text}
             onChange={(event) => setEditing({ ...editing, text: event.target.value })}
