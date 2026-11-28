@@ -669,6 +669,8 @@ class ClipEditingMixin:
         return {
             "output_format": output_format,
             "add_subtitles": add_subtitles,
+            "long_form": parsed.get("long_form"),
+            "project_id": parsed.get("project_id"),
             **normalize_clip_cleanup_settings(
                 parsed.get("cut_long_pauses"),
                 parsed.get("pause_threshold_ms"),

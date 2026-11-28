@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import Link from "next/link";
 import {
-  AlertCircle, ArrowRight, Captions, CaptionsOff, Check, ChevronDown, Crop, FileVideo,
+  AlertCircle, ArrowRight, Captions, CaptionsOff, Check, ChevronDown, Clock, Crop, FileVideo, Film,
   Link2, Loader2, Paintbrush, Paperclip, Sparkles, Target, Twitch, Upload, Wand2, X,
 } from "lucide-react";
 import { CaptionSizeControl } from "@/components/caption-size-control";
@@ -59,6 +59,15 @@ const FRAMINGS: { id: OutputFormat; label: string; hint: string }[] = [
   { id: "original", label: "Original", hint: "Keep the source aspect ratio" },
 ];
 
+// Long video lengths in minutes; 0 keeps every scene worth watching.
+const VIDEO_LENGTHS: { minutes: number; label: string; hint: string }[] = [
+  { minutes: 0, label: "Auto", hint: "Every part worth watching" },
+  { minutes: 10, label: "About 10 min", hint: "Only the very best" },
+  { minutes: 20, label: "About 20 min", hint: "" },
+  { minutes: 30, label: "About 30 min", hint: "" },
+  { minutes: 60, label: "About 1 hour", hint: "" },
+];
+
 const COLOR_SWATCHES = ["#FFFFFF", "#000000", "#FFD700", "#FF6B6B", "#4ECDC4", "#45B7D1"];
 
 function formatBytes(bytes: number) {
@@ -98,6 +107,9 @@ export default function HomeApp() {
   const [removeFillerWords, setRemoveFillerWords] = useState(true);
   const [filteredWords, setFilteredWords] = useState("");
   const [clipRequest, setClipRequest] = useState("");
+  // "long": one landscape video of the stream's best scenes, opened in the video editor.
+  const [mode, setMode] = useState<"clips" | "long">("clips");
+  const [videoMinutes, setVideoMinutes] = useState(0);
 
   const [recent, setRecent] = useState<GenerationSummary[] | null>(null);
   const [billingSummary, updateBillingSummary] = useBillingSummary(Boolean(session?.user?.id));
@@ -273,6 +285,7 @@ export default function HomeApp() {
           remove_filler_words: removeFillerWords,
           filtered_words: normalizedFilteredWords,
           clip_request: clipRequest.trim(),
+          long_form: mode === "long" ? videoMinutes : null,
         }),
       });
 
@@ -338,10 +351,33 @@ export default function HomeApp() {
             {greeting()}
           </h1>
           <p className="mt-2 text-center text-muted-foreground">
-            Drop in a stream. Get back captioned clips, ready to post.
+            {mode === "long"
+              ? "Drop in a stream. Get back one video of the best parts, ready to tweak."
+              : "Drop in a stream. Get back captioned clips, ready to post."}
           </p>
 
           {upgradeState && <PlanStatusNudge state={upgradeState} onUpgrade={openUpgrade} />}
+
+          <div className="mt-6 flex justify-center">
+            <div className="inline-flex rounded-full border bg-card p-0.5" role="tablist" aria-label="What to make">
+              {([["clips", "Short clips", Sparkles], ["long", "Long video", Film]] as const).map(([value, label, Icon]) => (
+                <button
+                  key={value}
+                  type="button"
+                  role="tab"
+                  aria-selected={mode === value}
+                  disabled={controlsDisabled}
+                  onClick={() => setMode(value)}
+                  className={cn(
+                    "inline-flex h-8 items-center gap-1.5 rounded-full px-3.5 text-xs font-medium transition-colors disabled:opacity-50",
+                    mode === value ? "bg-foreground text-background" : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  <Icon className="size-3.5" />{label}
+                </button>
+              ))}
+            </div>
+          </div>
 
           <form
             onSubmit={handleSubmit}
@@ -353,7 +389,7 @@ export default function HomeApp() {
               if (!controlsDisabled) attachFile(event.dataTransfer.files?.[0] ?? null);
             }}
             className={cn(
-              "relative mt-8 rounded-2xl border bg-card shadow-[0_1px_2px_rgb(0_0_0/0.04),0_12px_40px_-12px_rgb(0_0_0/0.12)] transition-all focus-within:border-brand/60 focus-within:shadow-[0_1px_2px_rgb(0_0_0/0.04),0_16px_48px_-12px_rgb(0_0_0/0.18)]",
+              "relative mt-3 rounded-2xl border bg-card shadow-[0_1px_2px_rgb(0_0_0/0.04),0_12px_40px_-12px_rgb(0_0_0/0.12)] transition-all focus-within:border-brand/60 focus-within:shadow-[0_1px_2px_rgb(0_0_0/0.04),0_16px_48px_-12px_rgb(0_0_0/0.18)]",
               isDragging && "border-brand ring-4 ring-brand/15",
             )}
           >
@@ -416,13 +452,15 @@ export default function HomeApp() {
 
             <div className="mx-3 mb-2 flex items-center gap-2 rounded-lg bg-muted/50 px-2.5 sm:mx-4">
               <Target className="size-4 shrink-0 text-muted-foreground" aria-hidden />
-              <label htmlFor="clip-request" className="sr-only">What clips do you want?</label>
+              <label htmlFor="clip-request" className="sr-only">{mode === "long" ? "What should the video be about?" : "What clips do you want?"}</label>
               <input
                 id="clip-request"
                 type="text"
                 maxLength={200}
                 autoComplete="off"
-                placeholder="What clips do you want? Optional, like: only the funny deaths"
+                placeholder={mode === "long"
+                  ? "What should it keep? Optional, like: the missions and robberies"
+                  : "What clips do you want? Optional, like: only the funny deaths"}
                 value={clipRequest}
                 onChange={(e) => setClipRequest(e.target.value)}
                 disabled={controlsDisabled}
@@ -443,189 +481,226 @@ export default function HomeApp() {
               )}
               <TwitchVodPicker open={twitchOpen} onOpenChange={setTwitchOpen} onPick={setUrl} />
 
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Chip disabled={controlsDisabled || !addSubtitles} active={customized}>
-                    <Paintbrush className="size-3.5" />{selectedTemplate?.name || "Default"}<ChevronDown className="size-3 opacity-60" />
-                  </Chip>
-                </PopoverTrigger>
-                <PopoverContent align="start" className="w-[min(92vw,560px)] rounded-2xl p-0">
-                  <div className="grid gap-0 sm:grid-cols-[minmax(0,1fr)_180px]">
-                    <div className="max-h-[420px] min-w-0 space-y-4 overflow-y-auto p-4">
-                      <div>
-                        <p className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">Caption style</p>
-                        <div className="flex flex-col gap-1" role="radiogroup" aria-label="Caption style">
-                          {(availableTemplates.length ? availableTemplates : [{ id: "default", name: "Default", description: "Word-by-word captions", animation: "" } as CaptionTemplate]).map((template) => (
-                            <button
-                              key={template.id}
-                              type="button"
-                              role="radio"
-                              aria-checked={captionTemplate === template.id}
-                              onClick={() => setCaptionTemplate(template.id)}
-                              className={cn("flex w-full min-w-0 items-center gap-3 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-accent", captionTemplate === template.id && "bg-accent")}
-                            >
-                              <span
-                                aria-hidden
-                                className="flex h-8 w-16 shrink-0 items-center justify-center rounded-md bg-stone-700 text-[11px] leading-none"
-                                style={{
-                                  fontFamily: `'${template.font_family}', system-ui, sans-serif`,
-                                  color: template.font_color || "#fff",
-                                  textTransform: template.uppercase ? "uppercase" : undefined,
-                                  WebkitTextStroke: template.background ? undefined : "1.5px #101010",
-                                  paintOrder: "stroke fill",
-                                }}
+              {mode === "long" && (
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Chip disabled={controlsDisabled}>
+                      <Clock className="size-3.5" />{VIDEO_LENGTHS.find((l) => l.minutes === videoMinutes)?.label}<ChevronDown className="size-3 opacity-60" />
+                    </Chip>
+                  </PopoverTrigger>
+                  <PopoverContent align="start" className="w-[min(92vw,280px)] rounded-2xl p-2">
+                    <p className="px-2 pb-1 pt-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">Length</p>
+                    <div className="flex flex-col gap-0.5" role="radiogroup" aria-label="Video length">
+                      {VIDEO_LENGTHS.map((length) => (
+                        <button
+                          key={length.minutes}
+                          type="button"
+                          role="radio"
+                          aria-checked={videoMinutes === length.minutes}
+                          onClick={() => setVideoMinutes(length.minutes)}
+                          className={cn("flex items-center gap-3 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-accent", videoMinutes === length.minutes && "bg-accent")}
+                        >
+                          <span className="min-w-0 flex-1">
+                            <span className="block text-sm font-medium">{length.label}</span>
+                            {length.hint && <span className="block text-xs text-muted-foreground">{length.hint}</span>}
+                          </span>
+                          {videoMinutes === length.minutes && <Check className="size-4" />}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="px-2 pb-1 pt-2 text-xs text-muted-foreground">Whole scenes, in stream order. It opens in the video editor to tweak and export.</p>
+                  </PopoverContent>
+                </Popover>
+              )}
+
+              {mode === "clips" && (
+                <>
+
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Chip disabled={controlsDisabled || !addSubtitles} active={customized}>
+                      <Paintbrush className="size-3.5" />{selectedTemplate?.name || "Default"}<ChevronDown className="size-3 opacity-60" />
+                    </Chip>
+                  </PopoverTrigger>
+                  <PopoverContent align="start" className="w-[min(92vw,560px)] rounded-2xl p-0">
+                    <div className="grid gap-0 sm:grid-cols-[minmax(0,1fr)_180px]">
+                      <div className="max-h-[420px] min-w-0 space-y-4 overflow-y-auto p-4">
+                        <div>
+                          <p className="mb-2 text-xs font-medium uppercase tracking-wider text-muted-foreground">Caption style</p>
+                          <div className="flex flex-col gap-1" role="radiogroup" aria-label="Caption style">
+                            {(availableTemplates.length ? availableTemplates : [{ id: "default", name: "Default", description: "Word-by-word captions", animation: "" } as CaptionTemplate]).map((template) => (
+                              <button
+                                key={template.id}
+                                type="button"
+                                role="radio"
+                                aria-checked={captionTemplate === template.id}
+                                onClick={() => setCaptionTemplate(template.id)}
+                                className={cn("flex w-full min-w-0 items-center gap-3 rounded-lg px-2.5 py-2 text-left transition-colors hover:bg-accent", captionTemplate === template.id && "bg-accent")}
                               >
-                                <span className={cn("px-1 py-0.5", template.background && "bg-[#101010]")}>
-                                  No <span style={{ color: template.highlight_color }}>way</span>
+                                <span
+                                  aria-hidden
+                                  className="flex h-8 w-16 shrink-0 items-center justify-center rounded-md bg-stone-700 text-[11px] leading-none"
+                                  style={{
+                                    fontFamily: `'${template.font_family}', system-ui, sans-serif`,
+                                    color: template.font_color || "#fff",
+                                    textTransform: template.uppercase ? "uppercase" : undefined,
+                                    WebkitTextStroke: template.background ? undefined : "1.5px #101010",
+                                    paintOrder: "stroke fill",
+                                  }}
+                                >
+                                  <span className={cn("px-1 py-0.5", template.background && "bg-[#101010]")}>
+                                    No <span style={{ color: template.highlight_color }}>way</span>
+                                  </span>
                                 </span>
-                              </span>
-                              <span className="min-w-0 flex-1">
-                                <span className="block text-sm font-medium">{template.name}</span>
-                                <span className="block truncate text-xs text-muted-foreground">{template.description}</span>
-                              </span>
-                              {captionTemplate === template.id && <Check className="size-4" />}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-
-                      <div className="space-y-3 border-t pt-4">
-                        <div className="flex items-center justify-between">
-                          <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Customize</p>
-                          {customized && (
-                            <button type="button" className="text-xs text-muted-foreground underline-offset-2 hover:underline" onClick={() => { setFontFamily(null); setFontSize(null); setFontColor(null); }}>
-                              Reset to template
-                            </button>
-                          )}
-                        </div>
-                        <div className="space-y-2">
-                          <div className="flex items-center justify-between gap-2">
-                            <label className="text-sm">Font</label>
-                            <input ref={fontUploadInputRef} type="file" accept=".ttf,.otf" onChange={handleFontUpload} className="hidden" />
-                            <Button type="button" variant="ghost" size="sm" className="h-7 text-xs" disabled={controlsDisabled || isUploadingFont} onClick={() => canUploadCustomFonts ? fontUploadInputRef.current?.click() : openUpgrade({ kind: "custom_fonts" })}>
-                              <Upload className="size-3" />{isUploadingFont ? "Uploading…" : "Upload font"}
-                            </Button>
-                          </div>
-                          {!canUploadCustomFonts && (
-                            <button type="button" onClick={() => openUpgrade({ kind: "custom_fonts" })} className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground">
-                              Use your own fonts with a paid plan
-                            </button>
-                          )}
-                          {availableFonts.length > FONT_SEARCH_THRESHOLD && (
-                            <Input value={fontSearch} onChange={(e) => setFontSearch(e.target.value)} placeholder="Search fonts" className="h-8" />
-                          )}
-                          <Select value={fontFamily ?? FONT_TEMPLATE_DEFAULT_VALUE} onValueChange={(value) => setFontFamily(value === FONT_TEMPLATE_DEFAULT_VALUE ? null : value)}>
-                            <SelectTrigger className="w-full"><SelectValue placeholder="Template default" /></SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value={FONT_TEMPLATE_DEFAULT_VALUE}>Template default</SelectItem>
-                              {filteredFonts.map((font) => (
-                                <FontSelectOption key={font.name} font={font} />
-                              ))}
-                              {availableFonts.length > 0 && filteredFonts.length === 0 && <SelectItem value="__no_match__" disabled>No fonts match your search</SelectItem>}
-                            </SelectContent>
-                          </Select>
-                          {fontLoadError && <p className="text-xs text-amber-600 dark:text-amber-400">{fontLoadError}</p>}
-                        </div>
-                        <CaptionSizeControl value={fontSize} onChange={setFontSize} disabled={controlsDisabled} />
-                        <div className="space-y-2">
-                          <p className="text-sm">Color</p>
-                          <div className="flex flex-wrap items-center gap-1.5">
-                            <button type="button" onClick={() => setFontColor(null)} className={cn("h-7 rounded-full border px-2.5 text-xs", fontColor === null ? "border-foreground bg-foreground text-background" : "hover:bg-accent")}>Template</button>
-                            {COLOR_SWATCHES.map((color) => (
-                              <button key={color} type="button" onClick={() => setFontColor(color)} title={color} aria-label={`Caption color ${color}`}
-                                className={cn("size-7 rounded-full border-2 transition-transform hover:scale-110", fontColor === color ? "border-foreground" : "border-border")}
-                                style={{ backgroundColor: color }} />
+                                <span className="min-w-0 flex-1">
+                                  <span className="block text-sm font-medium">{template.name}</span>
+                                  <span className="block truncate text-xs text-muted-foreground">{template.description}</span>
+                                </span>
+                                {captionTemplate === template.id && <Check className="size-4" />}
+                              </button>
                             ))}
-                            <label className="relative size-7 cursor-pointer overflow-hidden rounded-full border-2 border-dashed border-border" title="Custom color">
-                              <input type="color" value={fontColor ?? "#FFFFFF"} onChange={(e) => setFontColor(e.target.value)} className="absolute inset-0 cursor-pointer opacity-0" aria-label="Custom caption color" />
-                              <span className="absolute inset-1 rounded-full bg-[conic-gradient(red,yellow,lime,cyan,blue,magenta,red)]" />
-                            </label>
+                          </div>
+                        </div>
+
+                        <div className="space-y-3 border-t pt-4">
+                          <div className="flex items-center justify-between">
+                            <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Customize</p>
+                            {customized && (
+                              <button type="button" className="text-xs text-muted-foreground underline-offset-2 hover:underline" onClick={() => { setFontFamily(null); setFontSize(null); setFontColor(null); }}>
+                                Reset to template
+                              </button>
+                            )}
+                          </div>
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between gap-2">
+                              <label className="text-sm">Font</label>
+                              <input ref={fontUploadInputRef} type="file" accept=".ttf,.otf" onChange={handleFontUpload} className="hidden" />
+                              <Button type="button" variant="ghost" size="sm" className="h-7 text-xs" disabled={controlsDisabled || isUploadingFont} onClick={() => canUploadCustomFonts ? fontUploadInputRef.current?.click() : openUpgrade({ kind: "custom_fonts" })}>
+                                <Upload className="size-3" />{isUploadingFont ? "Uploading…" : "Upload font"}
+                              </Button>
+                            </div>
+                            {!canUploadCustomFonts && (
+                              <button type="button" onClick={() => openUpgrade({ kind: "custom_fonts" })} className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground">
+                                Use your own fonts with a paid plan
+                              </button>
+                            )}
+                            {availableFonts.length > FONT_SEARCH_THRESHOLD && (
+                              <Input value={fontSearch} onChange={(e) => setFontSearch(e.target.value)} placeholder="Search fonts" className="h-8" />
+                            )}
+                            <Select value={fontFamily ?? FONT_TEMPLATE_DEFAULT_VALUE} onValueChange={(value) => setFontFamily(value === FONT_TEMPLATE_DEFAULT_VALUE ? null : value)}>
+                              <SelectTrigger className="w-full"><SelectValue placeholder="Template default" /></SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value={FONT_TEMPLATE_DEFAULT_VALUE}>Template default</SelectItem>
+                                {filteredFonts.map((font) => (
+                                  <FontSelectOption key={font.name} font={font} />
+                                ))}
+                                {availableFonts.length > 0 && filteredFonts.length === 0 && <SelectItem value="__no_match__" disabled>No fonts match your search</SelectItem>}
+                              </SelectContent>
+                            </Select>
+                            {fontLoadError && <p className="text-xs text-amber-600 dark:text-amber-400">{fontLoadError}</p>}
+                          </div>
+                          <CaptionSizeControl value={fontSize} onChange={setFontSize} disabled={controlsDisabled} />
+                          <div className="space-y-2">
+                            <p className="text-sm">Color</p>
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <button type="button" onClick={() => setFontColor(null)} className={cn("h-7 rounded-full border px-2.5 text-xs", fontColor === null ? "border-foreground bg-foreground text-background" : "hover:bg-accent")}>Template</button>
+                              {COLOR_SWATCHES.map((color) => (
+                                <button key={color} type="button" onClick={() => setFontColor(color)} title={color} aria-label={`Caption color ${color}`}
+                                  className={cn("size-7 rounded-full border-2 transition-transform hover:scale-110", fontColor === color ? "border-foreground" : "border-border")}
+                                  style={{ backgroundColor: color }} />
+                              ))}
+                              <label className="relative size-7 cursor-pointer overflow-hidden rounded-full border-2 border-dashed border-border" title="Custom color">
+                                <input type="color" value={fontColor ?? "#FFFFFF"} onChange={(e) => setFontColor(e.target.value)} className="absolute inset-0 cursor-pointer opacity-0" aria-label="Custom caption color" />
+                                <span className="absolute inset-1 rounded-full bg-[conic-gradient(red,yellow,lime,cyan,blue,magenta,red)]" />
+                              </label>
+                            </div>
                           </div>
                         </div>
                       </div>
+
+                      <div className="hidden border-l bg-muted/40 p-4 sm:block">
+                        <CaptionPreview
+                          thumbnail={youtubeThumbnailUrl}
+                          fontFamily={previewFontFamily}
+                          fontSize={previewFontSize}
+                          color={previewFontColor}
+                        />
+                        <p className="mt-3 text-center text-[11px] text-muted-foreground">Live preview</p>
+                      </div>
                     </div>
+                  </PopoverContent>
+                </Popover>
 
-                    <div className="hidden border-l bg-muted/40 p-4 sm:block">
-                      <CaptionPreview
-                        thumbnail={youtubeThumbnailUrl}
-                        fontFamily={previewFontFamily}
-                        fontSize={previewFontSize}
-                        color={previewFontColor}
-                      />
-                      <p className="mt-3 text-center text-[11px] text-muted-foreground">Live preview</p>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Chip disabled={controlsDisabled}>
+                      <Crop className="size-3.5" />{FRAMINGS.find((f) => f.id === outputFormat)?.label}<ChevronDown className="size-3 opacity-60" />
+                    </Chip>
+                  </PopoverTrigger>
+                  <PopoverContent align="start" className="w-[min(92vw,420px)] rounded-2xl p-3">
+                    <p className="mb-2 px-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">Framing</p>
+                    <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Framing">
+                      {FRAMINGS.map((framing) => (
+                        <button
+                          key={framing.id}
+                          type="button"
+                          role="radio"
+                          aria-checked={outputFormat === framing.id}
+                          onClick={() => setOutputFormat(framing.id)}
+                          className={cn("rounded-xl border p-3 text-left transition-colors hover:bg-accent", outputFormat === framing.id && "border-foreground ring-1 ring-foreground")}
+                        >
+                          <FramingGlyph kind={framing.id} />
+                          <span className="mt-2 block text-sm font-medium">{framing.label}</span>
+                          <span className="block text-xs text-muted-foreground">{framing.hint}</span>
+                        </button>
+                      ))}
                     </div>
-                  </div>
-                </PopoverContent>
-              </Popover>
+                  </PopoverContent>
+                </Popover>
 
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Chip disabled={controlsDisabled}>
-                    <Crop className="size-3.5" />{FRAMINGS.find((f) => f.id === outputFormat)?.label}<ChevronDown className="size-3 opacity-60" />
-                  </Chip>
-                </PopoverTrigger>
-                <PopoverContent align="start" className="w-[min(92vw,420px)] rounded-2xl p-3">
-                  <p className="mb-2 px-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">Framing</p>
-                  <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label="Framing">
-                    {FRAMINGS.map((framing) => (
-                      <button
-                        key={framing.id}
-                        type="button"
-                        role="radio"
-                        aria-checked={outputFormat === framing.id}
-                        onClick={() => setOutputFormat(framing.id)}
-                        className={cn("rounded-xl border p-3 text-left transition-colors hover:bg-accent", outputFormat === framing.id && "border-foreground ring-1 ring-foreground")}
-                      >
-                        <FramingGlyph kind={framing.id} />
-                        <span className="mt-2 block text-sm font-medium">{framing.label}</span>
-                        <span className="block text-xs text-muted-foreground">{framing.hint}</span>
-                      </button>
-                    ))}
-                  </div>
-                </PopoverContent>
-              </Popover>
+                <Chip onClick={() => setAddSubtitles((value) => !value)} disabled={controlsDisabled} aria-pressed={addSubtitles} active={!addSubtitles}>
+                  {addSubtitles ? <Captions className="size-3.5" /> : <CaptionsOff className="size-3.5" />}
+                  {addSubtitles ? "Captions" : "No captions"}
+                </Chip>
 
-              <Chip onClick={() => setAddSubtitles((value) => !value)} disabled={controlsDisabled} aria-pressed={addSubtitles} active={!addSubtitles}>
-                {addSubtitles ? <Captions className="size-3.5" /> : <CaptionsOff className="size-3.5" />}
-                {addSubtitles ? "Captions" : "No captions"}
-              </Chip>
-
-              <Popover>
-                <PopoverTrigger asChild>
-                  <Chip disabled={controlsDisabled} active={cleanupCount > 0}>
-                    <Wand2 className="size-3.5" />Cleanup{cleanupCount > 0 && <span className="rounded-full bg-foreground px-1.5 text-[10px] text-background">{cleanupCount}</span>}
-                    <ChevronDown className="size-3 opacity-60" />
-                  </Chip>
-                </PopoverTrigger>
-                <PopoverContent align="start" className="w-[min(92vw,340px)] space-y-4 rounded-2xl">
-                  <div>
-                    <p className="text-sm font-medium">Clip cleanup</p>
-                    <p className="text-xs text-muted-foreground">Tighten dead air and cut filler sounds while rendering.</p>
-                  </div>
-                  <div className="flex items-center justify-between gap-4">
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Chip disabled={controlsDisabled} active={cleanupCount > 0}>
+                      <Wand2 className="size-3.5" />Cleanup{cleanupCount > 0 && <span className="rounded-full bg-foreground px-1.5 text-[10px] text-background">{cleanupCount}</span>}
+                      <ChevronDown className="size-3 opacity-60" />
+                    </Chip>
+                  </PopoverTrigger>
+                  <PopoverContent align="start" className="w-[min(92vw,340px)] space-y-4 rounded-2xl">
                     <div>
-                      <label htmlFor="cut-pauses" className="text-sm font-medium">Shorten long pauses</label>
-                      <p className="text-xs text-muted-foreground">Trim silences longer than this down to a short breath</p>
+                      <p className="text-sm font-medium">Clip cleanup</p>
+                      <p className="text-xs text-muted-foreground">Tighten dead air and cut filler sounds while rendering.</p>
                     </div>
-                    <Switch id="cut-pauses" checked={cutLongPauses} onCheckedChange={setCutLongPauses} />
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Input type="number" min={250} max={3000} step={50} value={pauseThresholdMs} onChange={(e) => setPauseThresholdMs(e.target.value)} disabled={!cutLongPauses} aria-label="Pause threshold (ms)" className="h-8 w-24" />
-                    <span className="text-xs text-muted-foreground">milliseconds</span>
-                  </div>
-                  <div className="flex items-center justify-between gap-4">
-                    <div>
-                      <label htmlFor="filler-words" className="text-sm font-medium">Remove filler words</label>
-                      <p className="text-xs text-muted-foreground">“um”, “uh”, “erm” and similar sounds</p>
+                    <div className="flex items-center justify-between gap-4">
+                      <div>
+                        <label htmlFor="cut-pauses" className="text-sm font-medium">Shorten long pauses</label>
+                        <p className="text-xs text-muted-foreground">Trim silences longer than this down to a short breath</p>
+                      </div>
+                      <Switch id="cut-pauses" checked={cutLongPauses} onCheckedChange={setCutLongPauses} />
                     </div>
-                    <Switch id="filler-words" checked={removeFillerWords} onCheckedChange={setRemoveFillerWords} />
-                  </div>
-                  <div className="space-y-1.5">
-                    <label htmlFor="filtered-words" className="text-xs font-medium text-muted-foreground">Extra words or phrases to cut</label>
-                    <Input id="filtered-words" value={filteredWords} onChange={(e) => setFilteredWords(e.target.value)} placeholder="basically, literally, to be honest" className="h-8" />
-                  </div>
-                </PopoverContent>
-              </Popover>
+                    <div className="flex items-center gap-2">
+                      <Input type="number" min={250} max={3000} step={50} value={pauseThresholdMs} onChange={(e) => setPauseThresholdMs(e.target.value)} disabled={!cutLongPauses} aria-label="Pause threshold (ms)" className="h-8 w-24" />
+                      <span className="text-xs text-muted-foreground">milliseconds</span>
+                    </div>
+                    <div className="flex items-center justify-between gap-4">
+                      <div>
+                        <label htmlFor="filler-words" className="text-sm font-medium">Remove filler words</label>
+                        <p className="text-xs text-muted-foreground">“um”, “uh”, “erm” and similar sounds</p>
+                      </div>
+                      <Switch id="filler-words" checked={removeFillerWords} onCheckedChange={setRemoveFillerWords} />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label htmlFor="filtered-words" className="text-xs font-medium text-muted-foreground">Extra words or phrases to cut</label>
+                      <Input id="filtered-words" value={filteredWords} onChange={(e) => setFilteredWords(e.target.value)} placeholder="basically, literally, to be honest" className="h-8" />
+                    </div>
+                  </PopoverContent>
+                </Popover>
+                </>
+              )}
 
               <div className="ml-auto flex items-center gap-2">
                 <span className="hidden text-xs text-muted-foreground sm:inline-flex sm:items-center sm:gap-1">
@@ -636,7 +711,8 @@ export default function HomeApp() {
                   disabled={!hasSource || isLoading}
                   className="h-9 rounded-full bg-brand px-4 font-semibold text-brand-foreground shadow-sm hover:bg-brand/90 disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100"
                 >
-                  {isLoading ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />}Get clips
+                  {isLoading ? <Loader2 className="size-4 animate-spin" /> : mode === "long" ? <Film className="size-4" /> : <Sparkles className="size-4" />}
+                  {mode === "long" ? "Make video" : "Get clips"}
                 </Button>
               </div>
             </div>

@@ -47,6 +47,7 @@ import {
   Clock,
   Edit2,
   HardDrive,
+  Film,
   Loader2,
   PauseCircle,
   RotateCcw,
@@ -111,6 +112,8 @@ interface TaskDetails {
   filtered_words?: string[];
   share_enabled?: boolean;
   source_bytes?: number;
+  long_form?: number | null; // minutes of one long video instead of clips (0 = Auto)
+  project_id?: string | null; // the video editor project a long video was built into
 }
 
 const formatGb = (bytes: number) => bytes >= 1e9 ? `${(bytes / 1e9).toFixed(1)} GB` : `${Math.max(1, Math.round(bytes / 1e6))} MB`;
@@ -309,8 +312,8 @@ export default function TaskPage() {
     previousStatus.current = task?.status;
     if (!was || !ACTIVE_TASK_STATUSES.includes(was) || task?.status !== "completed") return;
     const message = task.progress_message;
-    if (message && message !== "Complete!") toast.info(message);
-  }, [task?.status, task?.progress_message]);
+    if (message && message !== "Complete!" && task.long_form == null) toast.info(message);
+  }, [task?.status, task?.progress_message, task?.long_form]);
 
   const runAction = async (name: string, action: () => Promise<void>) => {
     if (pendingAction) return;
@@ -636,7 +639,12 @@ export default function TaskPage() {
                 <RotateCcw className="size-4" />Resume
               </Button>
             )}
-            {task.status === "completed" && (
+            {task.status === "completed" && task.project_id && (
+              <Button size="sm" asChild className="bg-brand text-brand-foreground hover:bg-brand/90">
+                <Link href={`/projects/${task.project_id}`}><Film className="size-4" />Open in video editor</Link>
+              </Button>
+            )}
+            {task.status === "completed" && task.long_form == null && (
               <TranscriptSearch
                 taskId={task.id}
                 disabled={pendingAction !== null}
@@ -649,7 +657,7 @@ export default function TaskPage() {
                 }}
               />
             )}
-            {task.status === "completed" && (
+            {task.status === "completed" && task.long_form == null && (
               <Popover>
                 <PopoverTrigger asChild>
                   <Button size="sm" variant="outline" disabled={pendingAction !== null}>
@@ -714,7 +722,7 @@ export default function TaskPage() {
 
         {isActive && task ? (
           <div className="space-y-8">
-            <ProcessingPanel status={task.status} progress={progress} message={progressMessage} readyCount={clips.length} />
+            <ProcessingPanel status={task.status} progress={progress} message={progressMessage} readyCount={clips.length} longForm={task.long_form != null} />
             {clips.length > 0 && (
               <div className="grid grid-cols-2 gap-x-4 gap-y-6 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
                 {sortedClips.map(renderTile)}
@@ -729,6 +737,10 @@ export default function TaskPage() {
           <EmptyState tone="error" icon={<AlertCircle className="size-7" />} title="This one hit a problem" body={`${progressMessage || task.progress_message || "There was an error processing your video."} Resume to retry from where it stopped, or try another video.`}>
             <Button asChild variant="outline"><Link href="/"><ArrowLeft className="size-4" />Back to home</Link></Button>
             <Button asChild variant="ghost"><Link href="/settings#help">Report this problem</Link></Button>
+          </EmptyState>
+        ) : task.project_id && clips.length === 0 ? (
+          <EmptyState icon={<Film className="size-7" />} title="Your long video is ready" body={progressMessage || task.progress_message || "The best scenes are on the timeline."}>
+            <Button asChild><Link href={`/projects/${task.project_id}`}><Film className="size-4" />Open in video editor</Link></Button>
           </EmptyState>
         ) : clips.length === 0 ? (
           <EmptyState icon={<AlertCircle className="size-7" />} title="No clips found" body="The search finished without finding a moment worth clipping. Try a different part of the stream or another video.">

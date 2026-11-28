@@ -232,3 +232,39 @@ async def test_twitch_clips_are_imported_whole_and_vod_clips_sit_beside_the_ai_p
         url="https://www.twitch.tv/videos/42", source_type="twitch", exclude_ranges=[(10, 40)]
     )
     assert [s["hook_type"] for s in result["segments_to_render"]] == [None]  # Find more: not added again
+
+
+@pytest.mark.asyncio
+async def test_long_form_returns_scenes_even_with_cached_clip_picks(monkeypatch, tmp_path):
+    video_path = tmp_path / "source.mp4"
+    video_path.write_bytes(b"placeholder")
+    monkeypatch.setattr(video_service_module, "get_config", lambda: SimpleNamespace(max_video_duration=5400))
+    monkeypatch.setattr(VideoService, "resolve_local_video_path", staticmethod(lambda _url: video_path))
+    monkeypatch.setattr(VideoService, "_get_file_duration", staticmethod(lambda _path: 3600.0))
+
+    async def fake_run_in_thread(func, *_args, **_kwargs):
+        return "- [01:00 - 01:10] chat spike" if func.__name__ == "build_clip_signal_summary" else None
+
+    async def fake_pick_scenes(*args):
+        picked.append(args)
+        return [{"start": 1, "end": 60, "title": "Heist", "score": 80}]
+
+    async def fake_generate_transcript(*_args, **_kwargs):
+        return "[00:00 - 00:01] hi"
+
+    picked = []
+    monkeypatch.setattr(VideoService, "generate_transcript", staticmethod(fake_generate_transcript))
+    monkeypatch.setattr(video_service_module, "run_in_thread", fake_run_in_thread)
+    monkeypatch.setattr(video_service_module, "pick_scenes", fake_pick_scenes)
+
+    result = await VideoService.process_video_complete(
+        url="upload://source.mp4", source_type="video_url", cached_transcript="[00:00 - 00:01] hi",
+        cached_analysis_json='{"most_relevant_segments": [{"start_time": "00:00"}]}', clip_request="heists", long_form=20,
+    )
+
+    assert picked == [("[00:00 - 00:01] hi", "- [01:00 - 01:10] chat spike", "heists", 20, 3600.0)]
+    assert result == {
+        "scenes": [{"start": 1, "end": 60, "title": "Heist", "score": 80}],
+        "video_path": str(video_path),
+        "transcript": "[00:00 - 00:01] hi",
+    }
