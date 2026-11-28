@@ -14,7 +14,8 @@ import uuid
 
 from ..utils.async_helpers import run_in_thread
 from ..twitch import (
-    chat_signal_lines, clips_from_vod, download_stream_video, get_stream_source, get_twitch_video_id, is_stream_clip,
+    align_vod_clip, chat_signal_lines, clips_from_vod, download_stream_video, get_stream_source, get_twitch_video_id,
+    is_stream_clip,
 )
 from ..youtube_utils import (
     async_download_youtube_video,
@@ -691,6 +692,8 @@ class VideoService:
                     vod_clips = []
                 end_limit = file_duration or float("inf")
                 for clip in vod_clips:
+                    start = await run_in_thread(align_vod_clip, video_path, clip)
+                    clip = {**clip, "start": start, "end": start + clip["end"] - clip["start"]}
                     if clip["start"] >= end_limit - 1:
                         continue
                     end = min(clip["end"], end_limit)
