@@ -3,12 +3,15 @@
 import json
 import logging
 import re
+import subprocess
+import tempfile
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional, Tuple
 
 import httpx
+import numpy as np
 
 from .config import get_config
 from .media.timeline import spike_spans
@@ -469,6 +472,7 @@ def pick_vod_clips(clips: List[dict], vod_id: str, vod_title: str = "", limit: i
             "title": title if title and title != vod_title.strip() else None,
             "creator": clip.get("creator_name") or "",
             "views": int(clip.get("view_count") or 0),
+            "url": clip.get("url") or f"https://clips.twitch.tv/{clip.get('id')}",
         })
         if len(picked) >= limit:
             break
@@ -500,3 +504,59 @@ async def clips_from_vod(vod_id: str) -> List[dict]:
         if not after:
             break
     return pick_vod_clips(clips, vod_id, vod.get("title") or "")
+
+
+# --- Lining a viewer's clip up with the VOD by its sound ---
+# Helix's vod_offset is not always the clip's start: clips made from a VOD (Create Clip From VOD) report their END,
+# so trusting it cut the minute after the clip. The clip's own sound says where it really is.
+
+ALIGN_RATE = 2000  # Hz: plenty to line up voice and game sound
+
+
+def _mono(path, start: float = 0.0, seconds: Optional[float] = None) -> np.ndarray:
+    raw = subprocess.run(
+        ["ffmpeg", "-v", "error", "-ss", f"{max(0.0, start):.3f}", *(["-t", f"{seconds:.3f}"] if seconds else []),
+         "-i", str(path), "-vn", "-f", "f32le", "-ac", "1", "-ar", str(ALIGN_RATE), "-"],
+        capture_output=True, check=True,
+    ).stdout
+    return np.frombuffer(raw, np.float32)
+
+
+def best_offset(window: np.ndarray, clip: np.ndarray) -> Tuple[int, float]:
+    """(sample offset, score) of `clip` inside `window` by normalised cross-correlation; score 1 = the same sound."""
+    n = len(window) + len(clip)
+    corr = np.fft.irfft(np.fft.rfft(window, n) * np.conj(np.fft.rfft(clip, n)), n)[: len(window) - len(clip) + 1]
+    energy = np.cumsum(np.concatenate(([0.0], window.astype(np.float64) ** 2)))
+    local = np.sqrt(np.maximum(energy[len(clip):] - energy[: len(energy) - len(clip)], 1e-12))
+    score = corr / (local * (np.linalg.norm(clip) + 1e-12))
+    best = int(np.argmax(score))
+    return best, float(score[best])
+
+
+def align_vod_clip(vod_path, clip: dict, margin: float = 30.0) -> float:
+    """The clip's real start in the VOD: its sound searched for around the reported offset (which may be its start
+    or its end). Falls back to the reported start when the clip can't be downloaded or its sound isn't found."""
+    guess, duration = clip["start"], clip["end"] - clip["start"]
+    try:
+        import yt_dlp
+
+        with tempfile.TemporaryDirectory() as tmp:
+            # The smallest version is enough: only its sound is used.
+            with yt_dlp.YoutubeDL(_ydl_opts(format="worst", outtmpl=f"{tmp}/clip.%(ext)s")) as ydl:
+                ydl.download([clip["url"]])
+            clip_sound = _mono(next(Path(tmp).iterdir()))
+        # The middle of the clip: Twitch clips can start or end a moment off the VOD's own cut.
+        trim = int(min(2.0, duration / 6) * ALIGN_RATE)
+        clip_sound = clip_sound[trim: len(clip_sound) - trim]
+        window_start = max(0.0, guess - duration - margin)
+        window = _mono(vod_path, window_start, 2 * duration + 2 * margin)
+        if len(clip_sound) < ALIGN_RATE or len(window) <= len(clip_sound) or not clip_sound.any():
+            return guess
+        offset, score = best_offset(window, clip_sound)
+        if score < 0.5:
+            logger.info("Twitch clip %s: sound not found near %.0f s (score %.2f)", clip["url"], guess, score)
+            return guess
+        return window_start + (offset - trim) / ALIGN_RATE
+    except Exception as exc:
+        logger.warning("Could not line up Twitch clip %s: %s", clip.get("url"), exc)
+        return guess

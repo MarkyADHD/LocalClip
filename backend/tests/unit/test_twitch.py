@@ -283,3 +283,44 @@ def test_clips_made_from_a_vod_are_found_one_per_moment(monkeypatch, tmp_path):
     picked = asyncio.run(twitch.clips_from_vod("42"))
     # 110 has the most views and covers 100's moment; another VOD's clip and one with no offset yet are skipped.
     assert [(p["start"], p["end"], p["title"], p["views"]) for p in picked] == [(110, 140, "HE DID IT", 50), (900, 930, None, 9)]
+
+
+def test_a_twitch_clip_is_found_in_the_vod_by_its_sound(monkeypatch, tmp_path):
+    """vod_offset can be the clip's end (clips made from a VOD): the sound puts it back at its real start."""
+    import subprocess
+
+    import numpy as np
+    import yt_dlp
+
+    from src import twitch
+
+    rate = twitch.ALIGN_RATE
+    vod = np.random.default_rng(1).standard_normal(rate * 300).astype(np.float32) * 0.3
+
+    def save(samples, path):
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "f32le", "-ar", str(rate), "-ac", "1", "-i", "-",
+                        "-c:a", "pcm_s16le", str(path)], input=samples.tobytes(), check=True)
+
+    save(vod, tmp_path / "vod.wav")
+
+    class FakeYdl:
+        def __init__(self, opts):
+            self.out = opts["outtmpl"].replace("%(ext)s", "wav")
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return False
+
+        def download(self, _urls):
+            save(vod[rate * 120: rate * 180], self.out)  # the clip really is 120-180 s
+
+    monkeypatch.setattr(yt_dlp, "YoutubeDL", FakeYdl)
+    clip = {"url": "https://clips.twitch.tv/X", "start": 180.0, "end": 240.0}  # Twitch said 180: the clip's end
+    assert abs(twitch.align_vod_clip(tmp_path / "vod.wav", clip) - 120.0) < 0.01
+    assert abs(twitch.align_vod_clip(tmp_path / "vod.wav", {**clip, "start": 120.0, "end": 180.0}) - 120.0) < 0.01
+
+    silence = np.zeros(rate * 300, np.float32)
+    save(silence, tmp_path / "other.wav")  # a VOD without that sound: keep what Twitch said
+    assert twitch.align_vod_clip(tmp_path / "other.wav", clip) == 180.0

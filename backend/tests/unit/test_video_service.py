@@ -184,7 +184,9 @@ async def test_twitch_clips_are_imported_whole_and_vod_clips_sit_beside_the_ai_p
     duration = {"value": 27.4}
     monkeypatch.setattr(VideoService, "_get_file_duration", staticmethod(lambda _path: duration["value"]))
 
-    async def fake_run_in_thread(func, *_args, **_kwargs):
+    async def fake_run_in_thread(func, *args, **_kwargs):
+        if func is video_service_module.align_vod_clip:
+            return args[1]["start"] - 0.5  # the clip's sound was found half a second earlier
         return video_path if func is video_service_module.download_stream_video else None
 
     async def fake_generate_transcript(*_args, **_kwargs):
@@ -222,7 +224,7 @@ async def test_twitch_clips_are_imported_whole_and_vod_clips_sit_beside_the_ai_p
     result = await VideoService.process_video_complete(url="https://www.twitch.tv/videos/42", source_type="twitch")
     ai, twitch_clip = result["segments_to_render"]
     assert ai["start_time"] == "00:10"
-    assert (twitch_clip["start_time"], twitch_clip["end_time"], twitch_clip["source_ranges"]) == ("01:40", "02:11", [[100.5, 130.5]])
+    assert (twitch_clip["start_time"], twitch_clip["end_time"], twitch_clip["source_ranges"]) == ("01:40", "02:10", [[100.0, 130.0]])
     assert (twitch_clip["hook_type"], twitch_clip["hook_title"]) == ("twitch_clip", "HE DID IT")
     assert "HE DID IT" not in result["analysis_json"]  # fetched fresh on a rerun, not cached
 
