@@ -513,10 +513,13 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         )
 
     events: List[str] = []
-    total = len(relevant_words)
-    for chunk_start in range(0, total, chunk_size):
-        chunk = relevant_words[chunk_start : chunk_start + chunk_size]
+    from ..editor_document import caption_groups
+
+    chunk_start = 0
+    # A pause ends the line, as in the editor, so a caption never waits on screen for the next word.
+    for chunk in caption_groups(relevant_words, chunk_size):
         indices = list(range(chunk_start, chunk_start + len(chunk)))
+        chunk_start += len(chunk)
         chunk_end = float(chunk[-1]["end"])
 
         if animation == "karaoke":
