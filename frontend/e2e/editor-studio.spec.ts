@@ -380,7 +380,12 @@ test("layout, caption look, hook title and safe zone", async ({ page }) => {
   expect(area.width).toBeGreaterThan(600);
   await page.mouse.move(area.x + area.width * 0.5, area.y + area.height * 0.5);
   await page.mouse.down();
-  await page.mouse.move(area.x + area.width * 0.75, area.y + area.height * 0.9, { steps: 4 });
+  await page.mouse.move(area.x + area.width * 0.85, area.y + area.height * 0.9, { steps: 4 });
+  await page.mouse.up();
+  // Pulling the right edge back in resizes the box.
+  await page.mouse.move(area.x + area.width * 0.85, area.y + area.height * 0.7);
+  await page.mouse.down();
+  await page.mouse.move(area.x + area.width * 0.75, area.y + area.height * 0.7, { steps: 4 });
   await page.mouse.up();
   await page.getByRole("button", { name: "Done" }).click();
   await expect(page.getByRole("dialog")).toBeHidden();
@@ -401,10 +406,11 @@ test("layout, caption look, hook title and safe zone", async ({ page }) => {
   expect(request!.document).toMatchObject({
     title: "Wait for it",
     titleSeconds: 0.5,
-    framing: { layout: "cam_top" },
+    framing: { layout: "cam_top", camShape: true },
   });
   expect((request!.document.framing as { cam: Record<string, number> }).cam).toMatchObject({
     x: expect.closeTo(0.5, 2),
+    y: expect.closeTo(0.5, 2),
     w: expect.closeTo(0.25, 2),
   });
   expect(request!.document).toMatchObject({

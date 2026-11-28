@@ -186,9 +186,22 @@ const LAYOUTS: [string, Partial<Framing>, ReactNode][] = [
   ],
 ];
 
+/** Which edges of `cam` are within `reach` (0..1 of the frame) of `p`; any one of them means a resize. */
+function grabbedEdges(cam: Region, p: { x: number; y: number }, rx: number, ry: number) {
+  const inX = p.x > cam.x - rx && p.x < cam.x + cam.w + rx,
+    inY = p.y > cam.y - ry && p.y < cam.y + cam.h + ry;
+  return {
+    l: inY && Math.abs(p.x - cam.x) < rx,
+    r: inY && Math.abs(p.x - cam.x - cam.w) < rx,
+    t: inX && Math.abs(p.y - cam.y) < ry,
+    b: inX && Math.abs(p.y - cam.y - cam.h) < ry,
+  };
+}
+const MIN_CAM = 0.05; // smallest box side; same as Region in editor_document.py
+
 /**
- * The source frame with the facecam box: drag the box to move it, drag elsewhere to draw a new one.
- * The small one in the panel opens a big one (`onTap`) when it is tapped without dragging.
+ * The source frame with the facecam box: drag an edge or corner to resize it, drag inside to move it,
+ * drag anywhere else to draw a new one. The small one in the panel opens a big one (`onTap`) when tapped.
  */
 function FacecamPicker({
   video,
@@ -200,7 +213,8 @@ function FacecamPicker({
   video: RefObject<HTMLVideoElement | null>;
   time: number;
   cam: Region;
-  onChange: (cam: Region) => void;
+  /** `shaped` is true when the box's size was set by hand (drawn or resized), not just moved. */
+  onChange: (cam: Region, shaped: boolean) => void;
   onTap?: () => void;
 }) {
   const canvas = useRef<HTMLCanvasElement>(null);
@@ -208,7 +222,7 @@ function FacecamPicker({
     x: number;
     y: number;
     cam: Region;
-    move: boolean;
+    mode: "move" | "draw" | ReturnType<typeof grabbedEdges>;
     dragged?: boolean;
   } | null>(null);
   useEffect(() => {
@@ -221,7 +235,11 @@ function FacecamPicker({
     };
     paint();
     source.addEventListener("seeked", paint);
-    return () => source.removeEventListener("seeked", paint);
+    source.addEventListener("loadeddata", paint);
+    return () => {
+      source.removeEventListener("seeked", paint);
+      source.removeEventListener("loadeddata", paint);
+    };
   }, [video, time]);
   const point = (e: React.PointerEvent) => {
     const box = e.currentTarget.getBoundingClientRect();
@@ -230,41 +248,69 @@ function FacecamPicker({
       y: clamp((e.clientY - box.top) / box.height, 0, 1),
     };
   };
+  const handle = "absolute size-3 rounded-full border-2 border-sky-400 bg-background";
   return (
     <div
       aria-label="Facecam area"
-      className="relative aspect-video w-full cursor-crosshair touch-none overflow-hidden rounded-md bg-black"
+      className="relative aspect-video w-full cursor-crosshair touch-none overflow-hidden rounded-md bg-black select-none"
       onPointerDown={(e) => {
-        const p = point(e);
+        const p = point(e),
+          box = e.currentTarget.getBoundingClientRect(),
+          // 10 pixels either side of an edge grabs it.
+          edges = grabbedEdges(cam, p, 10 / box.width, 10 / box.height),
+          inside =
+            p.x >= cam.x && p.x <= cam.x + cam.w && p.y >= cam.y && p.y <= cam.y + cam.h;
         drag.current = {
           ...p,
           cam,
-          move:
-            p.x >= cam.x &&
-            p.x <= cam.x + cam.w &&
-            p.y >= cam.y &&
-            p.y <= cam.y + cam.h,
+          mode: Object.values(edges).some(Boolean) ? edges : inside ? "move" : "draw",
         };
         e.currentTarget.setPointerCapture(e.pointerId);
       }}
       onPointerMove={(e) => {
         const d = drag.current;
         if (!d) return;
-        const p = point(e);
+        const p = point(e),
+          c = d.cam;
         if (Math.abs(p.x - d.x) + Math.abs(p.y - d.y) > 0.02) d.dragged = true;
-        if (d.move)
-          onChange({
-            ...d.cam,
-            x: clamp(d.cam.x + p.x - d.x, 0, 1 - d.cam.w),
-            y: clamp(d.cam.y + p.y - d.y, 0, 1 - d.cam.h),
-          });
-        else if (Math.abs(p.x - d.x) >= 0.05 && Math.abs(p.y - d.y) >= 0.05)
-          onChange({
-            x: Math.min(p.x, d.x),
-            y: Math.min(p.y, d.y),
-            w: Math.abs(p.x - d.x),
-            h: Math.abs(p.y - d.y),
-          });
+        if (!d.dragged) return;
+        if (d.mode === "move")
+          onChange(
+            {
+              ...c,
+              x: clamp(c.x + p.x - d.x, 0, 1 - c.w),
+              y: clamp(c.y + p.y - d.y, 0, 1 - c.h),
+            },
+            false,
+          );
+        else if (d.mode === "draw")
+          onChange(
+            {
+              x: clamp(Math.min(p.x, d.x), 0, 1 - MIN_CAM),
+              y: clamp(Math.min(p.y, d.y), 0, 1 - MIN_CAM),
+              w: Math.max(MIN_CAM, Math.abs(p.x - d.x)),
+              h: Math.max(MIN_CAM, Math.abs(p.y - d.y)),
+            },
+            true,
+          );
+        else {
+          // Move only the grabbed edges, never past the opposite one.
+          const { l, r, t, b } = d.mode;
+          let x0 = c.x,
+            y0 = c.y,
+            x1 = c.x + c.w,
+            y1 = c.y + c.h;
+          if (l) x0 = Math.min(p.x, x1 - MIN_CAM);
+          if (r) x1 = Math.max(p.x, x0 + MIN_CAM);
+          if (t) y0 = Math.min(p.y, y1 - MIN_CAM);
+          if (b) y1 = Math.max(p.y, y0 + MIN_CAM);
+          x0 = Math.max(0, x0);
+          y0 = Math.max(0, y0);
+          onChange(
+            { x: x0, y: y0, w: Math.min(1, x1) - x0, h: Math.min(1, y1) - y0 },
+            true,
+          );
+        }
       }}
       onPointerUp={() => {
         if (drag.current && !drag.current.dragged) onTap?.();
@@ -281,14 +327,19 @@ function FacecamPicker({
         className="h-full w-full opacity-60"
       />
       <div
-        className="absolute cursor-move rounded-sm border-2 border-sky-400 bg-sky-400/20"
+        className="pointer-events-none absolute rounded-sm border-2 border-sky-400 bg-sky-400/20"
         style={{
           left: `${cam.x * 100}%`,
           top: `${cam.y * 100}%`,
           width: `${cam.w * 100}%`,
           height: `${cam.h * 100}%`,
         }}
-      />
+      >
+        <i className={cn(handle, "-top-1.5 -left-1.5")} />
+        <i className={cn(handle, "-top-1.5 -right-1.5")} />
+        <i className={cn(handle, "-bottom-1.5 -left-1.5")} />
+        <i className={cn(handle, "-right-1.5 -bottom-1.5")} />
+      </div>
     </div>
   );
 }
@@ -334,6 +385,9 @@ export function Inspector({
   }, []);
   const frame = (change: Partial<Framing>, group?: string) =>
     update((d) => ({ ...d, framing: { ...d.framing, ...change } }), group);
+  // A box drawn or resized by hand is the cam's real shape: show it as drawn.
+  const setCam = (cam: Region, shaped: boolean) =>
+    frame(shaped ? { cam, camShape: true } : { cam }, "cam");
   const word = (id: string, change: Partial<EditDocument["words"][number]>, group?: string) =>
     update(
       (d) => ({
@@ -1070,13 +1124,13 @@ export function Inspector({
             {layout !== "crop" && (
               <Section
                 title="Facecam"
-                description="Drag the blue box over your camera, or drag anywhere else to draw a new one. Tap it to make it bigger."
+                description="Drag the blue box over your camera and pull its edges to fit it, or drag anywhere else to draw a new one. Tap it to make it bigger."
               >
                 <FacecamPicker
                   video={videoRef}
                   time={time}
                   cam={doc.framing.cam}
-                  onChange={(cam) => frame({ cam }, "cam")}
+                  onChange={setCam}
                   onTap={() => setCamBig(true)}
                 />
                 <Button
@@ -1088,6 +1142,16 @@ export function Inspector({
                   <Maximize2 />
                   Make it bigger
                 </Button>
+                <SwitchRow
+                  id="cam-shape"
+                  label="Keep the cam's shape"
+                  checked={!!doc.framing.camShape}
+                  onChange={(camShape) => frame({ camShape })}
+                />
+                <p className="-mt-1 text-xs leading-relaxed text-muted-foreground">
+                  A square or tall cam stays that shape, with a blur around it. Wide cams
+                  fill the space either way.
+                </p>
                 <SwitchRow
                   id="sharp-cam"
                   label="Sharpen facecam with AI"
@@ -1107,15 +1171,15 @@ export function Inspector({
                     <DialogHeader>
                       <DialogTitle>Facecam</DialogTitle>
                       <DialogDescription>
-                        Drag the blue box over your camera, or drag anywhere else to draw a
-                        new one.
+                        Drag the blue box over your camera and pull its edges or corners to
+                        fit it exactly, or drag anywhere else to draw a new one.
                       </DialogDescription>
                     </DialogHeader>
                     <FacecamPicker
                       video={videoRef}
                       time={time}
                       cam={doc.framing.cam}
-                      onChange={(cam) => frame({ cam }, "cam")}
+                      onChange={setCam}
                     />
                     <Button className="justify-self-end" onClick={() => setCamBig(false)}>
                       Done

@@ -7,6 +7,7 @@ import {
   mappedWords,
   PUNCH_Y,
   PUNCH_ZOOM,
+  CAM_SHAPE_SLACK,
   regionCrop,
   sourceTime,
   wordColor,
@@ -70,14 +71,23 @@ function drawLayout(
     ctx.filter = filter;
   };
   const cam = (x: number, y: number, w: number, h: number) => {
-    const crop = regionCrop(f.cam, w / h, sw, sh),
-      scale = w / crop.width;
-    pane(x, y, w, h, {
-      x: -crop.x * scale,
-      y: -crop.y * scale,
+    const crop = regionCrop(f.cam, w / h, sw, sh, f.camShape);
+    // The crop at `scale`, centred on the pane.
+    const at = (scale: number) => ({
+      x: (w - crop.width * scale) / 2 - crop.x * scale,
+      y: (h - crop.height * scale) / 2 - crop.y * scale,
       width: sw * scale,
       height: sh * scale,
     });
+    if (crop.width / crop.height >= (w / h) * CAM_SHAPE_SLACK)
+      return pane(x, y, w, h, at(w / crop.width));
+    // A square or tall cam keeps its shape: fitted to the pane's height, the same picture blurred behind it.
+    ctx.filter = `${filter} blur(${width * 0.03}px)`;
+    pane(x, y, w, h, at(Math.max(w / crop.width, h / crop.height)));
+    ctx.filter = filter;
+    const fw = even((crop.width * h) / crop.height),
+      fit = at(h / crop.height);
+    pane(x + (w - fw) / 2, y, fw, h, { ...fit, x: fit.x - (w - fw) / 2 });
   };
   if (layout === "crop") {
     const rect = frameRect(f, sw, sh, width, height);

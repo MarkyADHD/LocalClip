@@ -84,6 +84,13 @@ describe("layouts and older drafts", () => {
     const crop = regionCrop({ x: 0, y: 0.5, w: 0.1, h: 0.5 }, 2, 1280, 720);
     expect(crop).toEqual({ x: 0, y: 360, width: 720, height: 360 });
   });
+  it("keeps a square or tall facecam box as drawn when asked", async () => {
+    const { regionCrop } = await import("./document");
+    const square = { x: 0.5, y: 0.5, w: 0.25, h: 0.4 }; // 320x288 of 1280x720
+    expect(regionCrop(square, 1.4, 1280, 720, true)).toEqual({ x: 640, y: 360, width: 320, height: 288 });
+    // A wide box still fills the pane.
+    expect(regionCrop({ x: 0, y: 0, w: 0.5, h: 0.2 }, 1.4, 1280, 720, true).height).toBeCloseTo(640 / 1.4);
+  });
   it("maps timeline time back to the cut it falls in", async () => {
     const { sourceTime } = await import("./document");
     const doc = {

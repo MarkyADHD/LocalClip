@@ -233,9 +233,12 @@ def test_spoken_word_and_title_reach_the_captions(tmp_path):
 
 @pytest.mark.skipif(not shutil.which("ffmpeg"), reason="ffmpeg is required")
 @pytest.mark.parametrize("layout", ["crop", "cam_top", "cam_bottom", "floating"])
-@pytest.mark.parametrize("fit", ["cover", "contain"])
+@pytest.mark.parametrize("fit", ["cover", "contain", "square cam"])
 def test_every_layout_renders_at_the_output_size(tmp_path, layout, fit):
-    doc = document(framing={"layout": layout, "fit": fit, "zoom": 1.3, "x": 0.2})
+    framing = {"layout": layout, "fit": fit, "zoom": 1.3, "x": 0.2}
+    if fit == "square cam":
+        framing.update(fit="cover", camShape=True, cam={"x": 0.8, "y": 0.6, "w": 0.2, "h": 0.4})
+    doc = document(framing=framing)
     out = tmp_path / "out.png"
     subprocess.run(
         ["ffmpeg", "-v", "error", "-f", "lavfi", "-i", "testsrc2=size=1280x720:duration=0.1",
@@ -416,3 +419,15 @@ def test_libass_draws_a_popping_caption_small_then_full_size(tmp_path):
 
     start, settled = lit(0.0), lit(0.3)
     assert settled > 0 and start < settled * 0.6, (start, settled)
+
+
+def test_a_square_cam_keeps_its_shape_only_when_asked():
+    from src.editor_document import cam_crop
+
+    square = {"layout": "cam_top", "cam": {"x": 0.8, "y": 0.6, "w": 0.18, "h": 0.32}}
+    # 230x230 of a 1280x720 frame: grown to the 1080x768 pane's shape unless camShape is on.
+    assert cam_crop(document(framing=square).framing, 1280, 720, 1080, 1920) == "324:230:956:432"
+    assert cam_crop(document(framing={**square, "camShape": True}).framing, 1280, 720, 1080, 1920) == "230:230:1024:432"
+    # A wide cam fills the pane either way.
+    wide = {"layout": "cam_top", "camShape": True, "cam": {"x": 0, "y": 0, "w": 0.3, "h": 0.3}}
+    assert cam_crop(document(framing=wide).framing, 1280, 720, 1080, 1920) == "384:272:0:0"
