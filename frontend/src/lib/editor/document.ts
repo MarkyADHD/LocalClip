@@ -114,6 +114,8 @@ export interface Framing {
   cam: Region;
   /** AI-upscale the facecam for the export (slow; server export). */
   sharpCam?: boolean;
+  /** Show exactly the drawn box, blurred around, when it is narrower than the pane (square or tall cams). */
+  camShape?: boolean;
 }
 export interface Effects {
   brightness: number;
@@ -245,15 +247,28 @@ export function frameRect(
     height: h,
   };
 }
-/** The source pixels shown for `region` in a pane of the given aspect: grown around its centre, kept in frame. */
+/** A `keepShape` crop narrower than this share of its pane's aspect is fitted into the pane with a blur around it. */
+export const CAM_SHAPE_SLACK = 0.9;
+/**
+ * The source pixels shown for `region` in a pane of the given aspect: grown around its centre, kept in frame.
+ * With `keepShape`, a box narrower than the pane (a square or tall cam) is returned as it is. Same in editor_document.py.
+ */
 export function regionCrop(
   region: Region,
   aspect: number,
   sw: number,
   sh: number,
+  keepShape = false,
 ) {
   let w = region.w * sw,
     h = region.h * sh;
+  if (keepShape && w / h < aspect * CAM_SHAPE_SLACK)
+    return {
+      x: clamp(region.x * sw, 0, sw - w),
+      y: clamp(region.y * sh, 0, sh - h),
+      width: w,
+      height: h,
+    };
   if (w / h < aspect) w = h * aspect;
   else h = w / aspect;
   if (w > sw) [w, h] = [sw, sw / aspect];

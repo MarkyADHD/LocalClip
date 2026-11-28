@@ -155,6 +155,7 @@ class Framing(Model):
     layout: Literal["crop", "cam_top", "cam_bottom", "floating"] = "crop"
     cam: Region = Field(default_factory=Region)
     sharpCam: bool = False  # AI-upscale the facecam for the export (slow; needs Real-ESRGAN)
+    camShape: bool = False  # show exactly the drawn box, blurred around, when narrower than the pane
 
 
 class Effects(Model):
@@ -361,6 +362,7 @@ def _em_scale(font_path) -> float:
 
 TITLE_Y = 0.14  # where the hook title sits; same in render.ts
 CAM_SHARE = 0.4  # facecam band height in the stacked layouts (same as the stream templates)
+CAM_SHAPE_SLACK = 0.9  # a camShape crop narrower than this share of its pane is fitted with a blur around; same in document.ts
 
 
 def _even(value: float) -> int:
@@ -376,6 +378,9 @@ def cam_crop(framing: Framing, sw: int, sh: int, width: int, height: int) -> str
     ph = _even(pw * 460 / 648) if layout == "floating" else _even(height * CAM_SHARE)
     r, aspect = framing.cam, pw / ph
     w, h = r.w * sw, r.h * sh
+    if framing.camShape and w / h < aspect * CAM_SHAPE_SLACK:  # a square or tall cam, as drawn
+        w, h = int(w) // 2 * 2, int(h) // 2 * 2
+        return f"{w}:{h}:{int(min(max(r.x * sw, 0), sw - w))}:{int(min(max(r.y * sh, 0), sh - h))}"
     w, h = (h * aspect, h) if w / h < aspect else (w, w / aspect)
     if w > sw:
         w, h = sw, sw / aspect
@@ -404,9 +409,18 @@ def layout_filter(framing: Framing, sw: int, sh: int, width: int, height: int, c
         return f"scale={rw}:{rh},crop={pw}:{ph}:{(rw - pw) * framing.x}:{(rh - ph) * framing.y}"
 
     def cam(pw: int, ph: int) -> str:
-        if cam_video:
-            return f"scale={pw}:{ph}:flags=lanczos"
-        return f"crop={cam_crop(framing, sw, sh, width, height)},scale={pw}:{ph}"
+        crop = cam_crop(framing, sw, sh, width, height)
+        cw, ch = (int(v) for v in crop.split(":")[:2])
+        source = "" if cam_video else f"crop={crop},"
+        if cw / ch >= pw / ph * CAM_SHAPE_SLACK:
+            return f"{source}scale={pw}:{ph}" + (":flags=lanczos" if cam_video else "")
+        # A square or tall cam keeps its shape: fitted to the pane's height, the same picture blurred behind it.
+        fw, bw, bh = _even(cw * ph / ch), _even(pw / 4), _even(ph / 4)
+        return (
+            f"{source}split[cs0][cs1];"
+            f"[cs0]scale={bw}:{bh}:force_original_aspect_ratio=increase,crop={bw}:{bh},gblur=sigma=8,scale={pw}:{ph}[csb];"
+            f"[cs1]scale={fw}:{ph}:flags=lanczos[csf];[csb][csf]overlay={(pw - fw) // 2}:0"
+        )
 
     bw, bh = _even(width / 4), _even(height / 4)
     blur = f"scale={bw}:{bh}:force_original_aspect_ratio=increase,crop={bw}:{bh},gblur=sigma=8,scale={width}:{height}"
