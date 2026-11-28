@@ -27,6 +27,7 @@ from ...database import get_db
 from ...database import AsyncSessionLocal
 from ...services.task_service import TaskService
 from ...taste import remember
+from ...highlights import LENGTHS as LONG_FORM_LENGTHS
 from ...services.billing_service import BillingService, BillingLimitExceeded
 from ...auth_headers import resolve_authenticated_user_id
 from ...workers.job_queue import JobQueue
@@ -335,6 +336,10 @@ async def create_task(request: Request, db: AsyncSession = Depends(get_db)):
         add_subtitles = True
     cleanup_settings = new_task_cleanup_settings(data)
     clip_request = _clean_clip_request(data.get("clip_request"))
+    # One long highlight video instead of clips: its length in minutes, 0 for "as long as the good parts are".
+    long_form = data.get("long_form")
+    if isinstance(long_form, bool) or long_form not in LONG_FORM_LENGTHS:
+        long_form = None
     if not raw_source or not raw_source.get("url"):
         raise HTTPException(status_code=400, detail="Source URL is required")
 
@@ -375,7 +380,7 @@ async def create_task(request: Request, db: AsyncSession = Depends(get_db)):
                 await _save_task_source_metadata(
                     task_id,
                     _merge_task_source_metadata(
-                        {"processing_job_id": processing_job_id, "clip_request": clip_request},
+                        {"processing_job_id": processing_job_id, "clip_request": clip_request, "long_form": long_form},
                         source_url=raw_source["url"],
                         source_type=source_type,
                         output_format=output_format,

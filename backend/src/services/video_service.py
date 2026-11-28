@@ -47,6 +47,7 @@ from ..clip_source_map import (
 )
 from ..ai import _format_minutes_label, get_most_relevant_parts_by_transcript, keep_part_seconds, title_clip
 from ..claude_code import check_signed_in
+from ..highlights import pick_scenes
 from ..config import get_config
 
 logger = logging.getLogger(__name__)
@@ -425,9 +426,13 @@ class VideoService:
         exclude_ranges: Optional[List[tuple[int, int]]] = None,
         manual_range: Optional[tuple[int, int]] = None,
         clip_request: Optional[str] = None,
+        long_form: Optional[int] = None,
     ) -> Dict[str, Any]:
         """
         Complete video processing pipeline.
+
+        long_form: make one long video instead of clips, about this many minutes (0 = as long as the good
+        parts are); returns the scenes to keep instead of clip segments.
 
         manual_range: (start, end) seconds the user picked; clips exactly that and skips the AI search.
         clip_request: the user's words on what to clip ("only the funny deaths"); never uses the cached picks.
@@ -449,9 +454,9 @@ class VideoService:
             )
             # A Twitch/Kick clip link is imported whole: no AI search, ready for the editor.
             imported_clip = source_type in ("twitch", "kick") and is_stream_clip(url) and not manual_range
-            needs_ai = not manual_range and not imported_clip and not (
+            needs_ai = long_form is not None or (not manual_range and not imported_clip and not (
                 cached_analysis_json and exclude_ranges is None and not clip_request
-            )
+            ))
             if needs_ai and str(getattr(runtime_config, "llm", "")).lower().startswith("claude-code:"):
                 if progress_callback:
                     await progress_callback(5, "Checking Claude Code is signed in...", "processing")
@@ -584,7 +589,7 @@ class VideoService:
                 except Exception:
                     relevant_parts = None
 
-            if relevant_parts is None:
+            if relevant_parts is None or long_form is not None:
                 try:
                     chat_lines = (
                         await run_in_thread(chat_signal_lines, url, file_duration or 0)
@@ -600,6 +605,14 @@ class VideoService:
                 except Exception as exc:
                     logger.warning("Clip signal extraction failed: %s", exc)
                     clip_signals = None
+                if long_form is not None:
+                    if progress_callback:
+                        await progress_callback(50, "Finding the best scenes...", "processing")
+                    return {
+                        "scenes": await pick_scenes(transcript, clip_signals, clip_request, long_form, file_duration or 0),
+                        "video_path": str(video_path),
+                        "transcript": transcript,
+                    }
                 relevant_parts = await VideoService.analyze_transcript(
                     transcript,
                     clip_signals=clip_signals,

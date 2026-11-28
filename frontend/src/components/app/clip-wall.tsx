@@ -292,14 +292,14 @@ const STEPS = [
 
 function stepFromMessage(message: string) {
   const text = message.toLowerCase();
-  if (/render|clip \d|saving/.test(text)) return 3;
-  if (/analy|moment|segment|ai /.test(text)) return 2;
+  if (/render|clip \d|saving|building/.test(text)) return 3;
+  if (/analy|moment|segment|scene|ai /.test(text)) return 2;
   if (/transcri/.test(text)) return 1;
   if (/download|fetch/.test(text)) return 0;
   return null;
 }
 
-export function ProcessingPanel({ status, progress, message, readyCount }: { status: string; progress: number; message: string; readyCount: number }) {
+export function ProcessingPanel({ status, progress, message, readyCount, longForm }: { status: string; progress: number; message: string; readyCount: number; longForm?: boolean }) {
   const byProgress = STEPS.findIndex((step) => progress < step.until);
   const activeStep = status === "queued" ? -1 : stepFromMessage(message) ?? (byProgress === -1 ? STEPS.length - 1 : byProgress);
   return (
@@ -311,7 +311,7 @@ export function ProcessingPanel({ status, progress, message, readyCount }: { sta
         <div className="min-w-0">
           <p className="shimmer text-lg font-semibold">{message || (status === "queued" ? "Waiting in queue" : "Processing")}</p>
           <p className="mt-1 text-sm text-muted-foreground">
-            {readyCount > 0 ? `${readyCount} clip${readyCount === 1 ? "" : "s"} ready below — more on the way.` : "Grab a coffee — clips appear here the moment they render."}
+            {longForm ? "Grab a coffee — your video opens in the video editor when it is ready." : readyCount > 0 ? `${readyCount} clip${readyCount === 1 ? "" : "s"} ready below — more on the way.` : "Grab a coffee — clips appear here the moment they render."}
           </p>
         </div>
         <ol className="grid grid-cols-4 gap-2 md:flex md:gap-1">
@@ -328,7 +328,9 @@ export function ProcessingPanel({ status, progress, message, readyCount }: { sta
                 )}>
                   {done ? <Check className="size-4" /> : active ? <step.icon className="size-4 motion-safe:animate-pulse" /> : <step.icon className="size-4" />}
                 </span>
-                <span className={cn("text-center text-[11px] leading-tight", active ? "font-medium text-foreground" : "text-muted-foreground")}>{step.label}</span>
+                <span className={cn("text-center text-[11px] leading-tight", active ? "font-medium text-foreground" : "text-muted-foreground")}>
+                  {longForm && index === 2 ? "Finding scenes" : longForm && index === 3 ? "Building video" : step.label}
+                </span>
               </li>
             );
           })}

@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from contextlib import nullcontext
 import hashlib
 from pathlib import Path
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -906,3 +906,35 @@ async def test_a_picked_range_is_passed_to_the_pipeline_and_cleared_afterwards(t
     service.task_repo.save_source_metadata.assert_any_await(
         service.db, "task-1", {"find_more": False, "manual_range": None}
     )
+
+
+@pytest.mark.asyncio
+async def test_long_form_builds_a_project_instead_of_clips(tmp_path, monkeypatch):
+    service = _search_again_service()
+    service.config.temp_dir = str(tmp_path)
+    service.task_repo.load_source_metadata = AsyncMock(return_value={"long_form": 20})
+    service.task_repo.get_task_by_id = AsyncMock(return_value={"status": "processing", "source_title": "GTA day 3"})
+    service.cache_repo.get_cache = AsyncMock(return_value={"analysis_json": "clip picks"})
+    scenes = [{"start": 0, "end": 300, "title": "Heist", "score": 80}, {"start": 900, "end": 1080, "title": "Chase", "score": 75}]
+    service.video_service.process_video_complete = AsyncMock(
+        return_value={"scenes": scenes, "video_path": str(tmp_path / "vod.mp4"), "transcript": "T"}
+    )
+    built = MagicMock(return_value=("p" * 32, "a" * 12, tmp_path / "linked.mp4"))
+    monkeypatch.setattr("src.highlights.build_project", built)
+    queued = AsyncMock()
+    monkeypatch.setattr("src.services.task_service.JobQueue.enqueue_job", queued)
+
+    result = await service.process_task(task_id="task-1", url="upload://vod.mp4", source_type="video_url", user_id="me")
+
+    assert service.video_service.process_video_complete.await_args.kwargs["long_form"] == 20
+    assert built.call_args.args == (str(tmp_path), "me", "GTA day 3", tmp_path / "vod.mp4", [], scenes)
+    queued.assert_awaited_once_with("prepare_asset", "p" * 32, "a" * 12)
+    service.task_repo.save_source_metadata.assert_any_await(service.db, "task-1", {"project_id": "p" * 32})
+    assert service.cache_repo.upsert_cache.await_args.kwargs["analysis_json"] == "clip picks"
+    service.clip_repo.create_clip.assert_not_awaited()
+    service.task_repo.update_task_status.assert_awaited_with(
+        service.db, "task-1", "completed", progress=100,
+        progress_message="2 scenes, 8 min. Open it in the video editor to tweak and export.",
+        expected_statuses=["processing"],
+    )
+    assert result["project_id"] == "p" * 32

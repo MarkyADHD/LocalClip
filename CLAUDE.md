@@ -142,6 +142,12 @@ AI search again with the ranges already clipped excluded (`exclude_ranges`; kept
 `source_metadata.excluded_ranges` so deleted clips stay excluded) and appends the new clips. A deleted Twitch/Kick/YouTube
 source is downloaded again; a failed search leaves the task completed with the reason as its progress message.
 
+**Long video** (home screen "Long video" tab, `source_metadata.long_form` = minutes, 0 Auto; `highlights.py`): the same
+download, transcript and stream signals, then the AI splits each 30 min of transcript into whole scenes and scores them
+(`pick_scenes`); the best (score 60+, or the best that fit the length) go end to end on the main track of a new video editor
+project with a chapter each (`build_project`; captions off, the clip search's words reused as the asset's transcript, the
+stream hard-linked into the project so the VOD clean-up can't break it). The task completes with `project_id`.
+
 "What clips do you want?" (home screen and the Find more popover) saves `source_metadata.clip_request`; the window prompts and
 the rerank get it (`_clip_request_note` in `ai.py`), and a run with a request never reads or writes the cached analysis.
 

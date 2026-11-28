@@ -358,6 +358,8 @@ class TaskService(ClipEditingMixin):
             metadata = await self.task_repo.load_source_metadata(self.db, task_id)
             # The user's words on what to clip ("only the funny deaths").
             clip_request = str(metadata.get("clip_request") or "").strip() or None
+            # Minutes for one long highlight video instead of clips (0 = as long as the good parts are).
+            long_form = metadata.get("long_form") if isinstance(metadata.get("long_form"), int) else None
             if find_more:
                 existing_clips = await self.clip_repo.get_clips_by_task(self.db, task_id)
                 if metadata.get("manual_range"):
@@ -406,7 +408,10 @@ class TaskService(ClipEditingMixin):
                 exclude_ranges=exclude_ranges,
                 manual_range=manual_range,
                 clip_request=clip_request,
+                long_form=long_form,
             )
+            if long_form is not None:
+                return await self._finish_long_form(task_id, user_id, url, cache_key, source_type, result, update_progress, progress_callback)
             stage_timings["pipeline_seconds"] = round(
                 perf_counter() - pipeline_start, 3
             )
@@ -677,6 +682,43 @@ class TaskService(ClipEditingMixin):
                 except Exception:
                     logger.exception("Could not publish task failure for %s", task_id)
             raise
+
+    async def _finish_long_form(
+        self, task_id, user_id, url, cache_key, source_type, result, update_progress, progress_callback
+    ) -> Dict[str, Any]:
+        """Lays the picked scenes out as a video editor project and completes the task with a link to it."""
+        from ..highlights import build_project
+        from ..media.transcription import load_cached_transcript_data
+
+        scenes = result["scenes"]
+        if not scenes:
+            raise ValueError("The AI found nothing worth keeping in this video.")
+        await update_progress(90, f"Building your video from {len(scenes)} scenes...")
+        cached = await self.cache_repo.get_cache(self.db, cache_key)
+        await self.cache_repo.upsert_cache(  # keeps the clip search's picks for this video
+            self.db, cache_key=cache_key, source_url=url, source_type=source_type, video_path=result["video_path"],
+            transcript_text=result["transcript"], analysis_json=(cached or {}).get("analysis_json"),
+        )
+        task = await self.task_repo.get_task_by_id(self.db, task_id) or {}
+        video = Path(result["video_path"])
+        project_id, asset_id, source = await run_in_thread(
+            build_project, self.config.temp_dir, user_id or task.get("user_id"), task.get("source_title") or "Highlights",
+            video, (load_cached_transcript_data(video) or {}).get("words") or [], scenes,
+        )
+        await self.task_repo.save_source_metadata(self.db, task_id, {"project_id": project_id})
+        await JobQueue.enqueue_job("prepare_asset", project_id, asset_id)
+        kept = sum(s["end"] - s["start"] for s in scenes)
+        message = f"{len(scenes)} scenes, {round(kept / 60)} min. Open it in the video editor to tweak and export."
+        completed = await self.task_repo.update_task_status(
+            self.db, task_id, "completed", progress=100, progress_message=message, expected_statuses=["processing"],
+        )
+        if completed is False:
+            raise TaskCancelled()
+        if progress_callback:
+            await progress_callback(100, message, "completed")
+        if source != video:  # the project has its own link to the stream, so the usual clean-up is safe
+            self._cleanup_source_video(video, source_type, url)
+        return {"task_id": task_id, "clips_count": 0, "project_id": project_id}
 
     async def _send_completion_notification_if_needed(
         self, *, task_id: str, clips_count: int

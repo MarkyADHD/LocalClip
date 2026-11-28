@@ -230,6 +230,9 @@ def prepare_asset_files(directory: Path, asset_id: str) -> None:
         )
         write_waveform(str(folder / "audio.m4a"), folder / "waveform.bin")
     wants_words = meta["kind"] == "video" and meta["hasAudio"]
+    if wants_words and (folder / "transcript.json").exists():  # a long-form stream brings its words along
+        update(status="ready", progress=100, waveRate=WAVE_RATE, transcript="ready")
+        return
     update(status="ready", progress=100, waveRate=WAVE_RATE, transcript="pending" if wants_words else "none")
     if wants_words:
         transcribe_asset_files(directory, asset_id)
