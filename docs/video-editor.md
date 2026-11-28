@@ -22,6 +22,8 @@ in `document.ts`; keep the two files in step.
 
 Words belong to the source file. Cutting words in the transcript trims or splits the clips that play
 them and closes the gap, and records the cut so it can be restored.
+Deleting or typing over selected words changes only their captions (`setWordsText`, kept in
+`wordEdits`; "" hides a word from the captions); the video is cut only by the "Cut from video" button.
 
 ## Preview and export
 

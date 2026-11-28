@@ -13,7 +13,9 @@ import {
   keptRanges,
   keptWords,
   moveClips,
+  resetWordsText,
   restoreCuts,
+  setWordsText,
   splitAt,
   timelineWords,
   toSrt,
@@ -124,5 +126,21 @@ describe("project document", () => {
     // The chapter after the cut moved with the video; the text before it stayed.
     expect(next.chapters[1].time).toBeCloseTo(20);
     expect(next.clips.find((c) => c.text)).toMatchObject({ start: 2, duration: 3, text: { content: "Hi" } });
+  });
+
+  it("rewrites and deletes caption words without cutting the video", () => {
+    const shown = (d: ProjectDocument) => timelineWords(d, { vid: words }).map((w) => w.text);
+    let next = setWordsText(doc, "vid", words, 0, 2, "Hey everybody");
+    expect(shown(next)).toEqual(["Hey", "everybody", "you", "know", "welcome"]);
+    expect(docDuration(next)).toBe(docDuration(doc));
+    expect(next.cuts).toEqual([]);
+    next = setWordsText(next, "vid", words, 3, 4, "");
+    expect(shown(next)).toEqual(["Hey", "everybody", "welcome"]);
+    expect(docDuration(next)).toBe(docDuration(doc));
+    // More typed words than spoken ones go on the last word; unchanged words keep no edit.
+    next = setWordsText(next, "vid", words, 5, 5, "welcome back");
+    expect(next.wordEdits.vid[5]).toBe("welcome back");
+    expect(setWordsText(doc, "vid", words, 0, 0, "Hello").wordEdits.vid).toEqual({});
+    expect(shown(resetWordsText(next, "vid", 0, 5))).toEqual(words.map((w) => w.t));
   });
 });
