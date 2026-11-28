@@ -344,6 +344,92 @@ function FacecamPicker({
   );
 }
 
+const CAM_PRESETS_KEY = "localclip-cam-presets";
+type CamPreset = { name: string } & Pick<Framing, "layout" | "cam" | "camShape">;
+
+/** Named facecam crops (box, shape and layout) saved on this PC, one tap to use again. */
+function CamPresets({ framing, apply }: { framing: Framing; apply: (change: Partial<Framing>) => void }) {
+  const [presets, setPresets] = useState<CamPreset[]>([]);
+  const [name, setName] = useState("");
+  useEffect(() => {
+    try {
+      setPresets(JSON.parse(localStorage.getItem(CAM_PRESETS_KEY) ?? "[]"));
+    } catch {
+      // private mode or a broken value: start empty
+    }
+  }, []);
+  const store = (next: CamPreset[]) => {
+    setPresets(next);
+    try {
+      localStorage.setItem(CAM_PRESETS_KEY, JSON.stringify(next));
+    } catch {
+      toast.error("Could not save crops on this device");
+    }
+  };
+  const save = () => {
+    const title = name.trim() || `Crop ${presets.length + 1}`;
+    const { layout, cam, camShape } = framing;
+    // Saving under a used name replaces that crop.
+    store([...presets.filter((p) => p.name !== title), { name: title, layout, cam, camShape }]);
+    setName("");
+    toast.success(`Saved "${title}"`);
+  };
+  return (
+    <div className="space-y-2">
+      <div className="flex gap-2">
+        <Input
+          aria-label="Crop name"
+          placeholder="Name this crop"
+          value={name}
+          maxLength={40}
+          className="h-8"
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && save()}
+        />
+        <Button size="sm" variant="outline" onClick={save}>
+          <Bookmark />
+          Save crop
+        </Button>
+      </div>
+      {presets.length > 0 && (
+        <div className="flex flex-wrap gap-1.5" aria-label="Saved crops">
+          {presets.map((p) => {
+            const active =
+              p.layout === framing.layout &&
+              JSON.stringify(p.cam) === JSON.stringify(framing.cam);
+            return (
+              <span
+                key={p.name}
+                className={cn(
+                  "inline-flex items-center rounded-md border text-xs",
+                  active && "border-brand ring-1 ring-brand",
+                )}
+              >
+                <button
+                  className="rounded-l-md py-1 pr-1 pl-2 font-medium hover:bg-accent"
+                  aria-pressed={active}
+                  onClick={() =>
+                    apply({ layout: p.layout, cam: p.cam, camShape: !!p.camShape })
+                  }
+                >
+                  {p.name}
+                </button>
+                <button
+                  aria-label={`Delete ${p.name}`}
+                  className="rounded-r-md px-1.5 py-1 text-muted-foreground hover:bg-accent hover:text-destructive"
+                  onClick={() => store(presets.filter((q) => q.name !== p.name))}
+                >
+                  ×
+                </button>
+              </span>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 interface Props {
   doc: EditDocument;
   asset: EditorState;
@@ -1142,6 +1228,7 @@ export function Inspector({
                   <Maximize2 />
                   Make it bigger
                 </Button>
+                <CamPresets framing={doc.framing} apply={(change) => frame(change)} />
                 <SwitchRow
                   id="cam-shape"
                   label="Keep the cam's shape"
