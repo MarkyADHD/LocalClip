@@ -375,8 +375,9 @@ test("layout, caption look, hook title and safe zone", async ({ page }) => {
   await expect(page.getByLabel("Facecam area")).toBeVisible();
   // Tapping the small facecam picker opens a big one; drawing there sets the facecam.
   await page.getByLabel("Facecam area").click();
-  const big = page.getByRole("dialog").getByLabel("Facecam area"),
-    area = (await big.boundingBox())!;
+  const big = page.getByRole("dialog").getByLabel("Facecam area");
+  await big.click({ trial: true }); // waits for the dialog's zoom-in to settle before measuring
+  const area = (await big.boundingBox())!;
   expect(area.width).toBeGreaterThan(600);
   await page.mouse.move(area.x + area.width * 0.5, area.y + area.height * 0.5);
   await page.mouse.down();
@@ -514,4 +515,23 @@ test("a found blur shows in the preview and a wrong one can be removed", async (
   await page.getByRole("button", { name: "Export clip", exact: true }).click();
   await expect.poll(() => request).toBeTruthy();
   expect(request!.document.blurs).toEqual([]);
+});
+
+test("facecam crops are saved by name and picked again", async ({ page }) => {
+  await setup(page);
+  await page.getByRole("tab", { name: "Layout" }).click();
+  await page.getByRole("button", { name: "Cam top", exact: true }).click();
+  await page.getByLabel("Crop name").fill("Just chatting");
+  await page.getByRole("button", { name: "Save crop" }).click();
+  await page.getByRole("button", { name: "Floating cam", exact: true }).click();
+  await page.getByLabel("Crop name").fill("Gaming");
+  await page.getByLabel("Crop name").press("Enter");
+  // Saved on the PC: still there after a reload.
+  await page.reload();
+  await page.getByRole("tab", { name: "Layout" }).click();
+  const saved = page.getByLabel("Saved crops");
+  await saved.getByRole("button", { name: "Just chatting", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Cam top", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await page.getByRole("button", { name: "Delete Gaming" }).click();
+  await expect(saved.getByRole("button", { name: "Gaming", exact: true })).toHaveCount(0);
 });
